@@ -43,7 +43,7 @@ const hygge = (over: Partial<UppfoljningData>): UppfoljningData => ({
   tradslag: [{ namn: 'Gran', pct: 73 }, { namn: 'Tall', pct: 27 }] as any, sortiment: [{ namn: 'Timmer', m3: 600 }],
   dieselTotalt: 400, dieselPerM3: 0.48, skordareL: 300, skordareL_M3: 0.48, skordareL_G15h: 13,
   skotareL: 100, skotareL_M3: 0.4, skotareL_G15h: 12, dieselSkordare: [], dieselSkotare: [],
-  avbrottSkordare: [], avbrottSkotareTotalt: '0,5 h', avbrottSkordare_totalt: '0,8 h', avbrottSkotare: [],
+  avbrottSkordare: [], avbrottSkotareSek: 1800, avbrottSkordareSek: 2880, avbrottSkotare: [],
   antalLass: 20, snittlassM3: 20, lassG15h: 2,
   lassPerDag: [{ datum: idag, m3: 160 }] as any,
   skordareBalG15h: 39, skotareBalG15h: 30,

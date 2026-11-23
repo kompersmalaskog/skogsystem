@@ -307,8 +307,8 @@ export function buildAvbrott(rows: any[], opts: { g15Split?: boolean } = {}): Av
     m.set(orsak, prev);
   });
   return Array.from(m.entries())
-    .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
-    .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
+    .map(([orsak, v]) => ({ orsak, typ: v.typ, sek: v.tid, antal: v.antal }))
+    .sort((a, b) => b.sek - a.sek);
 }
 
 // Korta pauser-hemflytt — BARA SKÖRDARE: DownTime under G15-gränsen är samma
@@ -830,11 +830,11 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     avbrottSkordare: buildAvbrott(skAvbrott),
     // Skördare: totalen räknar ENBART avbrott ≥ G15-gränsen — korta ingår i
     // "Korta pauser"-raden ovan (kortaAvbrottTimmar).
-    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    avbrottSkordareSek: deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0),
     // Skotare: INGEN G15-split — alla DownTime i lista + total (skotare saknar
     // korta pauser-begreppet; se lib/g15.ts).
     avbrottSkotare: buildAvbrott(stAvbrott, { g15Split: false }),
-    avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    avbrottSkotareSek: deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0),
     // Skotarproduktion
     antalLass,
     snittlassM3: snittLass,
@@ -870,8 +870,8 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
     skordareL: 0, skordareL_M3: 0, skordareL_G15h: 0,
     skotareL: 0, skotareL_M3: 0, skotareL_G15h: 0,
     dieselSkordare: [], dieselSkotare: [],
-    avbrottSkordare: [], avbrottSkordare_totalt: '0h',
-    avbrottSkotare: [], avbrottSkotareTotalt: '0h',
+    avbrottSkordare: [], avbrottSkordareSek: 0,
+    avbrottSkotare: [], avbrottSkotareSek: 0,
     antalLass: 0, snittlassM3: 0, lassG15h: 0, skotningsavstand: 0, lassPerDag: [],
     skordareBalG15h: 0, skotareBalG15h: 0,
   };

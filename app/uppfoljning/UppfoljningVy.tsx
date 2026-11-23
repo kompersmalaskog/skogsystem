@@ -12,6 +12,7 @@ import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
 import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, FONT, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
+import { tal, tidH, tidSek } from './lib/format';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -32,7 +33,7 @@ export interface Maskin {
 export interface AvbrottRad {
   orsak: string;
   typ: string;
-  tid: string;
+  sek: number;
   antal: number;
 }
 
@@ -136,8 +137,8 @@ export interface UppfoljningData {
   dieselSkotare: DieselDag[];
   // Avbrott
   avbrottSkordare: AvbrottRad[];
-  avbrottSkotareTotalt: string;
-  avbrottSkordare_totalt: string;
+  avbrottSkotareSek: number;
+  avbrottSkordareSek: number;
   avbrottSkotare: AvbrottRad[];
   // Skotarproduktion
   antalLass: number;
@@ -705,7 +706,7 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
       key: s.maskinId, namn: s.namn, volym: s.volym, omlastning: s.arOmlastning,
       meta: [
         s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
-        s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+        s.g15 > 0 ? `${tidH(s.g15)} G15` : null,
         s.kalla === 'manuell' ? 'manuellt' : null,
         s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
       ].filter(Boolean).join(' · '),
@@ -714,8 +715,8 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
       key: `oml|${o.maskinId}|${o.franObjektId}`, namn: o.namn, volym: o.volym, omlastning: true,
       meta: [
         `${o.antalLass} lass`,
-        o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
-        o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+        o.g15 > 0 ? `${tidH(o.g15)} G15` : null,
+        o.g0 > 0 && o.g0 !== o.g15 ? `${tidH(o.g0)} G0` : null,
         o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
         'volymen räknas ej i skotad total',
       ].filter(Boolean).join(' · '),
@@ -841,9 +842,9 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
 
 function Produktivitet({ data }: { data: UppfoljningData }) {
   const skRows: [string, string, (boolean | string)?][] = [];
-  if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
-  if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
-  if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
+  if (data.skordareM3G15h > 0) skRows.push([tal(data.skordareM3G15h), 'm³/G15h']);
+  if (data.skordareStammarG15h > 0) skRows.push([tal(data.skordareStammarG15h), 'stammar/G15h']);
+  if (data.skordareMedelstam > 0) skRows.push([tal(data.skordareMedelstam, 3), 'm³ medelstam']);
   // Flerträd — HPR-härlett (detalj_stam.stam_bunt_nyckel), källmärkt 'HPR'. Objekt utan
   // stammar importerade sedan 2026-08-23 (#460) visar "ej mätt" — ALDRIG 0 %: deras
   // flerträdsstammar hoppades över av den gamla importen och finns inte i tabellen.
@@ -860,10 +861,10 @@ function Produktivitet({ data }: { data: UppfoljningData }) {
   // kommer ur skotning_g15_manuell. Snittlass/skotningsavstånd rör inte G15 → omärkta.
   const st = data.skotareTidManuell;
   const stRows: [string, string, boolean?][] = [];
-  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h', st]);
-  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h', st]);
-  if (data.skotareSnittlass > 0) stRows.push([`${data.skotareSnittlass} m³`, 'snittlass']);
-  if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
+  if (data.skotareM3G15h > 0) stRows.push([tal(data.skotareM3G15h), 'm³/G15h', st]);
+  if (data.skotareLassG15h > 0) stRows.push([tal(data.skotareLassG15h, 2), 'lass/G15h', st]);
+  if (data.skotareSnittlass > 0) stRows.push([`${tal(data.skotareSnittlass)} m³`, 'snittlass']);
+  if (data.skotningsavstand > 0) stRows.push([`${tal(data.skotningsavstand, 0)} m`, 'skotningsavstånd']);
 
   if (skRows.length === 0 && stRows.length === 0) {
     return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
@@ -1041,7 +1042,7 @@ function TidKort({ label, color, rows }: { label: string; color: string; rows: [
               <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
             ) : (
               <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
-                {v.toFixed(1)}<span style={{ fontSize: 13, color: V6_GREY, marginLeft: AVSTAND.xs }}>h</span>
+                {tidH(v)}
               </span>
             )}
           </div>
@@ -1092,7 +1093,7 @@ function Diesel({ data }: { data: UppfoljningData }) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
           <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Diesel</span>
           {data.dieselPerM3 > 0 && (
-            <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{tal(data.dieselPerM3, 2)} L/m³</span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
@@ -1141,7 +1142,7 @@ function AvbrottKort({ label, color, items, totalt }: { label: string; color: st
             <div style={{ fontSize: 13, color: FARG.text }}>{avbrottSv(a.orsak)}</div>
             <div style={{ fontSize: 11, color: V6_GREY, marginTop: AVSTAND.xs }}>{a.typ} · {a.antal} ggr</div>
           </div>
-          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{a.tid}</div>
+          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{tidSek(a.sek)}</div>
         </div>
       ))}
     </div>
@@ -1154,8 +1155,8 @@ function Avbrott({ data }: { data: UppfoljningData }) {
   if (sk.length === 0 && st.length === 0) return null;
   return (
     <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
-      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={data.avbrottSkordare_totalt} />}
-      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={data.avbrottSkotareTotalt} />}
+      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={tidSek(data.avbrottSkordareSek)} />}
+      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={tidSek(data.avbrottSkotareSek)} />}
     </div>
   );
 }
@@ -1174,7 +1175,7 @@ function Extern({ data }: { data: UppfoljningData }) {
           <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
             Omfattning{' '}
             <span style={{ color: FARG.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              {data.externAntal} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}
+              {data.externPrisTyp === 'timme' ? tidH(data.externAntal || 0) : `${tal(data.externAntal || 0)} m³`}
             </span>
           </div>
         )}
@@ -1383,20 +1384,20 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     const skG15 = visadData.skordareG15h > 0 ? visadData.skordareG15h : null;
     const stG15 = visadData.skotareG15h > 0 ? visadData.skotareG15h : null;
     let g15Del: string | null = null;
-    if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
-    else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
-    else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
+    if (skG15 != null && stG15 != null) g15Del = `Skördare ${tidH(skG15)} · Skotare ${tidH(stG15)} G15`;
+    else if (skG15 != null) g15Del = `${tidH(skG15)} G15`;
+    else if (stG15 != null) g15Del = `${tidH(stG15)} G15`;
     const lm3Del = visadData.dieselPerM3 > 0 ? `${sv(visadData.dieselPerM3)} L/m³` : null;
     const delar = [g15Del, lm3Del].filter(Boolean);
     return delar.length > 0 ? delar.join(' · ') : null;
   })();
 
   const avbrottVarde = (() => {
-    // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
-    const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
-    const stH = (data.avbrottSkotare?.length || 0) > 0 ? parseFloat(data.avbrottSkotareTotalt) || 0 : 0;
-    const sum = skH + stH;
-    return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
+    // Samma sekunder som sektionens kort visar.
+    const sk = (data.avbrottSkordare?.length || 0) > 0 ? data.avbrottSkordareSek || 0 : 0;
+    const st = (data.avbrottSkotare?.length || 0) > 0 ? data.avbrottSkotareSek || 0 : 0;
+    const sum = sk + st;
+    return sum > 0 ? tidSek(sum) : null;
   })();
 
   // Undertext till "Hur gick det?" — vad som väntar bakom tryck, i ord. Tar de
