@@ -16,6 +16,8 @@ import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
 import { tal, tidH, tidSek } from './lib/format';
 import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
+import { useKlarDatum } from './hooks/useKlarDatum';
+import { klarDatumText } from './lib/klarDatum';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -54,8 +56,7 @@ export interface UppfoljningData {
   avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
   // Direktivets volym (objekt.volym, m³fub som "ska avverkas"). 0/saknas = okänd.
-  // Grund för skördarens "klart om" (direktiv − skördat) / snitt per dag. En
-  // uppskattning, inte en mätning — därför alltid "~".
+  // En uppskattning, inte en mätning.
   volym?: number;
   skordat: number;
   skotat: number;
@@ -357,6 +358,7 @@ function Svaret({ data }: { data: UppfoljningData }) {
   }, []);
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   const klart = s.k === 'done';
+  const klarDatum = useKlarDatum(data.voNummer, !klart);
   const visSkordat = Math.round(data.skordat);
   const visSkotat = Math.round(data.skotat);
   const harBacken = visSkordat > 0;
@@ -366,28 +368,13 @@ function Svaret({ data }: { data: UppfoljningData }) {
   const andel = Math.min(100, Math.round((visSkotat / visSkordat) * 100));
   const sv = (n: number) => n.toLocaleString('sv-SE');
 
-  // "Klart om ~N dgr": virke på backen delat med skotarens snitt/dag (ur
-  // lassPerDag, inte en enskild dag). Skattning → alltid "~". Inte klart objekt,
-  // något kvar, och en takt att räkna på — annars ingen rad.
-  const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
-  const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
-  const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
-
-  // Skördarens "klart om": (direktivets volym − skördat) / skördarens snitt per
-  // dag. Direktivet (data.volym, "ska avverkas") är en UPPSKATTNING → alltid
-  // "~". Skördat ≥ direktivet (direktivet var lågt) → "snart klar", aldrig ett
-  // minustal. Snitt/dag = produktionsdagarnas medel (ur prodSkordarePerDag).
-  const skProdDagar = (data.prodSkordarePerDag || []).filter(d => (d.m3 || 0) > 0);
-  const skSnitt = skProdDagar.length > 0 ? skProdDagar.reduce((a, b) => a + (b.m3 || 0), 0) / skProdDagar.length : 0;
-  const direktiv = data.volym && data.volym > 0 ? data.volym : null;
-  const skKvar = direktiv != null ? Math.round(direktiv - visSkordat) : null;
-  const skKlartOm = (!s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 0) > 0) ? Math.max(1, Math.round((skKvar as number) / skSnitt)) : null;
-  const skSnartKlar = !s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 1) <= 0;
-
-  // "· klart om ~N dagar" som nod (fetstilt tal). En enda plats.
-  const klartOmNod = (n: number) => (
-    <>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{n}</span> dagar</>
-  );
+  // Klar-datum ur HELIKOPTERNS plan (hooks/useKlarDatum, lib/klarDatum) — EN
+  // räkning för "när blir den klar?" i hela appen. Finns trakten inte i någon
+  // maskins plan står inget datum; uppföljningen räknar aldrig ett eget.
+  const klarText = (roll: 'skordare' | 'skotare') => {
+    const k = klarDatum?.[roll];
+    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k)}</span></> : null;
+  };
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
 
@@ -444,20 +431,19 @@ function Svaret({ data }: { data: UppfoljningData }) {
         )}
         {!klart && (
           // EN roll-rad per maskin: skördaren (lila) och skotaren (turkos), var
-          // för sig, var och en säger sitt läge. Bara skotaren får "klart om"
-          // ur backen; skördaren ur direktivet (objekt.volym). "dag N" är borta —
-          // den krockade med "klart om". Avslutat objekt visar bara "Klart ✓".
+          // för sig, var och en säger sitt läge och sitt klar-datum ur helikopterns
+          // plan (useKlarDatum). Avslutat objekt visar bara "Klart ✓".
           <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
             <Rollrad
               farg={V6_SK}
               text={s.skKlar ? 'Skördaren klar' : 'Skördaren kör'}
-              suffix={skKor ? (skKlartOm != null ? klartOmNod(skKlartOm) : (skSnartKlar ? '· snart klar' : null)) : null}
+              suffix={skKor ? klarText('skordare') : null}
             />
             <Rollrad
               farg={V6_ST}
               text={s.externt ? 'Skotas externt' : s.stKlar ? 'Skotaren klar' : stKor ? 'Skotaren kör' : 'Skotaren har inte börjat'}
               dampad={s.externt || (!s.stKlar && !stKor)}
-              suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
+              suffix={stKor ? klarText('skotare') : null}
             />
           </div>
         )}
@@ -1240,17 +1226,22 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
 }
 
 // "Alla"-aggregatet: skotad VOLYM = summa av icke-omlastningsmaskiner (data.skotat,
-// oförändrat). Men TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
-// omlastning — Elephants G15/diesel/lass är fysiskt arbete ("det brändes ju diesel").
-// Kvoterna räknas om konsekvent ur totalerna. Skördarfält lämnas orörda.
-function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
+// oförändrat). TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
+// omlastning — det är fysiskt arbete ("det brändes ju diesel").
+// KVOTERNA (m³/G15h, lass/G15h, snittlass, L/m³, L/G15h) räknas däremot BARA på
+// skotningen: täljare och nämnare gäller samma maskiner. Förut delades skotad volym
+// UTAN omlastning med tid och lass MED omlastning, så produktiviteten blev för låg.
+// Skördarfält lämnas orörda.
+export function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
   let totG15 = 0, totG0 = 0, totTomgang = 0, totKorta = 0, totRast = 0, totDiesel = 0, totLass = 0;
+  let skotG15 = 0, skotDiesel = 0, skotLass = 0;   // bara skotning, för kvoterna
   const dieselMap = new Map<string, number>();
   const lassMap = new Map<string, { lass: number; m3: number }>();
   skM.forEach(m => {
     totG15 += m.skotareG15h; totG0 += m.skotareG0; totTomgang += m.skotareTomgang;
     totKorta += m.skotareKortaStopp; totRast += m.skotareRast;
     totDiesel += m.skotareL; totLass += m.antalLass;
+    if (!m.arOmlastning) { skotG15 += m.skotareG15h; skotDiesel += m.skotareL; skotLass += m.antalLass; }
     m.dieselSkotare.forEach(d => dieselMap.set(d.datum, (dieselMap.get(d.datum) || 0) + d.liter));
     m.lassPerDag.forEach(d => {
       const prev = lassMap.get(d.datum) || { lass: 0, m3: 0 };
@@ -1280,11 +1271,11 @@ function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): Uppfo
     skotareKortaStopp: r1(totKorta),
     skotareRast: r1(totRast),
     skotareL: Math.round(totDiesel),
-    skotareM3G15h: totG15 > 0 ? r1(skotat / totG15) : 0,
-    skotareLassG15h: totG15 > 0 ? r2(totLass / totG15) : 0,
-    skotareSnittlass: totLass > 0 ? r1(skotat / totLass) : 0,
-    skotareL_M3: skotat > 0 ? r2(totDiesel / skotat) : 0,
-    skotareL_G15h: totG15 > 0 ? r2(totDiesel / totG15) : 0,
+    skotareM3G15h: skotG15 > 0 ? r1(skotat / skotG15) : 0,
+    skotareLassG15h: skotG15 > 0 ? r2(skotLass / skotG15) : 0,
+    skotareSnittlass: skotLass > 0 ? r1(skotat / skotLass) : 0,
+    skotareL_M3: skotat > 0 ? r2(skotDiesel / skotat) : 0,
+    skotareL_G15h: skotG15 > 0 ? r2(skotDiesel / skotG15) : 0,
     dieselSkotare,
     lassPerDag,
     dieselTotalt: totalDiesel,
