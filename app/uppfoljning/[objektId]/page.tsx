@@ -3,6 +3,7 @@
 import { useRouter, useParams } from 'next/navigation';
 import { useUppfoljningList, urlIdFor } from '../hooks/useUppfoljningList';
 import ObjektDetalj from '../ObjektDetalj';
+import { AVSTAND, FARG, TRAFFYTA, TYP } from '@/lib/design/tokens';
 
 /* ── Design tokens (matchar ObjektDetalj/page.tsx för fallback-vyer) ── */
 const V6_GREY = '#8e8e93';
@@ -13,7 +14,7 @@ export default function UppfoljningDetaljPage() {
   const params = useParams<{ objektId: string }>();
   const decodedId = decodeURIComponent(params.objektId);
 
-  const { objekt, loading, error } = useUppfoljningList();
+  const { objekt, loading, error, forsokIgen } = useUppfoljningList();
 
   const handleBack = () => router.push('/uppfoljning');
 
@@ -28,7 +29,10 @@ export default function UppfoljningDetaljPage() {
   if (error) {
     return (
       <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: V6_FF, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: V6_GREY, fontSize: 14 }}>Kunde inte ladda uppföljningsdata. Försök igen.</div>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ ...TYP.meta, color: FARG.text2 }}>Kunde inte ladda uppföljningsdata.</div>
+          <button onClick={forsokIgen} style={{ marginTop: AVSTAND.s, minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>Försök igen</button>
+        </div>
       </div>
     );
   }

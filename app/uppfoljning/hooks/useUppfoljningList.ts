@@ -52,12 +52,15 @@ export interface UseUppfoljningListResult {
   objekt: UppfoljningObjekt[];
   loading: boolean;
   error: Error | null;
+  /** Läs om listan (efter ett läsfel). */
+  forsokIgen: () => void;
 }
 
 export function useUppfoljningList(): UseUppfoljningListResult {
   const [objekt, setObjekt] = useState<UppfoljningObjekt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [forsok, setForsok] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,7 +506,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [forsok]);
 
-  return { objekt, loading, error };
+  return { objekt, loading, error, forsokIgen: () => setForsok(f => f + 1) };
 }
