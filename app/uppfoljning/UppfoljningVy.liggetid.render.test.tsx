@@ -26,7 +26,7 @@ const skalviken = (over: Partial<UppfoljningData>): UppfoljningData => ({
   tradslag: [{ namn: 'Gran', pct: 73 }, { namn: 'Tall', pct: 27 }], sortiment: [{ namn: 'Timmer', m3: 1000 }],
   dieselTotalt: 400, dieselPerM3: 0.48, skordareL: 300, skordareL_M3: 0.48, skordareL_G15h: 13,
   skotareL: 100, skotareL_M3: 0.4, skotareL_G15h: 12, dieselSkordare: [], dieselSkotare: [],
-  avbrottSkordare: [], avbrottSkotareTotalt: '0,5 h', avbrottSkordare_totalt: '0,8 h', avbrottSkotare: [],
+  avbrottSkordare: [], avbrottSkotareSek: 1800, avbrottSkordareSek: 2880, avbrottSkotare: [],
   antalLass: 32, snittlassM3: 20, lassG15h: 2, skotningsavstand: 300,
   lassPerDag: [
     { datum: '2026-10-26', m3: 20 }, { datum: '2026-10-27', m3: 180 },
