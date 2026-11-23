@@ -16782,16 +16782,16 @@ export default function PlannerPage() {
       {traktInfo && (() => {
         // Ett kort för EN yta. Ligger flera ytor över varandra under trycket (Hänsyn 3 och en fornlämningsyta) staplas de i SAMMA blad (KartKort `fler`): huvudkortet först, sedan övriga
         // med eget huvud, kommentarer och åtgärder — samma kortkomponent, samma innehåll som när ytan öppnas ensam.
-        const bygg = (kort: TraktKort, nyckel: string | null, vida: typeof traktKortVida, fler?: any[]) => {
+        const bygg = (traktInfo: TraktKort, nyckel: string | null, vida: typeof traktKortVida, fler?: any[]) => {
           const TYP_NAMN: Record<TraktKategori, string> = {
             traktdel: 'Traktdel', hansyn: 'Hänsynsyta', ovrigt: 'Övrigt', punkt: 'Avlägg',
             nyckelbiotop: 'Nyckelbiotop', lamning: 'Fornlämning', omrade: 'Område', linje: 'Linje', fastighetsgrans: 'Fastighetsgräns', ignorera: '',
           };
-          const typNamn = TYP_NAMN[kort.kategori] || 'Trakt-objekt';
+          const typNamn = TYP_NAMN[traktInfo.kategori] || 'Trakt-objekt';
           // Numrerade ytor (hänsyn/traktdel/område): rubriken bär redan typ+nummer → undertexten = bara källan
           // (t.ex. "Vida", "Traktdel 0526", "Kompersmåla Skog"). Övriga: "<Typ> · <källa>" som förr.
-          const arNumrerad = kort.kategori === 'hansyn' || kort.kategori === 'ovrigt' || kort.kategori === 'traktdel' || kort.kategori === 'omrade' || kort.kategori === 'fastighetsgrans';
-          const typKalla = arNumrerad ? (kort.kalla || typNamn) : (kort.kalla ? `${typNamn} · ${kort.kalla}` : typNamn);
+          const arNumrerad = traktInfo.kategori === 'hansyn' || traktInfo.kategori === 'ovrigt' || traktInfo.kategori === 'traktdel' || traktInfo.kategori === 'omrade' || traktInfo.kategori === 'fastighetsgrans';
+          const typKalla = arNumrerad ? (traktInfo.kalla || typNamn) : (traktInfo.kalla ? `${typNamn} · ${traktInfo.kalla}` : typNamn);
           // Egen boundary-markör: titeln räknas LIVE ur numreringen → följer med när numret ändras och
           // visar rätt siffra även direkt efter "Justera gräns" (kopian numreras vid nästa render). Ensam
           // yta (visaGransNummer=false) → ingen siffra ("Traktgräns").
@@ -16799,19 +16799,19 @@ export default function PlannerPage() {
           const rubrikVisad = boundaryId != null
             ? ((objektNumrering.visaGransNummer && objektNumrering.gransNr.get(String(boundaryId)) != null)
                 ? `Område ${objektNumrering.gransNr.get(String(boundaryId))}` : 'Traktgräns')
-            : kort.rubrik;
+            : traktInfo.rubrik;
           const kontext: string[] = [];
-          if (kort.nr) kontext.push(`Nr ${kort.nr}`);
-          if (kort.arealHa != null) kontext.push(`${svTal(kort.arealHa, 2)} ha`);
+          if (traktInfo.nr) kontext.push(`Nr ${traktInfo.nr}`);
+          if (traktInfo.arealHa != null) kontext.push(`${svTal(traktInfo.arealHa, 2)} ha`);
                   // Alla med en medarbetarrad får kommentera och fota Vidas objekt (kräver en stabil nyckel); ändra och ta bort gäller bara det man själv lagt till (admin får ta bort andras).
           const minId = currentMedarbetare?.id ?? null;
           const kanLagga = !!nyckel && !!minId;
           const arMitt = (mm: { skapad_av: string | null }) => !!minId && mm.skapad_av === minId;
           const media = nyckel ? (ytaMedia[nyckel] || []) : [];   // ljud + foto för ytan, i skapelseordning
           const isRecYta = isRecordingAudio && recordingYtaNyckel === nyckel;
-          const bet = traktKortBetydelse(kort);
+          const bet = traktKortBetydelse(traktInfo);
           // Hänsynsyta markerad "Avverkas – larma inte" (lib/vidaAvverkas): kortet säger att den inte larmar.
-          const kanAvverkas = kort.kategori === 'hansyn' && kanMarkeraAvverkas(nyckel);
+          const kanAvverkas = traktInfo.kategori === 'hansyn' && kanMarkeraAvverkas(nyckel);
           const avverkasPa = kanAvverkas && vidaAvverkas.avverkas.has(nyckel!);
           const ljudRader = media.filter((mm) => mm.typ === 'audio');
           const fotoRader: KartKortFoto[] = media.filter((mm) => mm.typ === 'foto').map((mm) => ({
@@ -16824,17 +16824,17 @@ export default function PlannerPage() {
           }));
           return (
             <KartKort
-              key={nyckel || kort.rubrik}
+              key={nyckel || traktInfo.rubrik}
               testid="trakt-kort"
               tillbaka={tillbakaTillLista}
               ikon={<LarmIkon kalla={bet.ikon.kalla} typ={bet.ikon.typ} grupp={bet.grupp} storlek={52} />}
               // Vidas ATGARD på ett AVLÄGG är ett namn/en plats ("skbv betet", "byvägen"), aldrig en instruktion: den visas i namnraden ("Virkesavlägg · Vida: skbv betet"), inte som kommentar.
-              namn={kort.kategori === 'punkt' && kort.vidaKommentar ? `${rubrikVisad} · Vida: ${kort.vidaKommentar}` : rubrikVisad}
+              namn={traktInfo.kategori === 'punkt' && traktInfo.vidaKommentar ? `${rubrikVisad} · Vida: ${traktInfo.vidaKommentar}` : rubrikVisad}
               grupp={bet.grupp}
               larmRegel={larmRegelText({ grupp: bet.grupp, forbjuden: bet.forbjuden, avverkas: avverkasPa })}
               mening={bet.forklaring}
               kalla={[typKalla, ...kontext].filter(Boolean).join(' · ')}
-              vidaKommentar={kort.kategori === 'punkt' ? undefined : kort.vidaKommentar}
+              vidaKommentar={traktInfo.kategori === 'punkt' ? undefined : traktInfo.vidaKommentar}
               malbild={<MalbildRad nyckel={malbildNyckel(bet.ikon.kalla, bet.ikon.typ)} roll={malbildRoll} />}
               // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
               kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
@@ -16848,13 +16848,13 @@ export default function PlannerPage() {
               fotoSparar={ytaMediaSparar}
               fotoFel={ytaMediaFel}
               rost={nyckel && kanLagga ? { onToggle: () => toggleYtaAudioRecording(nyckel), spelar: isRecYta, sekunder: recordingSeconds, disabled: ytaMediaSparar } : undefined}
-              onStang={stangTraktKort}
               fler={fler}
+              onStang={stangTraktKort}
             >
               {/* Skotarläget: vad som skotats HIT överst; Vidas eget innehåll ligger oförändrat under "Från Vida" */}
-                  {skotarLassAktiv && kort.kategori === 'punkt' && kort.nr && valtObjekt && (
-                    <AvlaggSkotatSektion nummer={visaAvlaggNummer(kort.nr)} objektNamn={valtObjekt.namn} kalla="vida"
-                      stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(kort.nr)}`, skotarLass.avslut?.faktorer)} />
+                  {skotarLassAktiv && traktInfo.kategori === 'punkt' && traktInfo.nr && valtObjekt && (
+                    <AvlaggSkotatSektion nummer={visaAvlaggNummer(traktInfo.nr)} objektNamn={valtObjekt.namn} kalla="vida"
+                      stat={skotatTillAvlagg(skotarLass.lass, `vida:${visaAvlaggNummer(traktInfo.nr)}`, skotarLass.avslut?.faktorer)} />
                   )}
               {/* Planeraren (planeringsläget, admin): Vidas hänsynsyta där det avverkas larmar inte. Bara när markeringarna gick att läsa — en brytare som inte sparar vore värre än ingen. */}
               {kanAvverkas && objektListaVal && isAdminRiktig && vidaAvverkas.tillganglig && (
@@ -16870,16 +16870,16 @@ export default function PlannerPage() {
                 </div>
               )}
               {/* Vidas linje med dolda delar (suddade i Redigera linjer): Vidas data är orörd — en knapp tar tillbaka originalet. */}
-              {kort.kategori === 'linje' && nyckel && isAdminRiktig && linjeRed.dolt[nyckel]?.length ? (
+              {traktInfo.kategori === 'linje' && nyckel && isAdminRiktig && linjeRed.dolt[nyckel]?.length ? (
                 <button type="button" data-testid="visa-vidas-original" onClick={() => { linjeRed.visaVidaOriginal(nyckel); stangTraktKort(); }} className="press-dim"
                   style={{ ...KNAPP.sekundar, width: '100%', marginBottom: AVSTAND.l }}>
                   Visa Vidas original
                 </button>
               ) : null}
                   {/* Källans egen text (Vida/SKS/RAÄ) */}
-                  {kort.rader.length > 0 && (
+                  {traktInfo.rader.length > 0 && (
                     <div style={{ marginBottom: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {kort.rader.map((r, i) => (
+                      {traktInfo.rader.map((r, i) => (
                         <div key={i}>
                           {r.etikett && (<div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.3)', marginBottom: '3px' }}>{r.etikett}</div>)}
                           <div style={{ fontSize: '15px', lineHeight: 1.5, color: '#fff', whiteSpace: 'pre-wrap' }}>{r.text}</div>

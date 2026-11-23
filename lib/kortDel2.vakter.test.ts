@@ -13,7 +13,8 @@ describe('Kortet del 2 — planeringsläge mot maskinläge', () => {
   it('"Beräkna volym" och "Justera gräns" (och Redigera hörn, Radera, Nummer) finns bara bakom planeringsläget (objektListaVal = inte maskinläge, inte körvy, inte testläge)', () => {
     expect(sida).toMatch(/const objektListaVal = anvandObjektLista\(\{ maskinlage, maskinSom: !!maskinSomParam, korvyActive \}\)/);
     const volym = traktKort.indexOf('trakt-kort-berakna-volym');
-    const grupp = traktKort.lastIndexOf('{objektListaVal && (\n                        <KortAtgarder>', volym);
+    // Indragsokänsligt: kortets kod ligger i funktionen `bygg` (staplade ytor), så antalet mellanslag får inte avgöra.
+    const grupp = Math.max(...Array.from(traktKort.slice(0, volym).matchAll(/\{objektListaVal && \(\s*<KortAtgarder>/g)).map((m) => m.index!), -1);
     expect(volym).toBeGreaterThan(-1);
     expect(grupp).toBeGreaterThan(-1);
     for (const id of ['trakt-kort-justera-gran', 'trakt-kort-redigera-horn', 'trakt-kort-radera']) expect(traktKort.indexOf(id), id).toBeGreaterThan(grupp);

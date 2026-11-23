@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { meterPerPixel, narmasteTraff, NARA_LINJE_PX, NARA_RAGANG_PX, ragangToleransM, vinnandeKategoriNara } from './klickNara';
+import { meterPerPixel, narmasteTraff, NARA_LINJE_PX, NARA_RAGANG_PX, ragangToleransM, stapelOrdning, stapelRang, vinnandeKategoriNara } from './klickNara';
 import { geometriM2, medAreal } from './traktAreal';
 import { traktArealHa, valjMinstaYta } from './traktGeometri';
 
@@ -84,5 +84,23 @@ describe('areal ur geometrin för ytor utan Vidas areal', () => {
     expect(valjMinstaYta([raa, hansyn1])).toBe(hansyn1);
     expect(valjMinstaYta([hansyn1, raa])).toBe(hansyn1);
     expect(traktArealHa(raa.properties)).toBeCloseTo(1.0012, 4);
+  });
+});
+
+describe('stapelOrdning — överlappande ytor i samma kort', () => {
+  const y = (layer: string, namn: string, grupp: string, ha: number | null) => ({ layer: { id: layer }, properties: { namn, grupp, ha } });
+  const ordna = (t: any[]) => stapelOrdning(t, (f) => f.properties.namn, (f) => stapelRang(f.properties.grupp), (f) => f.properties.ha).map((f) => f.properties.namn);
+  it('fara → kultur/fornlämning → hänsyn/nyckelbiotop → övriga, oavsett i vilken ordning kartan lämnar träffarna', () => {
+    const t = [y('trakt-hansyn-fill', 'Hänsyn 3', 'natur', 1.28), y('trakt-ovrigt-fill', 'Övrigt 4', 'info', 0.1), y('trakt-raa-fill', 'Lämning', 'kultur', 1.0), y('trakt-nb-fill', 'Nyckelbiotop', 'fara', 2)];
+    expect(ordna(t)).toEqual(['Nyckelbiotop', 'Lämning', 'Hänsyn 3', 'Övrigt 4']);
+    expect(ordna([...t].reverse())).toEqual(['Nyckelbiotop', 'Lämning', 'Hänsyn 3', 'Övrigt 4']);
+  });
+  it('inom samma grupp den minsta ytan först; saknad areal sist', () => {
+    expect(ordna([y('trakt-hansyn-fill', 'Stor', 'natur', 2), y('trakt-nb-fill', 'Okänd', 'natur', null), y('trakt-hansyn-fill', 'Liten', 'natur', 0.2)])).toEqual(['Liten', 'Stor', 'Okänd']);
+  });
+  it('traktdel och rågång tas aldrig med, samma yta från flera lager räknas en gång, en enda yta ger ingen stapel', () => {
+    expect(ordna([y('trakt-gr-fill', 'Traktdel', 'natur', 9), y('trakt-hansyn-fill', 'Hänsyn 3', 'natur', 1), y('trakt-ragang-hit', 'Gräns', 'info', null)])).toEqual([]);
+    expect(ordna([y('trakt-hansyn-fill', 'Hänsyn 3', 'natur', 1), y('trakt-hansyn-fill', 'Hänsyn 3', 'natur', 1)])).toEqual([]);
+    expect(ordna([y('trakt-hansyn-fill', 'Hänsyn 3', 'natur', 1), y('trakt-raa-fill', 'Lämning', 'kultur', 1), y('trakt-gr-fill', 'Traktdel', 'natur', 9)])).toEqual(['Lämning', 'Hänsyn 3']);
   });
 });
