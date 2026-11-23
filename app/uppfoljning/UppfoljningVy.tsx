@@ -18,7 +18,7 @@ import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
 import { useKlarDatum } from './hooks/useKlarDatum';
 import { klarDatumText } from './lib/klarDatum';
-import { sthlmDelar } from '@/lib/sthlmTid';
+import { svenskIdag } from './lib/datum';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -374,7 +374,7 @@ function Svaret({ data }: { data: UppfoljningData }) {
   // maskins plan står inget datum; uppföljningen räknar aldrig ett eget.
   const klarText = (roll: 'skordare' | 'skotare') => {
     const k = klarDatum?.[roll];
-    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k, sthlmDelar(new Date())?.datum ?? new Date().toISOString().slice(0, 10))}</span></> : null;
+    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k, svenskIdag())}</span></> : null;
   };
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
@@ -538,7 +538,7 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
   const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
   const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
   const dagar = lassDagar.length > 0 ? lassDagar.length : null;
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
   const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
   return (
@@ -626,7 +626,7 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
 }
 
 function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotareOmlastning?: boolean }) {
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>

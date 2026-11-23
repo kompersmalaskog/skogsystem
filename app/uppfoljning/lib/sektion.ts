@@ -2,6 +2,7 @@
 // "Ligger i skogen" — flyttad oförändrad ur UppfoljningMeny.
 import type { UppfoljningObjekt } from './transform';
 import { paBackenKvar } from '@/lib/skotat';
+import { svenskIdag, dagarFore } from './datum';
 
 // Egen skotning (säljaren skotar själv) → virket är inte VÅRT väntande arbete.
 export function kvarM3(o: UppfoljningObjekt): number {
@@ -16,7 +17,7 @@ export type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
 export const LASSDATA_START = '2026-07-21';
 
 export function sektionAv(o: UppfoljningObjekt): Sektion {
-  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const seven = dagarFore(svenskIdag(), 7);
   const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
   // "Skördas ännu" bara när skördningen INTE är klar. skordareAktiv (fil senaste
   // 7 dagarna) är en proxy för "skördar fortfarande" — en trakt som blev

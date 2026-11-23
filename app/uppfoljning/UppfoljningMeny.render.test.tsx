@@ -11,9 +11,11 @@ const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 
 let data: UppfoljningObjekt[] = [];
+let lasfel: Error | null = null;
+const forsokIgen = vi.fn();
 vi.mock('./hooks/useUppfoljningList', async () => {
   const faktisk = await vi.importActual<typeof import('./hooks/useUppfoljningList')>('./hooks/useUppfoljningList');
-  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: null }) };
+  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: lasfel, forsokIgen }) };
 });
 
 import UppfoljningMeny from './UppfoljningMeny';
@@ -37,7 +39,7 @@ const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
 
 let rot: Root | null = null;
 let be: HTMLElement | null = null;
-beforeEach(() => { data = []; push.mockReset(); try { sessionStorage.clear(); } catch {} });
+beforeEach(() => { data = []; lasfel = null; forsokIgen.mockReset(); push.mockReset(); try { sessionStorage.clear(); } catch {} });
 afterEach(() => { act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
 
 async function montera() {
@@ -176,5 +178,22 @@ describe('UppfoljningMeny', () => {
     data = [obj({ vo_nummer: 'A', namn: 'Arvidstorp', tilldeladSkotare: 'Elefant 26' })];
     await montera();
     expect(text()).toContain('Per skotare');
+  });
+
+  it('läsfel: säger det och har Försök igen som läser om', async () => {
+    lasfel = new Error('nät');
+    await montera();
+    expect(text()).toContain('Kunde inte läsa objekten');
+    const k = knappMedText('Försök igen');
+    expect(k).toBeTruthy();
+    await klick(k!);
+    expect(forsokIgen).toHaveBeenCalledTimes(1);
+  });
+
+  it('avvikande skotare står i ord, inte som teknisk text', async () => {
+    data = [obj({ vo_nummer: 'A', namn: 'Trakten', skotareAvvikelse: { lass: 'Wisent', tilldelad: 'Elefant 26' } } as any)];
+    await montera();
+    expect(text()).toContain('Skotad av Wisent · tilldelad Elefant 26');
+    expect(text()).not.toContain('Lass:');
   });
 });

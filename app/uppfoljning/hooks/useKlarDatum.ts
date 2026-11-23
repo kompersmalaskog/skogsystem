@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { hamtaKlar, hamtaPrognosUtfall, hamtaSkogKort } from '@/app/helikopter/_lib/queries';
 import { medPrognoser, raknaAlla, type KlarRoll } from '@/app/helikopter/_lib/klar';
 import { klarDatumFor, type KlarDatum } from '../lib/klarDatum';
-import { sthlmDelar } from '@/lib/sthlmTid';
+import { svenskIdag } from '../lib/datum';
 
 export type KlarDatumSvar = Partial<Record<KlarRoll, KlarDatum>>;
 
@@ -19,7 +19,7 @@ export function useKlarDatum(voNummer: string | null | undefined, aktiv: boolean
     let avbruten = false;
     (async () => {
       try {
-        const nu = new Date(); const idag = sthlmDelar(nu)?.datum ?? nu.toISOString().slice(0, 10);
+        const idag = svenskIdag();
         const ar = Number(idag.slice(0, 4)), manad = Number(idag.slice(5, 7));
         const [obj, klar, utfall, skog] = await Promise.all([
           supabase.from('objekt').select('id').eq('vo_nummer', voNummer).limit(2),

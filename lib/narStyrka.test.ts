@@ -24,7 +24,7 @@ describe('narStyrka — allt syns, det nära starkast', () => {
   it('sidan gömmer ingen symbol för att den ligger långt bort och använder regeln för styrkan', () => {
     const sida = readFileSync('app/planering/page.tsx', 'utf8');
     expect(sida).not.toMatch(/KORVY_SIGHT_M/);
-    expect(sida).toContain('opacity = narStyrka(dist, KORVY_FARO_TYPER.has(String(m.type)));');
+    expect(sida).toContain('opacity = narStyrka(dist, KORVY_FARO_TYPER.has(String(m.type)) || viktigtNycklar.has(markerNyckel(m.id)));');
     // högstubbe/evighetsträd ritas som små symboler i körvyn, inte som prickar
     expect(sida).toContain('const prick = arAlltidPrick(m.type);');
     expect(sida).toContain("['==', ['get', 'liten'], true], base * 0.6");

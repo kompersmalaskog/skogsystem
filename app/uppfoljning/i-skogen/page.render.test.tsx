@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 let data: UppfoljningObjekt[] = [];
 vi.mock('../hooks/useUppfoljningList', async () => {
   const faktisk = await vi.importActual<typeof import('../hooks/useUppfoljningList')>('../hooks/useUppfoljningList');
-  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: null }) };
+  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: null, forsokIgen: () => {} }) };
 });
 let forsta: Map<string, string> | null = new Map();
 vi.mock('./useForstaDag', () => ({ useForstaDag: () => forsta }));
