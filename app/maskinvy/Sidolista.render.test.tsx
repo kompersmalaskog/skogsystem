@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Sidolistan i maskinvyn (?ny=1) på stor skärm: alla maskiner i en lista, grupperade Skördare / Skotare, med prick (lever nu?)
+ * Sidolistan i maskinvyn på stor skärm: alla maskiner i en lista, grupperade Skördare / Skotare, med prick (lever nu?)
  * och dagens siffror per rad. Hela sidan renderas (vyerna är stubbar — de har egna tester); det som prövas är sidans koppling:
  * när listan står, vad ett tryck gör, och att smal skärm och Jämförelse är orörda.
  */
@@ -71,8 +71,6 @@ vi.mock('./SkotareAvbrottNy', () => stub('skotare-avbrott'))
 vi.mock('./SkotareJamforelseNy', () => stub('skotare-jamforelse'))
 vi.mock('./Jamforelse', () => stub('jamforelse'))
 vi.mock('./MaskinLogg', () => ({ default: () => null }))
-vi.mock('../../maskinvy', () => ({ default: () => React.createElement('div', { 'data-vy': 'gamla-skordare' }) }))
-vi.mock('../../skotare', () => ({ default: () => React.createElement('div', { 'data-vy': 'gamla-skotare' }) }))
 
 import MaskinvyPage from './page'
 import { COMBO_IDS } from './OversiktShared'
@@ -82,7 +80,7 @@ const lugn = async () => { for (let i = 0; i < 10; i++) await act(async () => { 
 const stallBredd = (bred: boolean) => {
   ;(window as any).matchMedia = (q: string) => ({ matches: bred, media: q, addEventListener() {}, removeEventListener() {} })
 }
-async function montera(url = '/maskinvy?ny=1', bred = true) {
+async function montera(url = '/maskinvy', bred = true) {
   window.history.replaceState({}, '', url)
   stallBredd(bred)
   await act(async () => { r.render(<MaskinvyPage />) })
@@ -135,7 +133,7 @@ describe('sidolistan på stor skärm', () => {
   })
 
   it('ett tryck på en skotare byter flik och maskin, och vyn (Idag) står kvar', async () => {
-    await montera('/maskinvy?ny=1&vy=idag')
+    await montera('/maskinvy?vy=idag')
     expect(vy()).toBe('skordare-idag')
     await tryck(rad(WISENT))
     expect(vy()).toBe('skotare-idag')
@@ -149,7 +147,7 @@ describe('sidolistan på stor skärm', () => {
   })
 
   it('en vy som fliken saknar (Kapacitet finns bara hos skördaren) faller tillbaka på Översikt — inte ett nav utan vald knapp', async () => {
-    await montera('/maskinvy?ny=1&vy=kapacitet')
+    await montera('/maskinvy?vy=kapacitet')
     expect(vy()).toBe('skordare-kapacitet')
     await tryck(rad(WISENT))
     expect(vy()).toBe('skotare-oversikt')
@@ -237,7 +235,7 @@ describe('Alla skördare — summaraden', () => {
   })
 
   it('ett tryck väljer alla skördare: fliken byts, vyn står kvar, raden syns vald och vyn får alla tre maskinerna', async () => {
-    await montera('/maskinvy?ny=1&vy=idag')
+    await montera('/maskinvy?vy=idag')
     await tryck(rad(WISENT))
     expect(vy()).toBe('skotare-idag')
     await tryck(summa())
@@ -285,7 +283,7 @@ describe('Tidigare — avslutade maskiner', () => {
   })
 
   it('en avslutad maskin går att välja som vanligt: fliken och maskinen byts, vyn står kvar, och raden syns vald', async () => {
-    await montera('/maskinvy?ny=1&vy=idag')
+    await montera('/maskinvy?vy=idag')
     await tryck(tidigareKnapp())
     await tryck(rad('A110148'))
     expect(vy()).toBe('skotare-idag')
@@ -319,13 +317,8 @@ describe('Tidigare — avslutade maskiner', () => {
 
 describe('utan sidolista', () => {
   it('smal skärm: ingen lista, inget attribut — rullgardinen gäller som förut', async () => {
-    await montera('/maskinvy?ny=1', false)
+    await montera('/maskinvy', false)
     expect(sida()).toBeNull()
     expect(document.body.hasAttribute('data-mv-sidolista')).toBe(false)
-  })
-  it('den äldre vyn (utan ?ny=1) får aldrig sidolistan', async () => {
-    await montera('/maskinvy', true)
-    expect(sida()).toBeNull()
-    expect(vy()).toBe('gamla-skordare')
   })
 })

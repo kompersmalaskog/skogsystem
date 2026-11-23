@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { VYER, GRUPPER, STANDARD_FAVORITER, MAX_FAVORITER, vyerFor, favoriterFor, grupperFor, ovrigtFor, sokVyer } from './vyer'
+import { VYER, GRUPPER, STANDARD_FAVORITER, MAX_FAVORITER, vyerFor, favoriterFor, grupperFor, ovrigtFor, sokVyer, migreraVyIds } from './vyer'
 
 const ROT = join(__dirname, '..')
 const sokvag = (href: string) => href.split('?')[0]
@@ -28,7 +28,7 @@ describe('vyregistret', () => {
     // Gamla startsidans rutor, frysta när den revs (2026-11-09, app/HomeClient.tsx före borttagningen).
     const hrefs = ['/admin', '/admin/markagarrapport', '/affarsuppfoljning/rakna', '/arbetsrapport', '/avtal', '/egenkontroll',
       '/ekonomi', '/forbattringsforslag', '/gallring', '/helikopter', '/helikopter-v2', '/kalibrering', '/kontroller', '/lastbil',
-      '/ledighet', '/maskin-service', '/maskinvy', '/maskinvy?ny=1', '/objekt', '/om', '/oversikt', '/personal', '/planera',
+      '/ledighet', '/maskin-service', '/maskinvy', '/objekt', '/om', '/oversikt', '/personal', '/planera',
       '/planering', '/planering?installningar=1', '/redigering', '/starta-jobb', '/uppfoljning', '/uppfoljning/fordelning', '/utbildning']
     const iRegistret = new Set(VYER.map(v => v.href))
     expect(hrefs.filter(h => !iRegistret.has(h))).toEqual([])
@@ -100,10 +100,21 @@ describe('vyregistret', () => {
     expect(favoriterFor('admin', VYER.map(v => v.id))).toHaveLength(MAX_FAVORITER)
   })
 
+  it('Maskinvy 2 är borta: ett kort, och en sparad favorit med det gamla id:t läses som Maskinvy', () => {
+    expect(VYER.filter(v => v.href.startsWith('/maskinvy')).map(v => [v.id, v.href])).toEqual([['maskinvy', '/maskinvy']])
+    expect(VYER.some(v => v.id === 'maskinvy-2')).toBe(false)
+    expect(migreraVyIds(['oversikt', 'maskinvy-2', 'ekonomi'])).toEqual(['oversikt', 'maskinvy', 'ekonomi'])
+    // båda kvar sparade → en gång, där den först stod
+    expect(migreraVyIds(['maskinvy-2', 'oversikt', 'maskinvy'])).toEqual(['maskinvy', 'oversikt'])
+    expect(favoriterFor('admin', ['oversikt', 'maskinvy-2']).map(v => v.id)).toEqual(['oversikt', 'maskinvy'])
+    expect(STANDARD_FAVORITER.admin).toContain('maskinvy')
+    expect(STANDARD_FAVORITER.admin).not.toContain('maskinvy-2')
+  })
+
   it('sökning: namn före sökord, början av namnet först, tom fråga ger inget', () => {
     expect(sokVyer('admin', '')).toEqual([])
     expect(sokVyer('admin', 'semester').map(v => v.id)).toEqual(['ledighet'])
-    expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinvy-2', 'maskinkoll'])
+    expect(sokVyer('admin', 'Maskin').map(v => v.id).slice(0, 3)).toEqual(['maskinvy', 'maskinkoll', 'lastbilen'])
     expect(sokVyer('admin', 'flytt').map(v => v.id)).toEqual(['lastbilen'])
     expect(sokVyer('admin', 'ÖVERSIKT').map(v => v.id)).toEqual(['oversikt', 'objektoversikt'])
   })

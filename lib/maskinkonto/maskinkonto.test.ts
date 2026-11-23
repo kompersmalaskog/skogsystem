@@ -120,7 +120,7 @@ describe('vyregistret på en maskin', () => {
   it('förarens egna saker är märkta låsta, kartans och maskinens vyer är det inte', () => {
     const last = VYER.filter(v => v.maskinLas).map(v => v.id).sort()
     expect(last).toEqual(['arbetsrapport', 'introduktion', 'ledighet', 'planera', 'utbildning'])
-    for (const id of ['planering', 'oversikt', 'objekt', 'uppfoljning', 'maskinvy', 'maskinvy-2', 'kalibrering', 'maskinkoll', 'om-nagot-hander']) expect(VYER.find(v => v.id === id)?.maskinLas).toBeFalsy()
+    for (const id of ['planering', 'oversikt', 'objekt', 'uppfoljning', 'maskinvy', 'kalibrering', 'maskinkoll', 'om-nagot-hander']) expect(VYER.find(v => v.id === id)?.maskinLas).toBeFalsy()
   })
 })
 

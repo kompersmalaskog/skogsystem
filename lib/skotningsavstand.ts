@@ -25,13 +25,12 @@
 //     efter select betyder korstracka_m olika saker i olika filer — samma
 //     fälla en nivå upp.
 //
-//  4. Maskinvyerna (?ny=1) visar SKOTNINGSAVSTÅND, aldrig rå körsträcka
+//  4. Maskinvyn visar SKOTNINGSAVSTÅND, aldrig rå körsträcka
 //     (beslut 2026-10-21): etiketten "Skotningsavstånd" med undertexten
 //     "enkel väg" överallt, värdet via den här filen. Förut stod tre
 //     definitioner samtidigt — "Snittsträcka 645 m" (Översikt), "1 114 m/lass"
 //     (Idag) och "halva körda sträckan" (Jämförelse) — för samma lass. Ingen vy
-//     får visa rå tur-och-retur utan att säga det. Äldre maskinvy (utan ?ny=1)
-//     är orörd.
+//     får visa rå tur-och-retur utan att säga det.
 //
 // Anropas av: lib/ekonomi/ackordgrund (viktat snittavstånd → auto-förslaget i
 // redigeringen och kolumnen i objektjämförelsen), app/ekonomi/EkonomiClient och

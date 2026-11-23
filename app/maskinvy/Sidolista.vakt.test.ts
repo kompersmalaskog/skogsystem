@@ -38,7 +38,7 @@ describe('sidolistans klasser', () => {
 
   it('listan hämtar ingenting på smal skärm: den renderas bara när matchMedia säger bred', () => {
     const k = las('page.tsx')
-    expect(k).toMatch(/const visaSidolista = ny && bred && mode !== 'jamforelse'/)
+    expect(k).toMatch(/const visaSidolista = bred && mode !== 'jamforelse'/)
     expect(k).toMatch(/\{visaSidolista && \(\s*<Sidolista/)
   })
 })
