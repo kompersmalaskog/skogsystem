@@ -3,7 +3,7 @@
 // SAMMA bilder och färger som planeringsvyn och objektöversiktens karta: planerarens markeringar ritas med lib/kartstil + lib/egenkontrollkarta
 // (symboler, pilar, linjer med basvägarnas snitselfärger, stickvägar, backväg, ytor med snedstreck), Vidas lager med samma filter, färger och
 // som planeringen (hänsyn, nyckelbiotop, fornlämning, basväg, kraftledning som ledning, avlägg med Vidas nummer — inga ytnamn), skördarens körspår
-// som stråk (kartSpar, som skotarläget) och produktionshögarna som skotarlägets ljusa prickar.
+// som körspår (lib/korsparLager, som skotarläget) och produktionshögarna som skotarlägets ljusa prickar.
 
 import { backvagFeatureUrData, backvagLager, BACKVAG_KALLA, kontextFeature, sparFeatures, SPAR_KALLA, vidaGransFeatures, VIDA_GRANS_KALLA } from '@/lib/egenkontrollkarta';
 import { TRAKTGRANS_BREDD, TRAKTGRANS_KANT_BREDD, TRAKTGRANS_KANT_FARG } from '@/lib/fastighetsgransKarta';
@@ -14,7 +14,7 @@ import { FARG_KULTUR, FARG_NATUR, LINJE_GRUPP, SYMBOL_GRUPP, YTA } from '@/lib/l
 import { linjeKort, SYMBOL_FORKLARING, vidaForklaring, vidaLinjeKort, ytaForklaring } from '@/lib/symboler';
 import { markeringNamn } from '@/app/oversikt/markeringar';
 import type { Origo } from '@/lib/kartkoordinater';
-import { kartSpar } from '@/lib/sparStil';
+import { korsparLager } from '@/lib/korsparLager';
 import { arOvrigYta } from '@/lib/vidaYtaTyp';
 import type { SkotarHog } from './hogar';
 import { kommentarTecken, linjeMitt } from '@/lib/kommentarTecken';
@@ -209,12 +209,9 @@ export function lagerSpec() {
     ...linjeLager(M, 'sk-f', null, undefined, { endast: Object.keys(LINJE_GRUPP).filter((t) => LINJE_GRUPP[t] === 'fara') }),
   ];
   const faraSymboler = [symbolLager(M, 'sk-f', del('fara')), hornLager('sk-f', del('fara')), friLager('sk-f', del('fara'))];
-  // Skördarens stråk som i maskinernas skotarläge (lib/sparStil kartSpar, skotarläget): lila, brett, mörk kant.
-  const sp = kartSpar('plan', true);
-  const spar = [
-    { id: 'sk-spar-kant', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.kantFarg, 'line-width': sp.kantBredd, 'line-opacity': sp.kantOpacitet } },
-    { id: 'sk-spar', type: 'line', source: SPAR_KALLA.skordare, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': sp.farg, 'line-width': sp.bredd, 'line-opacity': sp.opacitet } },
-  ];
+  // Skördarens körspår (lib/korsparLager): lila band i meter med mjuk ytterkant, som i maskinernas skotarläge. Den externa skotaren har inget spår hos oss,
+  // så ingen vit mittlinje: bara skördarens band.
+  const spar = korsparLager('sk', 'skordare', SPAR_KALLA.skordare).filter((l) => !l.filter);
   // Samma prickar som maskinernas skotarläge (app/planering/page.tsx laggTillHogPrickar): trädslagets färg (gran grön, tall orange, björk vit,
   // blandat/okänt grå), blandad hög halv–halv, mörk kant, större = mer kvar, en rest nästan osynlig.
   const hogar = [{

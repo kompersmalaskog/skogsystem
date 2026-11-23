@@ -3,7 +3,7 @@
 //
 // FELET (mätt på Giants riktiga punkter, Bondeskog 5–6 nov och Edestad 2–4 nov, fixturerna lib/__fixtures__/korspar_*):
 //   • Spåren BRYTS inte av tidsluckor — varje dag är ETT segment (inga steg över 200 m utom Edestads hemresa 4 nov). Det som förstörde
-//     ritningen var STRÅKBYGGAREN (lib/strak, sedan 2026-10-28): den lade alla dagar i ett rutnät, tog skelettet och stycklade
+//     ritningen var STRÅKBYGGAREN (lib/strak, 2026-10-28 → borttagen 2026-11-23): den lade alla dagar i ett rutnät, tog skelettet och stycklade
 //     skelettet i korsningar och piggar → Bondeskog blev 54 bitar (33 under 20 m: "korta stumpar" där skördaren stod still och
 //     upparbetade), och på Edestad räckte EN enda punkt 47 km bort (Giants sista punkt 4 nov, flytten hem) för att förstora rutnätet
 //     till 4,2 m per ruta — 30 % av råpunkterna hamnade då längre än 8 m från stråket. Utjämningen före var också tung (−40 % längd).
@@ -152,6 +152,16 @@ export function douglasPeucker(p: XY[], tolM: number = KORSPAR.TOLERANS_M): XY[]
   return p.filter((_, i) => behall[i] === 1);
 }
 
+/** Total längd i meter för linjer i [lng, lat] (tester och jämförelser — aldrig en beräkning i appen). */
+export function langdM(linjer: Koord[][]): number {
+  let s = 0;
+  for (const l of linjer) for (let i = 1; i < l.length; i++) {
+    const lat = ((l[i][1] + l[i - 1][1]) / 2) * Math.PI / 180;
+    s += Math.hypot((l[i][0] - l[i - 1][0]) * M_PER_GRAD * Math.cos(lat), (l[i][1] - l[i - 1][1]) * M_PER_GRAD);
+  }
+  return s;
+}
+
 const langd = (p: XY[]) => { let s = 0; for (let i = 1; i < p.length; i++) s += dist(p[i - 1], p[i]); return s; };
 
 /**
@@ -176,6 +186,15 @@ export function korsparLinjer(points: HyttPunkt[]): Koord[][] {
     ut.push(p.map(pr.fran));
   }
   return ut;
+}
+
+/**
+ * Samma linjer som `korsparLinjer`, avrundade till 6 decimaler (≈ 0,1 m) för att skickas från servern: bandet är 4 m brett, så 0,1 m syns inte,
+ * men svaret blir hälften så stort. Används av objektöversikten och skotarlänken (lib/objektoversikt/lasKarta, lib/skotarlank/server).
+ */
+export function korsparLinjerForServer(points: HyttPunkt[]): Koord[][] {
+  const r = (v: number) => Math.round(v * 1e6) / 1e6;
+  return korsparLinjer(points).map((l) => l.map(([lng, lat]) => [r(lng), r(lat)] as Koord));
 }
 
 // ── CACHE: en dag räknas fram EN gång (Martin: "inte vid varje kartrörelse") ───────────────────────────────────────────────────────────
