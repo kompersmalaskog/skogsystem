@@ -149,6 +149,9 @@ import { KORVY_SKYDDSLAGER, skyddslagerSynligt, tillampaSkyddslager } from '../.
 import { KORVY_BASE_ZOOM, narhetsZoom, ZOOM_KVITTO_MS } from '../../lib/korvyZoom'
 import { useKorvyGrundzoom } from '../../lib/hooks/useKorvyGrundzoom'
 import { useKorvySkyddslager } from '../../lib/hooks/useKorvySkyddslager'
+import { useKorvyKlar } from '../../lib/hooks/useKorvyKlar'
+import { dampadOpacitet, kanDampas } from '../../lib/korvyKlar'
+import { tillampaTextRadie, aterstallTextRadie, textCirkelNyckel } from '../../lib/korvyText'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
@@ -2322,8 +2325,8 @@ export default function PlannerPage() {
           });
         }
       } catch (e) { console.error('[MapLibre] markers-hit error:', e); }
-      // KÖRVY-label: BARA danger-typer (powerline/manualfelling/warning/steep)
-      // inom 100m. Apple-clean — bara svenska typnamn, ingen dist, inget kort.
+      // KÖRVY-label: BARA danger-typer (powerline/manualfelling/warning/steep),
+      // alltid synliga (inte begränsade till 100 m). Apple-clean — bara svenska typnamn, ingen dist, inget kort.
       // Andra markörer får ingen text i Körvy 2D — för rörigt annars.
       // Synka danger-listan med markerIconDefs + körvy-icon-size-effekten.
       try {
@@ -2331,11 +2334,9 @@ export default function PlannerPage() {
           id: 'markers-korvy-label',
           type: 'symbol',
           source: 'markers-source',
-          filter: ['all',
-            ['<=', ['number', ['get', 'dist'], 9999], 100],
-            // Faro-typerna ur den DELADE konstanten (samma källa som faro-larmet) → ingen drift.
-            ['match', ['get', 'type'], [...KORVY_FARO_TYPER] as any, true, false],
-          ],
+          // Faror syns ALLTID med namn (Martin 2026-11-23: i lugnare körvy begränsas text till 100 m, men faror, kultur och Viktigt undantas — lib/korvyText).
+          // Faro-typerna ur den DELADE konstanten (samma källa som faro-larmet) → ingen drift.
+          filter: ['match', ['get', 'type'], [...KORVY_FARO_TYPER] as any, true, false],
           layout: {
             // Namnet under symbolen är symbolens eget namn (SYMBOL_NAMN) — samma som i menyn och larmkortet.
             'text-field': ['match', ['get', 'type'], ...[...KORVY_FARO_TYPER].flatMap((t) => [t, SYMBOL_NAMN[t] ?? '']), ''] as any,
@@ -5147,6 +5148,11 @@ export default function PlannerPage() {
   // Valet hänger på maskin + objekt + lager och sparas lokalt i maskinen. Värdet läses SYNKRONT när objektet byts, så lagret aldrig
   // hinner ritas tänt för ett objekt där föraren släckt det. Planeringsvyn läser inget av detta (den använder `overlays`).
   const { slackta: skyddSlackta, slacktaRef: skyddSlacktaRef, vaxla: vaxlaSkyddslager } = useKorvySkyddslager(enhetMaskinId ?? maskinSomParam ?? null, valtObjekt?.id ? String(valtObjekt.id) : null);
+
+  // === Lugnare körvy (lib/korvyKlar, lib/korvyText): föraren dämpar det han är klar med, och texten visas bara nära maskinen ===
+  // Dämpningen gäller bara en SKÖRDARES körvy (skotaren och planeringsvyn ser symbolerna fulla) och sparas lokalt per maskin + objekt + symbol.
+  const { klara: klaraSymboler, vaxla: vaxlaKlarSymbol } = useKorvyKlar(enhetMaskinId ?? maskinSomParam ?? null, valtObjekt?.id ? String(valtObjekt.id) : null);
+  const dampaPa = korvyActive && !skotarKorvy;
 
   // === MapLibre: Toggle WMS overlay visibility ===
   useEffect(() => {
@@ -9011,6 +9017,8 @@ export default function PlannerPage() {
           nearby = dist <= 120;                     // "växer lite"-hook (icon-size)
           withinRadius = dist <= FALLNINGSRADIE_M;  // inom fällningsradie
         }
+        // LUGNARE KÖRVY: en symbol föraren tryckt Klar på är halvgenomskinlig (samma bild, samma storlek) — aldrig fara, kultur eller något med Viktigt, bara skördarens körvy.
+        opacity = dampadOpacitet(opacity, { id: String(m.id), typ: m.type, klara: klaraSymboler, harViktigt: viktigtNycklar.has(markerNyckel(m.id)), slaPa: dampaPa });
         // Körvyn: högstubbe/evighetsträd = en LITEN riktig symbol (liten=true, Martin 2026-11-04 — prickarna gick inte att känna igen), utan växande ring
         // (inget proximitetskort heller — se kö-effekten). Odlingsröse är prick överallt, också i planeringen (många på en fossil åker).
         const prick = arAlltidPrick(m.type);
@@ -9033,7 +9041,17 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText, viktigtNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText, viktigtNycklarText, klaraSymboler, dampaPa]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // LUGNARE KÖRVY: etiketterna (Hänsyn 3, områdesnummer, avläggsnummer …) visas bara inom 100 m från maskinen. Faror, kultur och Viktigt syns alltid (lib/korvyText).
+  // Cirkeln flyttas först när maskinen rört sig ~10 m; utan position visas all text. Utanför körvyn sätts lagrens ursprungliga filter tillbaka.
+  const textCirkelKey = textCirkelNyckel(korvyActive ? korvyEffectivePos : null);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (!korvyActive) { aterstallTextRadie(map as any); return; }
+    tillampaTextRadie(map as any, korvyEffectivePos);
+  }, [textCirkelKey, korvyActive, mapLibreReady, lagerTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -15851,6 +15869,9 @@ export default function PlannerPage() {
           smal={smalSkarm}
           text={PRICK_NAMN[prickValt.typ] || 'Markering'}
           knappar={[
+            ...(dampaPa && kanDampas(prickValt.typ, viktigtNycklar.has(markerNyckel(prickValt.id)))
+              ? [{ etikett: klaraSymboler.has(prickValt.id) ? 'Visa igen' : 'Klar', onClick: () => { vaxlaKlarSymbol(prickValt.id); setPrickValt(null); }, testid: klaraSymboler.has(prickValt.id) ? 'prick-visa-igen' : 'prick-klar' }]
+              : []),
             { etikett: 'Ta bort', onClick: taBortPrick, destruktiv: true, testid: 'prick-tabort' },
             AVBRYT_KNAPP(() => setPrickValt(null), 'prick-stang'),
           ]}
@@ -17655,6 +17676,11 @@ export default function PlannerPage() {
 
             {/* Åtgärder: ORD på knappar, samma rad för symboler, linjer och ytor. Kommentar, Foto och Röst ligger i åtgärdsraden högre upp; här bara det som ändrar markeringen själv. */}
             <KortAtgarder>
+              {/* LUGNARE KÖRVY: Klar dämpar symbolen (halvgenomskinlig), Visa igen tar tillbaka den. Aldrig fara, kultur eller något med Viktigt (lib/korvyKlar). */}
+              {dampaPa && marker.isMarker && kanDampas(marker.type, viktigtNycklar.has(markerNyckel(marker.id))) && (
+                <KortKnapp testid={klaraSymboler.has(String(marker.id)) ? 'marker-kort-visa-igen' : 'marker-kort-klar'} text={klaraSymboler.has(String(marker.id)) ? 'Visa igen' : 'Klar'}
+                  onClick={() => { vaxlaKlarSymbol(String(marker.id)); setMarkerMenuOpen(null); }} />
+              )}
               {marker.isLine && (
                 <KortKnapp testid="marker-kort-forlang" text="Förläng" onClick={() => {
                   const linjePath = marker.path ?? [];
