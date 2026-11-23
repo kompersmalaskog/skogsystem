@@ -80,9 +80,10 @@ describe('raden i listan', () => {
     const r = kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-11-02');
     expect(r).toMatchObject({ vader: 'Väder saknas', vaderSaknas: true });
   });
-  it('ung kontroll: vädret har inte kommit än (arkivet ligger 6 dygn efter) — det saknas inte', () => {
-    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-26').vader).toBe('Väder kommer om några dagar');
-    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-27').vader).toBe('Väder saknas');
+  it('kontroll från idag eller igår: vädret kommer vid nästa import — det saknas inte', () => {
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-21').vader).toBe('Väder kommer snart');
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-22').vader).toBe('Väder kommer snart');
+    expect(kontrollRad(k(), tid('2026-10-21', '16:13'), '2026-10-23').vader).toBe('Väder saknas');
   });
   it('tiden inte läst än: filens datum utan klockslag, raden visas ändå', () => {
     const r = kontrollRad(k(), undefined);

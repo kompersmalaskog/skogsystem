@@ -5877,9 +5877,12 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #   * Ett väderfel får ALDRIG stoppa importen: hamta_vader_vid_skord() kastar aldrig, anroparen sparar raden utan
 #     `weather_at_harvest`-nyckeln (en merge-upsert rör då inte ett befintligt värde) och felet loggas + går till import_fel
 #     (felkod VADER_SAKNAS) så det SYNS i datahälsan.
-#   * ERA5 ligger ca 5 dygn efter verkligheten: en kontroll från idag har inget arkivvärde än (svaret ger null). Det är
-#     inget fel utan "inte klart än" — `komplettera_saknat_vader()` fyller i det vid nästa import när dygnet är klart.
-#     Raden får ALDRIG ett prognosvärde i stället (arkiv och prognos är olika källor).
+#   * VÄDRET KOMMER DIREKT (Martin 2026-11-23: "vädret ska komma direkt, inte efter fem dagar"). ERA5-arkivet ligger ca
+#     5 dygn efter verkligheten, så en kontroll yngre än VADER_ARKIV_FORDROJNING_DAGAR hämtas i stället ur Open-Meteos
+#     vanliga väder-API (VADER_PROGNOS_URL: vädermodellens bild av timmen, finns samma dag). Äldre kontroller hämtas ur
+#     arkivet som förut. Vilken källa som gav värdet står i JSON:ens `model` ('forecast' | 'era5'; rader från före
+#     ändringen saknar nyckeln och är era5). Vädret hämtas EN gång och skrivs aldrig om av importen — ett prognosvärde byts
+#     alltså inte mot arkivets senare. Ger tjänsten null för timmen är det "inte klart än" och kompletteringen försöker igen.
 #   * Position och tid = stammen som valj_vaderpunkt väljer: HQC-filerna är ackumulerande, så det är den tidigaste stammen med
 #     GPS vars skördedatum är kontrollens eget datum, annars den senaste stammen med GPS (inte "tidigaste i filen").
 #     Tiden räknas som verkligt UTC (stockholm_lokal_till_utc) och hämtas för närmaste hel timme.
@@ -5889,9 +5892,10 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #     till import_fel som VADER_PERMANENT och hoppas över därefter; bara riktiga nätanrop räknas mot taket. Ett nätfel
 #     (timeout, 5xx, 429) avbryter kompletteringen för den importen och loggas en gång — ingen väntar 25 × timeout.
 VADER_ARKIV_URL = 'https://archive-api.open-meteo.com/v1/archive'
+VADER_PROGNOS_URL = 'https://api.open-meteo.com/v1/forecast'   # yngre kontroller: vädret samma dag (se REGLER ovan)
 VADER_TIMEOUT_S = 10
 VADER_KALLA = 'open-meteo.com'
-VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller försöks inte och räknas som "inte klart än"
+VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller hämtas ur VADER_PROGNOS_URL
 VADER_PAGINERING = 200              # rader per läsning av kandidater (nyckelpaginering på id)
 VADER_NAT_PAUS_S = 300              # efter ett nätfel i den här importen försöker kompletteringen inte igen på så här länge
 
@@ -5947,7 +5951,7 @@ def valj_vaderpunkt(stockar: List[Dict], kontroll_datum):
     return bast[0], bast[1], stockholm_lokal_till_utc(bast[2])
 
 
-def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Optional[Dict]:
+def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime, model: str = 'era5') -> Optional[Dict]:
     """Ett ERA5-timsvar ({temperature_2m, precipitation, snowfall, wind_speed_10m} för EN timme) → samma JSON som
     befintliga rader (source, fetched_at, harvest_time, temperature_c, precipitation_mm, snowfall_cm, wind_speed_ms,
     is_freezing). None om temperaturen saknas — då finns inget värde ännu, och vi hittar inte på ett."""
@@ -5965,20 +5969,23 @@ def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Opt
         'snowfall_cm': r(timdata.get('snowfall'), 1),
         'wind_speed_ms': r(timdata.get('wind_speed_10m'), 2),
         'is_freezing': float(temp) < 0,
+        'model': model,
     }
 
 
 def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None, nu: datetime = None):
-    """Hämtar vädret för närmaste hela timme runt skord_utc ur ERA5-arkivet. Returnerar (väderJSON, None, 'ok') eller
+    """Hämtar vädret för närmaste hela timme runt skord_utc: ur ERA5-arkivet när timmen är äldre än
+    VADER_ARKIV_FORDROJNING_DAGAR, annars ur Open-Meteos vanliga väder-API (samma timvärden, finns samma dag). Returnerar (väderJSON, None, 'ok') eller
     (None, skäl, art) med art enligt VADER_* ovan. KASTAR ALDRIG. Skälet är en kort svensk text för logg och import_fel."""
     http = http or requests
     nu = nu or datetime.now(timezone.utc)
     try:
         timme = (skord_utc + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
-        if timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
-            return None, f"inte klart än: ERA5-arkivet ligger ca 5 dygn efter (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)", VADER_EJ_KLART
+        if timme > nu:
+            return None, f"inte klart än: timmen har inte varit (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)", VADER_EJ_KLART
+        prognos = timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR)
         dag = f"{timme:%Y-%m-%d}"
-        r = http.get(VADER_ARKIV_URL, params={
+        r = http.get(VADER_PROGNOS_URL if prognos else VADER_ARKIV_URL, params={
             'latitude': f"{lat:.4f}", 'longitude': f"{lon:.4f}",
             'start_date': dag, 'end_date': dag,
             'hourly': 'temperature_2m,precipitation,snowfall,wind_speed_10m',
@@ -6004,9 +6011,9 @@ def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None
         i = tider.index(onskad)
         timdata = {k: (h.get(k) or [None] * len(tider))[i] for k in
                    ('temperature_2m', 'precipitation', 'snowfall', 'wind_speed_10m')}
-        vader = bygg_vader_json(timdata, skord_utc, nu)
+        vader = bygg_vader_json(timdata, skord_utc, nu, 'forecast' if prognos else 'era5')
         if vader is None:
-            return None, "inte klart än: Open-Meteo har inget arkivvärde för timmen", VADER_EJ_KLART
+            return None, "inte klart än: Open-Meteo har inget värde för timmen", VADER_EJ_KLART
         return vader, None, VADER_OK
     except Exception as e:
         # nätverksfel, timeout, avbruten anslutning — nätet/tjänsten är nere, inget fel i just den här kontrollen
@@ -6136,7 +6143,10 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
                         if gammal is not None and abs((gammal - punkt[2]).total_seconds()) < 1:
                             rapport['redan_ratta'] += 1
                             continue
-                    if punkt[2] + timedelta(minutes=30) > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
+                    # Yngre kontroller hämtas ur prognos-API:t (vädret direkt). Bara en timme som inte varit, och — vid
+                    # skriv_over (backfill) — en ung rad, hoppas över: ett befintligt värde ska aldrig bytas mot ett prognosvärde.
+                    grans = nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR) if skriv_over else nu
+                    if punkt[2] + timedelta(minutes=30) > grans:
                         rapport['inte_klara'] += 1   # hämtas inte: kostar inget nätanrop
                         continue
                     forsok += 1
