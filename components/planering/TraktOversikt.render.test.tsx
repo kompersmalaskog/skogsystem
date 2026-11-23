@@ -235,3 +235,60 @@ describe('Hela trakten', () => {
     expect(n).toBe(1);
   });
 });
+
+// ── VIKTIGT (Martin 2026-11-23): överst, under Fara, med hela kommentaren; aldrig två gånger ────────────────────────────────────────
+describe('Hela trakten — Viktigt', () => {
+  const viktig = (id: string, typ: string, namn: string, viktigt: string, text = '', slag: KartMarkering['slag'] = 'zon'): KartMarkering =>
+    ({ ...mark(id, typ, namn, '', slag), kommentarer: [{ id: 'kk' + id, text, viktigt, forfattare: 'Martin · idag 08:00' }] });
+
+  it('en egen sektion "Viktigt" står direkt efter Fara och före "Gäller hela trakten"; gul rubrik, raden gul med ⚠, Övrigt under', async () => {
+    await montera(<TraktOversikt {...props({ faror: ['Kraftledning'], markeringar: [viktig('9', 'protected', 'Hänsynsyta', 'Kör inte över bäcken', 'Bron håller inte.')] })} />);
+    const ordning = [...q('oversikt-innehall')!.children].map((e) => e.getAttribute('data-testid'));
+    expect(ordning.indexOf('oversikt-viktigt')).toBeGreaterThan(ordning.indexOf('oversikt-faror'));
+    expect(ordning.indexOf('oversikt-viktigt')).toBeLessThan(ordning.indexOf('oversikt-trakten'));
+    const sek = q('oversikt-viktigt')!;
+    expect(sek.textContent).toContain('Viktigt');
+    expect(sek.querySelector('[data-testid="viktigt-text"]')!.textContent).toBe('Kör inte över bäcken');
+    expect(sek.querySelector('[data-testid="oversikt-kart-text"]')!.textContent).toBe('Bron håller inte.');
+  });
+
+  it('utan Viktigt finns ingen sektion', async () => {
+    await montera(<TraktOversikt {...props()} />);
+    expect(q('oversikt-viktigt')).toBeNull();
+  });
+
+  it('en sak med Viktigt står BARA i Viktigt-sektionen — inte också bland sorterna längre ned', async () => {
+    const m = viktig('9', 'protected', 'Hänsynsyta', 'Kör inte över bäcken', 'Bron håller inte.');
+    await montera(<TraktOversikt {...props({ markeringar: [m, mark('3', 'landing', 'Avlägg')] })} />);
+    expect(qa('oversikt-kart-9')).toHaveLength(1);
+    expect(q('oversikt-viktigt')!.contains(q('oversikt-kart-9'))).toBe(true);
+    expect(ruta!.textContent!.match(/Bron håller inte\./g)).toHaveLength(1);
+  });
+
+  it('ett tryck på raden öppnar kortet (samma som en rad på kartan)', async () => {
+    const m = viktig('9', 'protected', 'Hänsynsyta', 'Kör inte över bäcken');
+    const oppna = vi.fn();
+    await montera(<TraktOversikt {...props({ markeringar: [m], onOppna: oppna })} />);
+    act(() => { q('oversikt-kart-9')!.click(); });
+    expect(oppna).toHaveBeenCalledWith(expect.objectContaining({ id: '9' }));
+  });
+
+  it('en fara med Viktigt står kvar under Fara (med Viktigt i gult överst på raden), inte i Viktigt-sektionen', async () => {
+    const fara = viktig('7', 'powerline', 'El-ledning', 'Ledningen hänger lågt', '', 'symbol');
+    await montera(<TraktOversikt {...props({ markeringar: [fara] })} />);
+    expect(q('oversikt-viktigt')).toBeNull();
+    expect(q('oversikt-faror')!.querySelector('[data-testid="viktigt-text"]')!.textContent).toBe('Ledningen hänger lågt');
+  });
+
+  it('en Viktigt-rad på själva trakten (traktdel/område) står i Viktigt, och bara där', async () => {
+    await montera(<TraktOversikt {...props({ helaTrakten: [
+      { id: 'k1', text: 'Träden som ska sparas är märkta med röd färg.', forfattare: 'Martin · i går 16:20' },
+      { id: 'k2', text: '', viktigt: 'Grinden är låst – koden finns hos Joacim', forfattare: 'Joacim · idag 07:10' },
+    ] })} />);
+    expect(q('oversikt-viktigt-trakten')!.textContent).toContain('Grinden är låst');
+    expect(q('oversikt-veta')!.textContent).toContain('märkta med röd färg');
+    expect(q('oversikt-veta')!.textContent).not.toContain('Grinden är låst');
+    // Bara kommentaren utan Viktigt står kvar under "Gäller hela trakten" (annars blev det en tom ruta till).
+    expect(qa('oversikt-trakten-text')).toHaveLength(1);
+  });
+});

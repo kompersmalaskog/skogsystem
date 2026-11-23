@@ -6,7 +6,7 @@
 // omförsök aldrig ger en dubblett (finns den redan på servern, 23505, räknas det som skickat).
 
 import { supabase } from '@/lib/supabase';
-import { arVaranFel, koVantan, slaIhopOp, type KoPost } from './kartkommentar';
+import { arVaranFel, arViktigtKolumnSaknas, koVantan, slaIhopOp, type KoPost } from './kartkommentar';
 
 const NYCKEL = 'kartkommentar_ko_v1';
 
@@ -60,21 +60,29 @@ export function laggIKo(post: Omit<KoPost, 'forsok' | 'nasta'>): void {
 export function vantandePosterFor(objektId: string): KoPost[] { return aktuellKo().filter((p) => p.objekt_id === objektId); }
 export function antalVantande(): number { return aktuellKo().length; }
 
+/** Fel vid skrivning: saknas kolumnen `viktigt` (migrationen ej körd) och posten bär Viktigt väntar den kvar — aldrig bort, aldrig utan Viktigt. */
+function utfallForFel(fel: { code?: string | null; message?: string | null }, p: KoPost): SkickaUtfall {
+  if (p.viktigt != null && arViktigtKolumnSaknas(fel)) return 'igen';
+  return arVaranFel(fel) ? 'ge_upp' : 'igen';
+}
+
 async function skickaEn(db: KoDb, p: KoPost): Promise<SkickaUtfall> {
+  // Viktigt skickas bara när posten bär fältet: en kommentar utan Viktigt fungerar också före migrationen.
+  const viktigtDel = p.viktigt === undefined ? {} : { viktigt: p.viktigt };
   try {
     if (p.op === 'ny') {
-      const { error } = await db.from('kartkommentar').insert({ id: p.id, objekt_id: p.objekt_id, yta_nyckel: p.yta_nyckel, text: p.text, skapad_av: p.skapad_av });
+      const { error } = await db.from('kartkommentar').insert({ id: p.id, objekt_id: p.objekt_id, yta_nyckel: p.yta_nyckel, text: p.text, skapad_av: p.skapad_av, ...(p.viktigt != null ? { viktigt: p.viktigt } : {}) });
       if (!error) return 'klar';
       if (String(error.code) === '23505') {
         // Finns redan (ett tidigare försök nådde fram): ev. nyare text skickas som en ändring.
-        const u = await db.from('kartkommentar').update({ text: p.text }).eq('id', p.id);
-        return u.error && arVaranFel(u.error) ? 'ge_upp' : u.error ? 'igen' : 'klar';
+        const u = await db.from('kartkommentar').update({ text: p.text, ...viktigtDel }).eq('id', p.id);
+        return u.error ? utfallForFel(u.error, p) : 'klar';
       }
-      return arVaranFel(error) ? 'ge_upp' : 'igen';
+      return utfallForFel(error, p);
     }
     if (p.op === 'andra') {
-      const { data, error } = await db.from('kartkommentar').update({ text: p.text }).eq('id', p.id).select('id');
-      if (error) return arVaranFel(error) ? 'ge_upp' : 'igen';
+      const { data, error } = await db.from('kartkommentar').update({ text: p.text, ...viktigtDel }).eq('id', p.id).select('id');
+      if (error) return utfallForFel(error, p);
       return Array.isArray(data) && data.length === 0 ? 'ge_upp' : 'klar';   // raden finns inte (borttagen) eller är inte min
     }
     const { error } = await db.from('kartkommentar').delete().eq('id', p.id);
@@ -106,7 +114,7 @@ export function korKartkommentarKo(tvinga = false, db: KoDb = supabase as unknow
         const nu_ = ko.find((q) => q.id === p.id);
         if (u === 'klar' || u === 'ge_upp') {
           if (u === 'ge_upp') { try { console.warn('[Kartkommentar] gav upp en post', p.op, p.id); } catch { /* */ } }
-          const ändradMedan = u === 'klar' && !!nu_ && (nu_.text !== p.text || nu_.op !== p.op) && nu_.op !== 'radera';
+          const ändradMedan = u === 'klar' && !!nu_ && (nu_.text !== p.text || nu_.viktigt !== p.viktigt || nu_.op !== p.op) && nu_.op !== 'radera';
           // Ändrades kommentaren medan den skickades ligger den nya texten kvar att skickas (som en ändring, för posten finns nu på servern).
           ko = ändradMedan ? ko.map((q) => (q.id === p.id ? { ...q, op: 'andra' as const, forsok: 0, nasta: 0 } : q)) : ko.filter((q) => q.id !== p.id);
           skrivKo(ko); andrad = true;

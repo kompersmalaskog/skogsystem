@@ -123,7 +123,8 @@ import { useVidaAvverkas } from '../../lib/hooks/useVidaAvverkas'
 import { Brytare } from '../../components/redigering/ObjektOversikt'
 import { utanAvverkade, kanMarkeraAvverkas } from '../../lib/vidaAvverkas'
 import { kanStangaAvLarm, larmarInte, medLarmaInte, LARMA_INTE } from '../../lib/egenYtaLarm'
-import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kortKommentarer, markerNyckel } from '../../lib/kartkommentar'
+import { forfattarText, kanAndraKommentar, kanRaderaKommentar, kommentarSigText, kortKommentarer, markerNyckel, viktigtPerNyckel } from '../../lib/kartkommentar'
+import { viktigtLager, viktigtPunkter, VIKTIGT_KALLA } from '../../lib/viktigtEtikett'
 import { GLYF, GRUPP_FORKLARING, SYMBOL_ALIAS, LINJE_FORKLARING, MENY_KATEGORIER, UR_MENYN, symbolDef, ytaForklaring, linjeKort, vidaLinjeKort, traktKortBetydelse } from '../../lib/symboler'
 import { LarmIkon, SymbolGlyf, SymbolIkon } from '../../components/SymbolIkon'
 import { vidaSlagIFeatures } from '../../lib/teckenforklaring';
@@ -2288,6 +2289,9 @@ export default function PlannerPage() {
         if (!map.getLayer('markers-kommentar')) map.addLayer(teckenHornLager(['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75]));
         if (!map.getSource(TECKEN_KALLA)) map.addSource(TECKEN_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         if (!map.getLayer('markers-kommentar-fri')) map.addLayer(teckenFriLager());   // linjens mitt och ytans namn
+        // VIKTIGT-ETIKETTEN (lib/viktigtEtikett): raden i gult vid ytan/symbolen — fylls bara i körvyn (effekten vid kk), aldrig nedtonad.
+        if (!map.getSource(VIKTIGT_KALLA)) map.addSource(VIKTIGT_KALLA, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        if (!map.getLayer('viktigt-etikett')) map.addLayer(viktigtLager());
         // PRICKARNA: ca 6 px, grön (Natur, båda typerna), ingen ikon/etikett. Bara körvyns features bär prick=true.
         map.addLayer({
           id: 'markers-prick',
@@ -8970,6 +8974,9 @@ export default function PlannerPage() {
   // KOMMENTAR-TECKEN (Martin 2026-11-04): vilka markeringar som har en kommentar (kartkommentar) — fylls av en effekt efter useKartkommentarer längre ned.
   const [kommentarNycklarText, setKommentarNycklarText] = useState('');
   const kommentarNycklar = useMemo(() => new Set(kommentarNycklarText.split('|').filter(Boolean)), [kommentarNycklarText]);
+  // VIKTIGT: nycklarna med en Viktigt-rad (fylls av en effekt efter useKartkommentarer). En symbol med Viktigt tonas aldrig ned av avstånd.
+  const [viktigtNycklarText, setViktigtNycklarText] = useState('');
+  const viktigtNycklar = useMemo(() => new Set(viktigtNycklarText.split('|').filter(Boolean)), [viktigtNycklarText]);
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -9000,7 +9007,7 @@ export default function PlannerPage() {
         let withinRadius = false;
         if (korvyPos && korvyPos.lat != null && korvyPos.lon != null) {
           dist = Math.round(haversineM(korvyPos.lat, korvyPos.lon, ll.lat, ll.lon));
-          opacity = narStyrka(dist, KORVY_FARO_TYPER.has(String(m.type)));   // full inom 80 m, svagare längre bort, fara alltid full
+          opacity = narStyrka(dist, KORVY_FARO_TYPER.has(String(m.type)) || viktigtNycklar.has(markerNyckel(m.id)));   // full inom 80 m, svagare längre bort, fara och Viktigt alltid full
           nearby = dist <= 120;                     // "växer lite"-hook (icon-size)
           withinRadius = dist <= FALLNINGSRADIE_M;  // inom fällningsradie
         }
@@ -9026,7 +9033,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, korvyActive, currentPosition, korvyEffectivePos, vagSpokeSymboler, overlays[PRICK_LAGER_ID], kommentarNycklarText, viktigtNycklarText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Synka pilar → arrows-source (geo-låst MapLibre-layer). x/y → lng/lat via svgToLatLon (samma
   // konvertering som symboler, origo-fix-medveten). Riktningen bärs av m.rotation → icon-rotate.
@@ -9496,7 +9503,7 @@ export default function PlannerPage() {
       // effekten (som kör i planeringsläget); whitelisten släpper bara igenom dem så de inte döljs här.
       // 'measure-' + 'figur-etikett' = Mät/Rita-figuren (punkter, linje, yta, etikett). Utan dem döljs figuren i körvyn
       // (synlig i källan, osynlig på skärmen — testselens skärmbild avslöjade det).
-      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'skotar-nara-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-'];
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zone-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-', 'skotar-hogar-', 'skotar-nara-', 'hyttspar-', 'trakt-', 'grans-', 'yta-nr-', 'measure-', 'figur-etikett', 'omtrakten-', 'skotar-avlagg-', 'larm-', 'klart-', 'viktigt-'];
       for (const l of allLayers) {
         // Fastighetsgränsen (Vidas rågång trakt-ragang-* och Lantmäteri-paret wms-layer-fastighetsgranser*) hör till lagret "Fastighetsgränser", inte till körvyns
         // whitelist: släckt lager = vanlig karta också i körvyn. Synligheten sätts av lagereffekterna, som inte rörs av att körvyn öppnas.
@@ -9704,6 +9711,24 @@ export default function PlannerPage() {
       styrka: pos ? (p) => narStyrka(haversineM(pos.lat, pos.lon, p[1], p[0])) : undefined,
     }));
   }, [markers, mapLibreReady, mapCenter, kommentarNycklar, traktGeo, korvyActive, korvyEffectivePos?.lat, korvyEffectivePos?.lon, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
+  // VIKTIGT-ETIKETTEN (Martin 2026-11-23): bara körvyn (maskin och skotarläge). Etiketten är en egen källa som aldrig tonas ned; symbolerna får full styrka via viktigtNycklar.
+  const viktigtNu = useMemo(() => viktigtPerNyckel(kk.rader), [kk.rader]);
+  const viktigtNycklarNu = useMemo(() => Array.from(viktigtNu.keys()).sort().join('|'), [viktigtNu]);
+  useEffect(() => { setViktigtNycklarText(viktigtNycklarNu); }, [viktigtNycklarNu]);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource(VIKTIGT_KALLA) as any;
+    if (!src) return;
+    if (!korvyActive || objektSaknarPosition || viktigtNu.size === 0) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+    const lnglat = (q: any) => { const ll = svgToLatLon(q.x, q.y); return [ll.lon, ll.lat] as [number, number]; };
+    src.setData(viktigtPunkter({
+      viktigt: viktigtNu,
+      symboler: (markers as any[]).filter((m) => m.isMarker && m.x != null && m.y != null).map((m) => { const p = lnglat(m); return { id: m.id, lng: p[0], lat: p[1] }; }),
+      egna: (markers as any[]).filter((m) => (m.isLine || m.isZone) && Array.isArray(m.path) && m.path.length > 1).map((m) => ({ id: m.id, slag: (m.isZone ? 'yta' : 'linje') as 'yta' | 'linje', coords: m.path.map(lnglat) })),
+      vida: traktGeo,
+    }));
+  }, [markers, mapLibreReady, mapCenter, viktigtNu, traktGeo, korvyActive, objektSaknarPosition]); // eslint-disable-line react-hooks/exhaustive-deps
   // ÖVERBLICKEN NÄR MASKINEN BÖRJAR PÅ EN TRAKT (lib/traktOversikt, components/planering/TraktOversikt): första gången en maskin öppnar trakten —
   // och när planeraren ändrat något sedan dess — öppnas objektinfon på "Hela trakten" och kartan visar hela trakten. "Börja köra" sparar vad som setts
   // (per maskin och trakt, i enheten) och kartan följer maskinen igen. Bara maskinläget; planeringen rörs inte.
@@ -9711,7 +9736,7 @@ export default function PlannerPage() {
   const oversiktSig = useMemo(() => signaturer({
     markers: (markers as any[]).filter((m) => m.isMarker || m.isLine || m.isZone || m.isArrow).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })),
     kommentarIds: [],
-    kommentarer: kk.rader.map((r) => ({ id: r.id, text: r.text })),
+    kommentarer: kk.rader.map((r) => ({ id: r.id, text: kommentarSigText(r) })),
     texter: [vidaGiltig],
     infor: [],
   }), [markers, kk.rader, vidaGiltig]);
@@ -14485,7 +14510,7 @@ export default function PlannerPage() {
         // (bara om den säger något, lib/instruktioner/arInstruktionsText).
         const omKommentarer = (nyckel: string, aldreText?: string | null, vidaText?: string | null): OmKommentar[] => [
           ...(valtObjekt && arInstruktionsText(vidaText) ? [{ id: `vida:${nyckel}`, text: String(vidaText).trim(), forfattare: null, vida: true }] : []),
-          ...(valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, aldreText, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : []).map((k) => ({ id: k.id, text: k.text, forfattare: k.forfattare, vantar: k.vantar })),
+          ...(valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, aldreText, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : []).map((k) => ({ id: k.id, text: k.text, viktigt: k.viktigt ?? null, forfattare: k.forfattare, vantar: k.vantar })),
         ];
         const vidaHansynMark: KartMarkering[] = ytor.filter((y) => y.typ === 'hansyn').map((y, i) => {
           const mitt = y.ring ? mittAvPunkter(y.ring) : null;
@@ -14858,7 +14883,7 @@ export default function PlannerPage() {
             ];
             const grot = grotRad(valtObjekt.grot ?? null, maskinSlag);
             const infor = [...inforJobbet(forarRader), ...(grot ? [{ id: 'grot', etikett: 'GROT', text: grot }] : [])];
-            const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: r.text })));
+            const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: kommentarSigText(r) })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
               larm: { satt: larmVis.satt, koordinat: larmVis.koordinat, beskrivning: larmBeskr, onVisa: () => { stang(); larmVisaPunkt(larmVal.vald, true); }, visning: larmVis, onVisaPlats: (i: number) => { stang(); larmVisaPunkt(larmVal.alla[i], true); } },
@@ -14872,7 +14897,7 @@ export default function PlannerPage() {
               malbildRoll,
               helaTrakten,
               infor,
-              nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel, text: r.text }))),
+              nya: nyaMarkeringar(oversiktSett, (markers as any[]).map((m) => ({ id: m.id, type: m.type ?? null, lineType: m.lineType ?? null, zoneType: m.zoneType ?? null, comment: m.comment ?? null, photoPath: m.photoPath ?? null })), kk.rader.map((r) => ({ id: r.id, nyckel: r.yta_nyckel, text: kommentarSigText(r) }))),
               nyaTexter: new Set([...(textNy(oversiktSett, vida) ? ['vida'] : []), ...nyaK]),
               last: oversiktLast,
               onLast: lasAlltOversikt,
@@ -16764,8 +16789,9 @@ export default function PlannerPage() {
             // Vidas data ändras aldrig: kommentarerna (kartkommentar, en rad per kommentar) och fotona (objekt_yta_media) sparas hos oss, kopplade till objekt_id + objektets nyckel.
             kommentarer={nyckel && valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel, objektId: valtObjekt.id, minId, arAdmin: isAdminRiktig }) : null}
             kanKommentera={kanLagga}
-            onLaggKommentar={(t) => kk.lagg(nyckel!, t)}
-            onAndraKommentar={(id, t) => kk.andra(id, t)}
+            kanViktigt={kk.viktigtStod}
+            onLaggKommentar={(t, v) => kk.lagg(nyckel!, t, v)}
+            onAndraKommentar={(id, t, v) => kk.andra(id, t, v)}
             onRaderaKommentar={(id) => kk.radera(id)}
             foton={nyckel ? fotoRader : []}
             onLaggTillFoto={kanLagga ? () => { pendingFotoNyckelRef.current = nyckel; ytaFotoInputRef.current?.click(); } : undefined}
@@ -17217,8 +17243,9 @@ export default function PlannerPage() {
             malbild={<MalbildRad nyckel={marker.isMarker ? malbildNyckel('symbol', marker.type) : marker.isZone ? malbildNyckel('yta', marker.zoneType) : marker.isLine ? malbildNyckel('linje', marker.lineType) : null} roll={malbildRoll} />}
             kommentarer={valtObjekt ? kortKommentarer({ rader: kk.rader, nyckel: markerNyckel(marker.id), objektId: valtObjekt.id, aldreText: marker.comment, minId: currentMedarbetare?.id, arAdmin: isAdminRiktig }) : null}
             kanKommentera={!!currentMedarbetare?.id}
-            onLaggKommentar={(t) => kk.lagg(markerNyckel(marker.id), t)}
-            onAndraKommentar={(id, t) => kk.andra(id, t)}
+            kanViktigt={kk.viktigtStod}
+            onLaggKommentar={(t, v) => kk.lagg(markerNyckel(marker.id), t, v)}
+            onAndraKommentar={(id, t, v) => kk.andra(id, t, v)}
             onRaderaKommentar={(id) => {
               // Markeringens äldre kommentarfält (före författare sparades) tas bort ur markeringen; övriga är rader i kartkommentar.
               if (id.startsWith('aldre:')) {

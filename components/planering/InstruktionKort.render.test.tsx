@@ -170,3 +170,22 @@ describe('Vidas traktdirektiv i listan (instruktion nr 1)', () => {
     expect(onSett).toHaveBeenCalledWith(['direktiv']);
   });
 });
+
+describe('InstruktionKortVy — Viktigt (Martin 2026-11-23)', () => {
+  const viktig: Instruktion = { ref: 'k9', text: '', viktigt: 'Bron håller inte – kör runt', hash: 'v', kalla: 'egen', forfattare: 'Martin · idag 08:00', vantar: false };
+  const medBada: Instruktion = { ref: 'k8', text: 'Sumpigt i söder', viktigt: 'Kör inte över muren', hash: 'w', kalla: 'egen', forfattare: 'Joacim · idag 07:00', vantar: false };
+  it('Viktigt-raden står överst i rutan, gul, och Övrigt under; en kommentar med bara Viktigt har ingen tom text', () => {
+    montera(<InstruktionKortVy kort={kort({ instruktioner: [viktig, medBada, vida] })} top="10px" onSett={() => {}} />);
+    const rutor = qa('instruktion-ruta');
+    expect(rutor).toHaveLength(3);
+    expect(rutor[0].querySelector('[data-testid="viktigt-text"]')!.textContent).toBe('Bron håller inte – kör runt');
+    expect(rutor[0].querySelector('[data-testid="kartkort-kommentar-text"]')).toBeNull();
+    expect(rutor[1].querySelector('[data-testid="viktigt-text"]')!.textContent).toBe('Kör inte över muren');
+    expect(rutor[1].querySelector('[data-testid="kartkort-kommentar-text"]')!.textContent).toBe('Sumpigt i söder');
+    expect(rutor[0].querySelector<HTMLElement>('[data-testid="viktigt-rad"]')!.style.color).toBe('rgb(255, 214, 10)');
+  });
+  it('en instruktion utan Viktigt har ingen Viktigt-rad (som förut)', () => {
+    montera(<InstruktionKortVy kort={kort({ instruktioner: [vida, egen] })} top="10px" onSett={() => {}} />);
+    expect(q('viktigt-rad')).toBeNull();
+  });
+});
