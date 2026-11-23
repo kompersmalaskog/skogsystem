@@ -50,12 +50,16 @@ describe('narmasteTraff — den närmaste symbolen vinner, inte den som ritats s
 });
 
 describe('rågångens tolerans i meter följer zoomen', () => {
-  it('zoom 16 vid 56° ger ca 1,3 m/px; 11 px är då ca 15 m — mer än de gamla 14 m', () => {
-    expect(meterPerPixel(56.3, 16)).toBeGreaterThan(1.2);
-    expect(meterPerPixel(56.3, 16)).toBeLessThan(1.4);
-    expect(ragangToleransM(56.3, 16)).toBeGreaterThanOrEqual(15);
+  it('MapLibre-zoom 16 vid 56° ger ca 0,66 m/px; zoom 14 ca 2,7 m/px', () => {
+    expect(meterPerPixel(56.3, 16)).toBeGreaterThan(0.6);
+    expect(meterPerPixel(56.3, 16)).toBeLessThan(0.72);
+    expect(meterPerPixel(56.3, 14)).toBeGreaterThan(2.5);
   });
-  it('inzoomat stannar den på minst 14 m', () => { expect(ragangToleransM(56.3, 19)).toBe(14); });
+  it('utzoomat (14) är 11 px över 29 m — mer än de gamla 14 m, annars ger trycket "ingenting"; inzoomat stannar den på 14 m', () => {
+    expect(ragangToleransM(56.3, 14)).toBeGreaterThanOrEqual(29);
+    expect(ragangToleransM(56.3, 16)).toBe(14);
+    expect(ragangToleransM(56.3, 19)).toBe(14);
+  });
 });
 
 describe('areal ur geometrin för ytor utan Vidas areal', () => {
