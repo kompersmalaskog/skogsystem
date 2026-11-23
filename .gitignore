@@ -94,3 +94,6 @@ diameter_verifiering.json
 *.mbox
 scripts/historik/**/*.pdf
 /takeout-*/
+
+# Importdatorns loggmapp — hela mappen, så diff-skyddet i deploy_import.ps1 aldrig stoppar på loggfiler
+loggar/
