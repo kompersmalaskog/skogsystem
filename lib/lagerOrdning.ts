@@ -57,6 +57,7 @@ const REGLER: Regel[] = [
   [/^larm-/, RANG.symboler + 80 * D],
 
   // ── Etiketter: text som hör till kartan ────────────────────────────────────────────────────────────────────────────────
+  [/^viktigt-etikett$/, RANG.etiketter + 20 * D],   // Viktigt-raden i körvyn (lib/viktigtEtikett): över övriga etiketter, aldrig dold
   [/-label$|^markers-korvy-label$|^yta-nr-label$|^line-kor-(siffra|kvar)$|^line-korupp-ord$/, RANG.etiketter],
 
   // ── Symboler ──────────────────────────────────────────────────────────────────────────────────────────────────────────

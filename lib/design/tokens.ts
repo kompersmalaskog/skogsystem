@@ -208,7 +208,7 @@ export const FARG = {
   /** Ett steg allvarligare än orange, för kategorier som måste kunna skiljas från orange bredvid (Avbrott: Störning → Reparation). */
   orangeMork: "#cc6600",
   rod:      "#ff453a",
-  /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
+  /** Kalenderns markeringar (synk-avvikelse, rättad dag) och VIKTIGT-raden i en kommentar (⚠ gul, en nivå under fara/rött: "var uppmärksam", inte "stanna"; Martin 2026-11-23). Aldrig en fjärde larmfärg. */
   gul:      "#ffd60a",
   /** Två extra diagram-/palettfärger (t.ex. staplar i arbetsrapporten). INTE rollfärger —
    *  skördare/skotare färgas av rollFarg() (lila/turkos), se skogsystem-design-skillen. */

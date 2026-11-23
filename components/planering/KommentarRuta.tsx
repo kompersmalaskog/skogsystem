@@ -8,9 +8,22 @@
 // (`vidaMeningar`: punkt, mellanslag, versal) — aldrig för en egen kommentar.
 
 import React from 'react';
-import { AVSTAND, FARG, KNAPP, RADIE, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
 import { vidaMedStreck, struketText, type Struken } from '@/lib/vidaStruket';
 import { arNumrerad, kommentarPunkter, vidaMeningar } from '@/lib/kommentarPunkter';
+
+/**
+ * VIKTIGT-RADEN (Martin 2026-11-23): EN rad som föraren ska se direkt — gul, fet och med ⚠ — överst i kommentarrutan, med Övrigt (den fria texten) under i vanlig text.
+ * Det är en nivå under fara (röd): gult betyder "var uppmärksam", rött "stanna". En enda komponent för kartkortet, instruktionskortet, Om trakten och Hela trakten.
+ */
+export function ViktigtRad({ text, kompakt = false }: { text: string; kompakt?: boolean }) {
+  return (
+    <div data-testid="viktigt-rad" role="note" style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, color: FARG.gul, overflowWrap: 'anywhere' }}>
+      <span className="material-symbols-outlined" aria-hidden style={{ fontSize: kompakt ? IKON.rad : IKON.rad + AVSTAND.xs, flexShrink: 0, marginTop: AVSTAND.xs / 2, fontVariationSettings: "'FILL' 1" }}>warning</span>
+      <span data-testid="viktigt-text" style={{ ...(kompakt ? TYP.listtitel : TYP.rubrik), fontWeight: VIKT.fet }}>{text}</span>
+    </div>
+  );
+}
 
 /** Rutan: ljusare än kortet, källan överst, innehållet under. */
 export function KommentarRuta({ testid, kalla, kallaFarg, atgard, children }: { testid: string; kalla: React.ReactNode; kallaFarg: string; atgard?: React.ReactNode; children: React.ReactNode }) {
@@ -51,7 +64,10 @@ export interface KommentarVisningProps {
   /** Egen etikett (t.ex. "Planerare") i stället för författaren. */
   etikett?: string;
   vantar?: boolean;
+  /** Övrigt. Kan vara tom när kommentaren bara har en Viktigt-rad. */
   text: string;
+  /** Viktigt-raden: gul, fet, ⚠, överst i rutan; Övrigt (`text`) står under i vanlig text. */
+  viktigt?: string | null;
   /** Vidas traktdirektiv: delas vid meningsslut i stället för bara på radbrytning. */
   meningar?: boolean;
   /** Vidas etikett i den blå raden överst. Standard "Vida · traktdirektiv"; ⓘ-panelen säger "Hela trakten · Vida" (direktivet gäller hela trakten, ingen yta). */
@@ -68,7 +84,7 @@ export interface KommentarVisningProps {
  * Visningen av EN kommentar utan åtgärder: rutan, källan överst, texten som punkter. Det är den här som alla ställen utom kartkortets redigerbara rader använder
  * (instruktionskortet, "Instruktioner på trakten", "Till föraren", Om trakten) — samma ruta, samma 19 px, samma etiketter.
  */
-export function KommentarVisning({ vida = false, forfattare = null, etikett, vantar = false, text, meningar = false, vidaEtikett = 'Vida · traktdirektiv', struket, onVaxla, strykFel }: KommentarVisningProps) {
+export function KommentarVisning({ vida = false, forfattare = null, etikett, vantar = false, text, viktigt = null, meningar = false, vidaEtikett = 'Vida · traktdirektiv', struket, onVaxla, strykFel }: KommentarVisningProps) {
   const medStreck = vida && meningar && ((struket && struket.length > 0) || !!onVaxla);
   return (
     <KommentarRuta
@@ -76,6 +92,7 @@ export function KommentarVisning({ vida = false, forfattare = null, etikett, van
       kalla={vida ? vidaEtikett : <><span data-testid="kartkort-kommentar-forfattare">{etikett ?? forfattare ?? 'Äldre kommentar'}</span>{vantar ? <span data-testid="kartkort-kommentar-vantar"> · väntar</span> : null}</>}
       kallaFarg={vida ? FARG.bla : FARG.text2}
     >
+      {viktigt ? <div style={{ marginBottom: text.trim() ? AVSTAND.m : 0 }}><ViktigtRad text={viktigt} /></div> : null}
       {medStreck ? <VidaStreck text={text} struket={struket ?? []} onVaxla={onVaxla} fel={strykFel ?? null} /> : <KommentarPunkter text={text} meningar={meningar} />}
     </KommentarRuta>
   );
