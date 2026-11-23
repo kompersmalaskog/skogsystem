@@ -10,8 +10,10 @@ describe('klickprioritet: fastighetsgränsen', () => {
     expect(ALLA_KLICK_LAGER.filter((l) => l === RAGANG_LAGER.hit)).toHaveLength(1);
     expect(KLICK_LAGER.filter((k) => k.lager.includes(RAGANG_LAGER.hit))).toHaveLength(1);
   });
-  it('ordningen: larm > symbol > ytnummer > punkt > linje > FASTIGHETSGRÄNS > yta', () => {
-    expect(['larm', 'symbol', 'yta-nr', 'punkt', 'linje', 'fastighet', 'yta'].map((k) => prioritetsRang(k as any))).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  it('ordningen: larm > symbol > (väg-⚠) > ytnummer > punkt > linje > FASTIGHETSGRÄNS > yta > traktyta', () => {
+    const rang = ['larm', 'symbol', 'tma', 'yta-nr', 'punkt', 'linje', 'fastighet', 'yta', 'traktyta'].map((k) => prioritetsRang(k as any));
+    expect(rang).toEqual([...rang].sort((x, y) => x - y));          // stigande = fallande prioritet
+    expect(new Set(rang).size).toBe(rang.length);                   // inga två kategorier delar plats
     const hit = RAGANG_LAGER.hit;
     expect(valjKlickKategori([hit, 'trakt-gr-fill'])).toBe('fastighet');          // en rågång på traktgränsen går att trycka på
     expect(valjKlickKategori([hit, 'zone-fill'])).toBe('fastighet');

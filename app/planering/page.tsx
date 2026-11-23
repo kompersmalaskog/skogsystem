@@ -137,7 +137,7 @@ import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
-import { valjKlickKategori, kategoriForLager, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
+import { valjKlickKategori, kategoriForLager, bastaKategoriFeatures, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { skaVisaInstallera, erStandalone } from '../../lib/installPrompt'
 import { valjKorvyHeading } from '../../lib/korvyHeading'
 import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_ORANGE, maskinPilLage, MASKIN_PIL_PIXELRATIO, MASKIN_PIL_PX, MASKIN_PIL_UTTRYCK, maskinPilFarg, maskinPilSvg } from '../../lib/maskinPil'
@@ -6723,7 +6723,7 @@ export default function PlannerPage() {
       if (!träffar.length) return;
       const traktKand = träffar.filter((f: any) => klassaTraktFeature(f.properties).kategori !== 'ignorera');
       if (traktKand.length) {
-        const vald = valjMinstaYta(traktKand);
+        const vald = valjMinstaYta(bastaKategoriFeatures<any>(traktKand));   // KATEGORIN avgör (hänsyn före traktdel) — Vidas ytor saknar areal, så storleken kan inte
         if (vald) {
           const valdKat = kategoriForLager((vald as any).layer?.id) ?? 'yta';
           if (vinnare && vinnare !== valdKat) return;   // en icke-trakt-punkt/linje slog vår yta → avstå
@@ -6822,7 +6822,7 @@ export default function PlannerPage() {
     const onKlick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return;
       if (isDrawMode || isZoneMode || larmPlacering) return;
-      if (vinnandeKategoriForKarta(map, e.point) !== 'yta') return;   // hög/linje/ytnummer högre → avstå (annars öppnades ytkortet ovanpå högens popup, #587-krocken)
+      if (vinnandeKategoriForKarta(map, e.point) !== 'traktyta') return;   // hög/linje/ytnummer och alla specifika ytor (hänsyn, zon) är högre → avstå (annars öppnades ytkortet ovanpå högens popup, #587-krocken)
       const fid = e.features?.[0]?.properties?.id;
       if (fid == null) return;
       const m = markers.find((mm: any) => String(mm.id) === String(fid));
@@ -10874,6 +10874,7 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const onClick = (e: any) => {
       if (skotningDrawingRef.current || omradeRitningRef.current || hornEditActiveRef.current || korvyFigurAktivRef.current || selectedSymbolRef.current || plusRadOppenRef.current) return; // urvalsritning: tryck = hörn, aldrig TMA-panel
+      if (vinnandeKategoriForKarta(map, e.point) !== 'tma') return;   // larm och symboler är högre → avstå (lib/klickPrioritet)
       if (e.features && e.features.length > 0) {
         const bmId = e.features[0].properties.markerId;
         if (bmId) setTmaOpen(bmId);

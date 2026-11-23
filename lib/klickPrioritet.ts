@@ -15,14 +15,22 @@
 //   4. punkt   — högar (timmer + GROT), Vidas tilläggspunkter, RAÄ-punkter
 //   5. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
 //   6. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
-//   7. yta     — minsta ytan (gräns-fyllning, zoner, Vidas hänsyns-/traktdels-ytor)
+//   7. yta     — det MINSTA och mest specifika: hänsyn, egna zoner, nyckelbiotop, fornlämning/kultur, Övrigt
+//   8. traktyta — traktdelen och egna områdens fyllning, SIST (Martin 2026-11-23: tryck på en hänsyn öppnade traktens kort).
+//                Körspåren och högarnas bakgrund deltar inte alls: de tar aldrig emot tryck.
+//
+// VARFÖR 'traktyta' är en egen kategori: Vidas traktdel och hänsyn bär ingen areal i datan (AREA_HA/SHAPE.STAr saknas), så "minsta ytan" kan inte avgöras på storlek —
+// då vinner översta lagret. Sedan lagerordningen (#1008, 2026-10-26) ligger traktgräns-lagren (trakt-gr-*, grans-*) över ytorna, och traktdelen slog hänsynen.
+// Ordningen mellan ytorna avgörs därför av KATEGORIN, aldrig av hur lagren råkar ligga.
+// Väg-⚠ (TMA-varningslinjen) ligger mellan symbol och ytnummer: det som är satt ut går före, varningen före alla ytor.
 
-export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta';
+export type KlickKategori = 'larm' | 'symbol' | 'tma' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';
 
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'larm',   lager: ['larm-pin-hit'] },
   { kategori: 'symbol', lager: ['markers-avvikelse', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
+  { kategori: 'tma',    lager: ['tma-warning-hitbox'] },
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {
     kategori: 'punkt',
@@ -33,10 +41,8 @@ export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
     lager: ['line-hitbox', 'trakt-linje-hit', 'trakt-raa-line'],   // träffytor (44 px) för egna och Vidas linjer; RAÄ-linjer som förut
   },
   { kategori: 'fastighet', lager: ['trakt-ragang-hit'] },
-  {
-    kategori: 'yta',
-    lager: ['grans-fill', 'zone-fill', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'],
-  },
+  { kategori: 'yta',      lager: ['zone-fill', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill'] },
+  { kategori: 'traktyta', lager: ['grans-fill', 'trakt-gr-fill'] },
 ];
 
 // Alla lager som deltar i prioriteringen — mata queryRenderedFeatures med denna.
@@ -68,4 +74,14 @@ export function arVinnare(lagerVidPunkt: Iterable<string>, minKategori: KlickKat
 export function prioritetsRang(kategori: KlickKategori): number {
   const i = PRIORITET.indexOf(kategori);
   return i < 0 ? 999 : i;
+}
+
+// Av flera träffade features: bara de i den VINNANDE kategorin (högst prioritet). Ordningen i resultatet är bevarad. Används när flera lager på samma sida (t.ex. hänsyn och
+// traktdel) ligger under trycket och storleken inte går att läsa ur datan — kategorin avgör, inte lagerordningen.
+export function bastaKategoriFeatures<T>(feats: T[]): T[] {
+  const lagerId = (f: T): string => (f as any)?.layer?.id ?? '';
+  let basta = 999;
+  for (const f of feats) { const k = kategoriForLager(lagerId(f)); if (k) basta = Math.min(basta, prioritetsRang(k)); }
+  if (basta === 999) return feats;
+  return feats.filter((f) => { const k = kategoriForLager(lagerId(f)); return k != null && prioritetsRang(k) === basta; });
 }
