@@ -47,7 +47,7 @@ export const kontrollHuvud = (data: KontrollResponse, idag: string = idagStr()):
     fakta: [
       rad('Förare', matare),
       rad('Stammen', urval),
-      rad('Väder', vader, vaderUtanText(dag, idag) === 'Väder saknas' ? 'Saknas' : 'Kommer om några dagar'),
+      rad('Väder', vader, vaderUtanText(dag, idag) === 'Väder saknas' ? 'Saknas' : 'Kommer snart'),
       ...(vind ? [rad('Vind', vind)] : []),
       rad('Trädslag', [cap(k.tradslag ?? ''), stockText(k.antal_kontrollstockar ?? data.stockar.length)].filter(Boolean).join(' · ') || null),
     ],

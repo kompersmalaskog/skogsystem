@@ -74,17 +74,17 @@ export const arKallt = (w: VaderJson | undefined): boolean => w?.temperature_c !
 export const KALL_TEXT = 'Under −7 °C mäter maskinen ofta annorlunda än en varm dag, för att virket är fruset.';
 
 /**
- * Vädret hämtas ur Open-Meteos arkiv (ERA5), som ligger ca 5 dygn efter. Importen försöker inte förrän kontrollen är 6 dygn gammal
- * (`VADER_ARKIV_FORDROJNING_DAGAR` i skogsmaskin_import_version_6.py — samma tal) och fyller sedan i det vid nästa import.
- * Under den tiden SAKNAS vädret inte — det har inte kommit än, och raden säger det.
+ * Vädret hämtas av importen när kontrollens fil kommer in (2026-11-23: yngre kontroller ur Open-Meteos vanliga väder-API,
+ * äldre ur ERA5-arkivet — se `hamta_vader_vid_skord` i skogsmaskin_import_version_6.py). Saknas det idag eller igår har
+ * importen inte hunnit (eller tjänsten svarade inte) och nästa import fyller i det — det SAKNAS inte än.
  */
-export const VADER_FORDROJNING_DAGAR = 6;
+export const VADER_FORDROJNING_DAGAR = 2;
 const dagarMellan = (fran: string, till: string): number =>
   Math.round((Date.parse(`${till}T00:00:00Z`) - Date.parse(`${fran}T00:00:00Z`)) / 86_400_000);
 
-/** Texten när vädret inte finns: "Väder kommer om några dagar" för en ung kontroll, annars "Väder saknas". */
+/** Texten när vädret inte finns: "Väder kommer snart" för en kontroll från idag eller igår, annars "Väder saknas". */
 export const vaderUtanText = (dag: string, idag: string): string =>
-  dagarMellan(dag, idag) < VADER_FORDROJNING_DAGAR ? 'Väder kommer om några dagar' : 'Väder saknas';
+  dagarMellan(dag, idag) < VADER_FORDROJNING_DAGAR ? 'Väder kommer snart' : 'Väder saknas';
 
 // === Dag och klockslag ===
 /** "ons 21 okt" */
@@ -102,7 +102,7 @@ export type KontrollRad = {
   rad1: string;
   /** "Förvald" / "Slumpstam" — hur stammen valdes. null när filen inte säger. Står först på andra raden, före vädret. */
   urval: string | null;
-  /** Vädret kort, eller "Väder saknas" / "Väder kommer om några dagar" (ung kontroll, arkivet ligger efter). */
+  /** Vädret kort, eller "Väder saknas" / "Väder kommer snart" (kontroll från idag eller igår). */
   vader: string;
   vaderSaknas: boolean;
   /** Under −7 °C (KALL_GRANS_C): vädret står i orange. */
