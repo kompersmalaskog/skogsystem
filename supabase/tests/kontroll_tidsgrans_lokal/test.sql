@@ -53,7 +53,7 @@ RETURNS TABLE (objekt_id text, namn text, huvudtyp text, stammar bigint, forsta 
 $f$;
 
 -- Nya kroppen: just den fil som migrationen innehåller (psql läser hela filen; indexet ligger på testtabellen).
-\i ../../migrations/20261122190100_kontroll_tidsgrans.sql
+\i ../../migrations/20261123093545_kontroll_tidsgrans.sql
 
 DO $$
 DECLARE avvik int; n_gammal int; n_ny int; p int;
