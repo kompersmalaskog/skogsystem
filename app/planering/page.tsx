@@ -144,6 +144,8 @@ import { MASKIN_PIL_BILD, MASKIN_PIL_BILD_GRA, MASKIN_PIL_BILD_ORANGE, maskinPil
 import { TOM_KURS, foljTid, kartRiktning, stegaKurs, type KursLage } from '../../lib/korvyKurs'
 import { kompletteraNamn } from '../../lib/medarbetarNamn'
 import { hamtaEnhetMaskin, sattEnhetMaskin, hyttsparMaskinId } from '../../lib/enhetMaskin'
+import { KORVY_SKYDDSLAGER, skyddslagerSynligt, tillampaSkyddslager } from '../../lib/korvySkyddslager'
+import { useKorvySkyddslager } from '../../lib/hooks/useKorvySkyddslager'
 import { valjObjektForPosition, objektTraffPunkt, objektHuvudtyp, traktgransRingar, arTilldelad, type ObjektForVal } from '../../lib/objektPlats'
 import { tolkaSparadPosition, MASKINPOS_NYCKEL, sparObjektGiltigt, valjPosObjekt, valjTilldelatObjekt, valjFlygPos } from '../../lib/maskinPosition'
 import { hamtaSenasteSparStart, taForladdadSparStart, forladdaTraktGeo, taForladdadTraktGeo } from '../../lib/maskinPositionDb'
@@ -402,7 +404,7 @@ function markerInnehallHash(m: { type?: string; comment?: string }): string {
 // Sverige → röd blanket = brus (bytte OpenTopoMap-brus mot fornlämnings-brus). De fornlämningar
 // som spelar roll (nära) är redan utsatta som EGNA symboler (glöder nära + panelen varnar).
 // Framtida C-steg: ladda RAÄ-punkter för traktens bbox som VEKTOR, klippt till trakt + from-driver.
-const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);
+// De sju skyddslagen och förarens val att släcka dem bor i lib/korvySkyddslager.ts (inte längre tvingade synliga här).
 
 // === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
 // PRICKEN STÅR I NEDRE TREDJEDELEN, ca 70 % ner (Martin 2026-10-04). Tidigare: strax under mitten (0.21 → 60 %) med
@@ -5141,6 +5143,11 @@ export default function PlannerPage() {
     }
   }, [valtObjekt?.kartbild_url, valtObjekt?.kartbild_bounds, overlays.vidaKartbild, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // === Körvyns skyddslager: tända från start, förarens knapp fungerar (lib/korvySkyddslager) ===
+  // Valet hänger på maskin + objekt + lager och sparas lokalt i maskinen. Värdet läses SYNKRONT när objektet byts, så lagret aldrig
+  // hinner ritas tänt för ett objekt där föraren släckt det. Planeringsvyn läser inget av detta (den använder `overlays`).
+  const { slackta: skyddSlackta, slacktaRef: skyddSlacktaRef, vaxla: vaxlaSkyddslager } = useKorvySkyddslager(enhetMaskinId ?? maskinSomParam ?? null, valtObjekt?.id ? String(valtObjekt.id) : null);
+
   // === MapLibre: Toggle WMS overlay visibility ===
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -5156,9 +5163,9 @@ export default function PlannerPage() {
         map.setLayoutProperty(layerId, 'visibility', overlays[id] && !LAGER_UTAN_RAD.has(id) ? 'visible' : 'none');
       }
     });
-    // Körvyn: de kurerade skyddslagren är alltid tända där (defer-effekten) — menyvalet släcker dem inte.
-    if (korvyActive) for (const id of Array.from(KORVY_SKYDDSLAGER)) { try { if (map.getLayer('wms-layer-' + id)) map.setLayoutProperty('wms-layer-' + id, 'visibility', 'visible'); } catch { /* */ } }
-  }, [overlays, mapLibreReady, lagerTick, korvyActive]);
+    // Körvyn: de kurerade skyddslagren är tända från start (defer-effekten) och går att släcka per objekt — förarens val gäller (lib/korvySkyddslager).
+    if (korvyActive) tillampaSkyddslager(map, skyddSlackta);
+  }, [overlays, mapLibreReady, lagerTick, korvyActive, skyddSlackta]);
 
   // === Produktionshögar: Toggle visibility ===
   // Skotarläget: PÅ från början (lib/skotarHogar.ts). Alla andra vyer: lagret `produktionshogar` som förut.
@@ -9537,9 +9544,8 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map) return;
     const t = setTimeout(() => {
-      for (const id of Array.from(KORVY_SKYDDSLAGER)) {
-        try { if (map.getLayer('wms-layer-' + id)) map.setLayoutProperty('wms-layer-' + id, 'visibility', 'visible'); } catch {}
-      }
+      // Bara de lager föraren inte släckt på det här objektet (läses ur refen: valet kan ha ändrats under de 500 ms).
+      tillampaSkyddslager(map, skyddSlacktaRef.current);
     }, 500);
     return () => clearTimeout(t);
   }, [korvyActive, mapLibreReady]);
@@ -12976,8 +12982,10 @@ export default function PlannerPage() {
   };
 
   // ── LAGER: EN lista för Lager-menyn och för "Alla" i plusraden ──
-  const lagerPa = (id: string): boolean => (id === PRICK_LAGER_ID ? prickarSynliga(overlays) : !!overlays[id]);
-  const vaxlaLager = (id: string) => setOverlays((prev: any) => ({ ...prev, [id]: id === PRICK_LAGER_ID ? !prickarSynliga(prev) : !prev[id] }));
+  // Körvyns skyddslager har sitt eget läge (tända från start, släckta per objekt); allt annat är `overlays` som förut.
+  const arKorvySkydd = (id: string): boolean => korvyActive && KORVY_SKYDDSLAGER.has(id);
+  const lagerPa = (id: string): boolean => (arKorvySkydd(id) ? skyddslagerSynligt(id, skyddSlackta) : id === PRICK_LAGER_ID ? prickarSynliga(overlays) : !!overlays[id]);
+  const vaxlaLager = (id: string) => { if (arKorvySkydd(id)) { vaxlaSkyddslager(id); return; } setOverlays((prev: any) => ({ ...prev, [id]: id === PRICK_LAGER_ID ? !prickarSynliga(prev) : !prev[id] })); };
   const overlayLista: { id: string; name: string; desc: string; enabled: boolean }[] = [
     { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
     // Trakt-geometri (envz) — datadrivna: visas BARA när lagret faktiskt har data.
@@ -13119,7 +13127,7 @@ export default function PlannerPage() {
     for (const grp of wmsLayerGroups) {
       const rader = lagerUtanDubbletter(grp.layers, overlayLista.map((o) => o.id));
       if (rader.length === 0) continue;
-      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: rader.map((l) => medOp(vaxel(l.id, l.name, l.desc, !!(overlays as any)[l.id], lagerBild(l.id, l.color), sla(l.id)))) });
+      g.push({ id: `wms-${grp.group}`, rubrik: grp.group, rader: rader.map((l) => medOp(vaxel(l.id, l.name, l.desc, arKorvySkydd(l.id) ? lagerPa(l.id) : !!(overlays as any)[l.id], lagerBild(l.id, l.color), arKorvySkydd(l.id) ? () => vaxlaLager(l.id) : sla(l.id)))) });
     }
     g.push({ id: 'smhi', rubrik: 'SMHI', rader: [vaxel('brandrisk', 'Brandrisk', 'SMHI prognos, uppdateras dagligen', !!(overlays as any).brandrisk, lagerBild('brandrisk'), sla('brandrisk'))] });
     g.push({

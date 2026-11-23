@@ -35,7 +35,8 @@ describe('sidans koppling', () => {
   })
   it('körvyns whitelist kör om lagereffekterna: det som är tänt i menyn är tänt på kartan', () => {
     expect(sida).toMatch(/setLagerTick\(\(t\) => t \+ 1\);\n  \}, \[korvyActive, skotarKorvy, mapLibreReady, korvyBasKarta\]\);/)
-    expect(sida).toMatch(/\[overlays, mapLibreReady, lagerTick, korvyActive\]/)
+    // + skyddSlackta: förarens val av släckta skyddslager i körvyn (lib/korvySkyddslager) ska också rita om lagren.
+    expect(sida).toMatch(/\[overlays, mapLibreReady, lagerTick, korvyActive, skyddSlackta\]/)
     expect(sida).toMatch(/\[hogarPa, skotarKorvy, korvyActive, mapLibreReady, lagerTick\]/)
     expect(sida).toMatch(/\[overlays\.grothogar, mapLibreReady, lagerTick\]/)
   })

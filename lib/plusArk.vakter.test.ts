@@ -89,9 +89,12 @@ describe('Lager: samma grupper i samma ordning som den gamla Lager-menyn', () =>
     expect(k).toContain(": korvyKompass === 'saknas' ? 'Ingen kompass på enheten' : undefined");
     expect(k).not.toMatch(/'Av'/);
   });
-  it('det som tvingas i körvyn tvingas av kartans effekter — listan rör dem inte', () => {
-    expect(page).toContain("const KORVY_SKYDDSLAGER = new Set(['nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar']);");
+  it('körvyns skyddslager: tända från start men förarens knapp gäller (lib/korvySkyddslager) — listan går genom arKorvySkydd, inte genom mängden själv', () => {
+    const libKs = las('./korvySkyddslager.ts');
+    expect(libKs).toContain("'nyckelbiotoper', 'biotopskydd', 'vattenskydd', 'naturreservat', 'natura2000', 'sumpskog', 'kraftledningar'");
+    expect(page).not.toMatch(/const KORVY_SKYDDSLAGER\s*=/);
     expect(lager).not.toContain('KORVY_SKYDDSLAGER');
+    expect(lager).toContain('arKorvySkydd(l.id)');
   });
 });
 
