@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { UppfoljningObjekt } from './transform';
-import { skogKort, skogDokument, vaderRad, svarText, tidRader, vaderPerPeriod, helaCykeln, type Tidslinje } from './iSkogenSida';
+import { skogKort, skogDokument, vaderRad, svarText, tidRader, vaderPerPeriod, helaCykeln, cykelRad, type Tidslinje } from './iSkogenSida';
 
 const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
   vo_nummer: 'VO1', namn: 'Objekt', typ: 'slutavverkning', volymSkordare: 1000, volymSkotare: 0,
@@ -66,7 +66,7 @@ describe('skogDokument', () => {
     expect(d.svar).toBe('1 trakt i skogen · längst legat 19 dagar');
     expect(d.sektioner[0].rader[0]).toEqual({
       titel: 'Arvidstorp', status: '19 dagar',
-      text: 'Skördaren fällde 27 okt – 2 nov · 7 dagar\nVirket väntade 7 dagar\nSkotaren kör sedan 10 nov\nRegn 61 mm · 11 dagar med regn · −3 till 9 °C',
+      text: 'Från stubbe – hittills 26 dagar · Sedan 27 okt · skotaren kör fortfarande\nSkördaren fällde 27 okt – 2 nov · 7 dagar\nVirket väntade 7 dagar\nSkotaren kör sedan 10 nov\nRegn 61 mm · 11 dagar med regn · −3 till 9 °C',
     });
     expect(d.sektioner).toHaveLength(1);
   });
@@ -95,6 +95,8 @@ describe('arket: tidslinjen och vädret per period', () => {
     expect(helaCykeln(tid({ avverkSlut: null, skotStart: null, skotSlut: null }), idag)!.under).toBe('Sedan 27 okt · skördaren kör fortfarande');
     expect(helaCykeln(tid({ avverkStart: null }), idag)).toBeNull();
     expect(helaCykeln(tid({ egenSkotning: true }), idag)).toBeNull();
+    expect(cykelRad(tid({}), idag)).toBe('Från stubbe till färdigskotat 23 dagar · 27 okt – 18 nov');
+    expect(cykelRad(tid({ egenSkotning: true }), idag)).toBeNull();
   });
   it('väntar på skotaren: legat hittills, ingen sluttid', () => {
     const r = tidRader(tid({ skotStart: null, skotSlut: null }), idag);

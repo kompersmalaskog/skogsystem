@@ -184,6 +184,12 @@ export function helaCykeln(t: Tidslinje, idag: string): Cykel | null {
   };
 }
 
+/** Cykeln som EN rad i A4:n: "Från stubbe till färdigskotat 23 dagar · 27 okt – 18 nov". */
+export function cykelRad(t: Tidslinje, idag: string): string | null {
+  const c = helaCykeln(t, idag);
+  return c ? `${c.rubrik} ${c.dagar} ${dagOrd(c.dagar)} · ${c.under}` : null;
+}
+
 /** Perioderna vädret delas på: under avverkningen, medan virket låg, under skotningen.
  *  En period som inte har börjat finns inte; en som pågår slutar idag. */
 export function vaderPerioder(t: Tidslinje, idag: string): { nyckel: string; titel: string; fran: string; till: string }[] {
@@ -226,7 +232,7 @@ export function skogDokument(kort: { iSkogen: SkogKort[]; framme: SkogKort[] }, 
   const rad = (k: SkogKort): DokRad => ({
     titel: k.namn,
     status: k.dagar == null ? undefined : `${k.dagar} ${dagOrd(k.dagar)}`,
-    text: [...k.steg, vaderRad(vader.get(k.nyckel))].join('\n'),
+    text: [cykelRad(k.tid, idag), ...k.steg, vaderRad(vader.get(k.nyckel))].filter(Boolean).join('\n'),
   });
   const langst = kort.iSkogen.reduce<number | null>((m, k) => (k.dagar == null ? m : Math.max(m ?? 0, k.dagar)), null);
   const sektioner = [{ rubrik: 'Ligger i skogen', under: 'Dagar sedan skördaren blev klar. Längst först.', rader: kort.iSkogen.map(rad) }];
