@@ -41,6 +41,8 @@ export type PrognosRoll = {
   bestallt: number
   nu: number
   landar: number | null
+  /** Intervallet på det som fattas (tung och lätt sida av det uppmätta felet). null = inga trakter med uppmätt osäkerhet i kön; då är `ord` ett punktvärde. */
+  spann: Spann | null
   trakter: PrognosTrakt[]
   /** Antal rader (från toppen) som hinns helt eller delvis — månadens slut ritas efter dem. -1 = ingen linje (månaden inte pågående / ingen prognos). */
   linjeEfter: number
@@ -93,10 +95,67 @@ function rad(r: KoRad, namn: string | null, korAnnat: boolean, typ: Typ, sista: 
   }
 }
 
+// ── Osäkerhet (2026-11-23, Martin: "kör på det"): en prognos med 20–25 % fel ska inte skrivas som ett exakt tal ─────────────────────────
+// Trakter vars timmar är ett förslag ur liknande trakter (`uppskattad`) bär det UPPMÄTTA felet (`timmar_spann`, 25:e–75:e percentilen av prediktionsfelet,
+// lib/g15Forslag). Vi räknar om SAMMA tavla två gånger — med timmarna på den tunga (hög) och den lätta (låg) sidan — och får hur mycket som fattas i
+// båda fallen: "Fattas troligen 400–800". Intervallet är det mittersta halvet av utfallen (inte en garanti). Trakter med planerarens egen prognos
+// eller som `foljer` sin egen takt är punktvärden och rörs inte; finns ingen sådan trakt i kön blir det inget intervall (det står då som förut).
+export type Spann = { fattasMin: number; fattasMax: number }
+
+function scenario(d: TavlaIndata, sida: 'lag' | 'hog'): TavlaIndata | null {
+  const klar = d.klar
+  if (!klar) return null
+  let rort = false
+  const trakter = klar.trakter.map(t => {
+    if (!t.uppskattad || !t.timmar_spann || t.foljer || t.timmar == null) return t
+    rort = true
+    return { ...t, timmar: t.timmar_spann[sida] }
+  })
+  return rort ? { ...d, klar: { ...klar, trakter } } : null
+}
+
+/** Hur mycket som fattas (m³) i det tunga respektive lätta fallet, per spår och roll ("slutavverkning:skotare"). Tom karta = ingen osäkerhet att räkna på. */
+export function spannAlla(d: TavlaIndata): Map<string, Spann> {
+  const ut = new Map<string, Spann>()
+  if (d.klar == null || d.status === 'avslutad') return ut
+  const tung = scenario(d, 'hog')
+  const latt = scenario(d, 'lag')
+  if (!tung || !latt) return ut
+  const tt = byggTavla(tung)
+  const tl = byggTavla(latt)
+  for (const s of tt.spar) {
+    if (!(s.bestallt > 0)) continue
+    for (const b of s.block) {
+      const bl = tl.spar.find(x => x.typ === s.typ)?.block.find(x => x.roll === b.roll)
+      if (b.landar == null || bl?.landar == null) continue
+      ut.set(`${s.typ}:${b.roll}`, { fattasMax: Math.round(s.bestallt - b.landar), fattasMin: Math.round(s.bestallt - bl.landar) })
+    }
+  }
+  return ut
+}
+
+const rundaTill10 = (n: number) => Math.round(n / 10) * 10
+
+/** Spårets dom med intervallet inskrivet. Ordet utan intervall ("Fattas 600", "Hinner") när det inte finns något att säga om osäkerheten. */
+export function ordMedSpann(ord: string, spann: Spann | null): string {
+  if (!spann) return ord
+  const max = rundaTill10(spann.fattasMax)
+  const min = rundaTill10(spann.fattasMin)
+  const fattas = ord.startsWith('Fattas')
+  if (!fattas && ord !== 'Hinner') return ord
+  if (max <= 0) return ord
+  if (!fattas) return `Hinner – kan fattas upp till ${fmt(max)}`
+  if (min <= 0) return `Fattas upp till ${fmt(max)}`
+  if (min === max) return ord
+  return `Fattas troligen ${fmt(min)}–${fmt(max)}`
+}
+
 export function byggPrognos(d: TavlaIndata, tavla: Tavla): Prognos {
   const { koer, sista } = koerFor(d)
   const maskinNamn = new Map((d.klar?.maskiner ?? []).map(m => [m.maskin_id, m.namn]))
   const pagar = d.klar != null && d.status !== 'avslutad'
+
+  const spannKarta = spannAlla(d)
 
   const roll = (typ: Typ, b: TavlaBlock, bestallt: number, saknar: number | null): PrognosRoll => {
     const korAnnat = new Set(b.maskiner.filter(m => m.korAnnat).map(m => m.maskin_id))
@@ -116,7 +175,8 @@ export function byggPrognos(d: TavlaIndata, tavla: Tavla): Prognos {
     const hinns = trakter.filter(t => t.status === 'hinns').length
     const delvis = trakter.filter(t => t.status === 'delvis').length
     return {
-      roll: b.roll, rubrik: b.roll === 'skordare' ? 'Skördare' : 'Skotare', ord: b.ord, ton: b.ton, bestallt, nu: b.nu, landar: b.landar,
+      roll: b.roll, rubrik: b.roll === 'skordare' ? 'Skördare' : 'Skotare', ord: ordMedSpann(b.ord, spannKarta.get(`${typ}:${b.roll}`) ?? null), ton: b.ton, bestallt, nu: b.nu, landar: b.landar,
+      spann: spannKarta.get(`${typ}:${b.roll}`) ?? null,
       trakter, linjeEfter: pagar && b.landar != null ? hinns + delvis : -1,
       hinns, delvis, hinnsInte: trakter.length - hinns - delvis, saknar,
     }
@@ -173,13 +233,16 @@ export type Forslag = {
 export function byggForslag(d: TavlaIndata, tavla: Tavla): Forslag[] {
   if (d.klar == null || d.status === 'avslutad') return []
   const ut: Forslag[] = []
+  const spann0 = spannAlla(d)
+  const ordFore = (b: TavlaBlock, typ: Typ) => ordMedSpann(b.ord, spann0.get(`${typ}:${b.roll}`) ?? null)
+  const ordEfter = (b2: TavlaBlock, typ: Typ, d2: TavlaIndata) => ordMedSpann(b2.ord, spannAlla(d2).get(`${typ}:${b2.roll}`) ?? null)
   const diffAv = (t: Tavla, typ: Typ, roll: KlarRoll) => t.spar.find(s => s.typ === typ)?.block.find(b => b.roll === roll) ?? null
   for (const s of tavla.spar) {
     if (s.bestallt <= 0) continue
     for (const b of s.block) {
       // För mycket skördat (bara skördaren): en trakt flyttas till nästa månad.
       if (b.diff != null && b.diff > 0 && b.ton === 'orange' && b.roll === 'skordare') {
-        ut.push({ id: `over:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Flytta en trakt till nästa månad', under: `${fmt(b.diff)} m³ över beställt`, fore: b.ord, efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
+        ut.push({ id: `over:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Flytta en trakt till nästa månad', under: `${fmt(b.diff)} m³ över beställt`, fore: ordFore(b, s.typ), efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
         continue
       }
       if (b.diff == null || b.diff >= 0) continue
@@ -187,30 +250,30 @@ export function byggForslag(d: TavlaIndata, tavla: Tavla): Forslag[] {
       // 1. Trakter utan maskin: den maskin som ger mest.
       for (const u of b.utan) {
         const val = flyttVal(d, u.objekt_id, b.roll)?.val ?? []
-        let bast: { namn: string; b2: TavlaBlock } | null = null
+        let bast: { namn: string; b2: TavlaBlock; d2: TavlaIndata } | null = null
         for (const v of val) {
           if (v.nuvarande || v.maskin_id === EGEN_SKOTNING) continue
-          const t2 = byggTavla({ ...d, flytt: { objekt_id: u.objekt_id, roll: b.roll, maskin_id: v.maskin_id } })
-          const b2 = diffAv(t2, s.typ, b.roll)
-          if (b2?.diff != null && (bast == null || b2.diff > (bast.b2.diff ?? -Infinity))) bast = { namn: v.namn, b2 }
+          const d2 = { ...d, flytt: { objekt_id: u.objekt_id, roll: b.roll, maskin_id: v.maskin_id } }
+          const b2 = diffAv(byggTavla(d2), s.typ, b.roll)
+          if (b2?.diff != null && (bast == null || b2.diff > (bast.b2.diff ?? -Infinity))) bast = { namn: v.namn, b2, d2 }
         }
         if (bast && bast.b2.diff != null && bast.b2.diff - b.diff >= 1) {
-          lista.push({ id: `maskin:${s.typ}:${b.roll}:${u.objekt_id}`, typ: s.typ, roll: b.roll, titel: `Ge ${u.namn} till ${bast.namn}`, under: `${fmt(u.volym)} m³ som ingen maskin har`, fore: b.ord, efter: bast.b2.ord, eftertons: bast.b2.ton, vinst: Math.round(bast.b2.diff - b.diff), aktion: { slag: 'maskin', objekt_id: u.objekt_id } })
+          lista.push({ id: `maskin:${s.typ}:${b.roll}:${u.objekt_id}`, typ: s.typ, roll: b.roll, titel: `Ge ${u.namn} till ${bast.namn}`, under: `${fmt(u.volym)} m³ som ingen maskin har`, fore: ordFore(b, s.typ), efter: ordEfter(bast.b2, s.typ, bast.d2), eftertons: bast.b2.ton, vinst: Math.round(bast.b2.diff - b.diff), aktion: { slag: 'maskin', objekt_id: u.objekt_id } })
         }
       }
       // 2. Maskin som kör annat: vad vi vinner om den är tillbaka på kön.
       for (const m of b.maskiner) {
         if (!m.korAnnat) continue
-        const t2 = byggTavla({ ...d, senaste: (d.senaste ?? []).filter(x => x.maskin_id !== m.maskin_id) })
-        const b2 = diffAv(t2, s.typ, b.roll)
+        const d2 = { ...d, senaste: (d.senaste ?? []).filter(x => x.maskin_id !== m.maskin_id) }
+        const b2 = diffAv(byggTavla(d2), s.typ, b.roll)
         if (b2?.diff != null && b2.diff - b.diff >= 1) {
-          lista.push({ id: `kor:${s.typ}:${b.roll}:${m.maskin_id}`, typ: s.typ, roll: b.roll, titel: `${m.namn} tillbaka på sina trakter`, under: `Kör annat just nu — räknas inte in`, fore: b.ord, efter: b2.ord, eftertons: b2.ton, vinst: Math.round(b2.diff - b.diff), aktion: { slag: 'planera' } })
+          lista.push({ id: `kor:${s.typ}:${b.roll}:${m.maskin_id}`, typ: s.typ, roll: b.roll, titel: `${m.namn} tillbaka på sina trakter`, under: `Kör annat just nu — räknas inte in`, fore: ordFore(b, s.typ), efter: ordEfter(b2, s.typ, d2), eftertons: b2.ton, vinst: Math.round(b2.diff - b.diff), aktion: { slag: 'planera' } })
         }
       }
       lista.sort((a, c) => (c.vinst ?? 0) - (a.vinst ?? 0))
       // 3. Räcker inte skogen: en ny trakt behövs, hur många m³ som saknas.
       const saknar = s.racker.find(r => r.roll === b.roll && r.diff < 0)
-      if (saknar) lista.push({ id: `ny:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Lägg in en ny trakt', under: `Trakterna räcker inte — ${fmt(-saknar.diff)} m³ saknas`, fore: b.ord, efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
+      if (saknar) lista.push({ id: `ny:${s.typ}:${b.roll}`, typ: s.typ, roll: b.roll, titel: 'Lägg in en ny trakt', under: `Trakterna räcker inte — ${fmt(-saknar.diff)} m³ saknas`, fore: ordFore(b, s.typ), efter: null, eftertons: null, vinst: null, aktion: { slag: 'planera' } })
       ut.push(...lista)
     }
   }

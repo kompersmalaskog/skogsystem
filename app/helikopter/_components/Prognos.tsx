@@ -140,13 +140,14 @@ function Enkel({ p, forslag, onTrakt, onMaskin }: { p: PrognosData; forslag: For
                     <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                       <span style={{ ...TYP.listtitel, overflowWrap: 'anywhere' }}>{f.titel}</span>
                       <span style={{ ...TYP.meta, color: FARG.text2 }}>{f.under}</span>
+                      {/* Före och efter står UNDER titeln: ett intervall ("Fattas troligen 2 340–3 330") är för långt för en kolumn bredvid, och titeln får aldrig pressas till ett ord per rad. */}
+                      {f.efter != null && (
+                        <span data-forslag-efter="" style={{ display: 'flex', flexDirection: 'column', marginTop: AVSTAND.xs, ...TYP.meta, ...TNUM, overflowWrap: 'anywhere' }}>
+                          <span style={{ color: FARG.text2 }}>{f.fore}</span>
+                          <span style={{ color: f.eftertons ? tonFarg(f.eftertons) : FARG.text }}>→ {f.efter}</span>
+                        </span>
+                      )}
                     </span>
-                    {f.efter != null && (
-                      <span data-forslag-efter="" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, ...TYP.meta, ...TNUM }}>
-                        <span style={{ color: FARG.text2 }}>{f.fore}</span>
-                        <span style={{ color: f.eftertons ? tonFarg(f.eftertons) : FARG.text }}>→ {f.efter}</span>
-                      </span>
-                    )}
                     <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
                   </button>
                 ))}

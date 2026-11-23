@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { byggTavla, type TavlaIndata } from './tavla'
-import { byggForslag, byggPrognos, traktTakt } from './prognos'
+import { byggForslag, byggPrognos, ordMedSpann, spannAlla, traktTakt } from './prognos'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
 
@@ -127,5 +127,71 @@ describe('vad ska vi göra (förslag)', () => {
     expect(f({ spar: [spar({ bestallt: 100, skordat: 100, skotat: 200 })], utfall })).toEqual([])
     expect(f({ status: 'avslutad' })).toEqual([])
     expect(f({ klar: null })).toEqual([])
+  })
+})
+
+
+describe('osäkerhet (intervall på det som fattas)', () => {
+  // Elefant skotar A (64 h) och B (32 h); 10 arbetsdagar × 8 h = 80 h. Tidigt (lätt) hinns båda, tungt hinns inte B.
+  const maskiner = [maskin('Elefant', 'skotare')]
+  const uppsk = (namn: string, rest: number, timmar: number, spann?: { lag: number; hog: number }, x: Partial<KlarTrakt> = {}) =>
+    trakt(namn, 'skotare', 'Elefant', { rest_volym: rest, timmar, uppskattad: true, ...(spann ? { timmar_spann: spann } : {}), ...x })
+  const ind = (trakter: KlarTrakt[], bestallt = 1000): TavlaIndata => ({
+    status: 'pagaende', spar: [spar({ bestallt, skordat: 700, skotat: 200 })],
+    utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }], klar: klar(maskiner, trakter), egna: new Set(), ...{},
+  })
+
+  it('ordMedSpann: intervall, "upp till", oförändrat och "kan fattas"', () => {
+    expect(ordMedSpann('Fattas 600', { fattasMin: 400, fattasMax: 800 })).toBe('Fattas troligen 400–800')
+    expect(ordMedSpann('Fattas 600', { fattasMin: -50, fattasMax: 800 })).toBe('Fattas upp till 800')
+    expect(ordMedSpann('Fattas 600', { fattasMin: 600, fattasMax: 600 })).toBe('Fattas 600')
+    expect(ordMedSpann('Fattas 600', null)).toBe('Fattas 600')
+    expect(ordMedSpann('Hinner', { fattasMin: -300, fattasMax: 120 })).toBe('Hinner – kan fattas upp till 120')
+    expect(ordMedSpann('Hinner', { fattasMin: -300, fattasMax: -50 })).toBe('Hinner')
+    expect(ordMedSpann('Klar', { fattasMin: 100, fattasMax: 200 })).toBe('Klar')
+  })
+  it('intervallet omsluter punktvärdet och bygger på samma tavla: lätt ≤ punkt ≤ tungt', () => {
+    const d = ind([uppsk('A', 300, 64, { lag: 48, hog: 96 }), uppsk('B', 200, 32, { lag: 24, hog: 48 })])
+    const sp = spannAlla(d).get('slutavverkning:skotare')!
+    const punkt = d.spar[0].bestallt - (byggTavla(d).spar[0].block[1].landar as number)
+    expect(sp.fattasMin).toBeLessThanOrEqual(punkt)
+    expect(sp.fattasMax).toBeGreaterThanOrEqual(punkt)
+    expect(sp.fattasMax).toBeGreaterThan(sp.fattasMin)
+  })
+  it('prognosens ord får intervallet — och Planera-tavlans eget tal rörs inte', () => {
+    const d = ind([uppsk('A', 300, 64, { lag: 48, hog: 96 }), uppsk('B', 200, 32, { lag: 24, hog: 48 })])
+    const r = byggPrognos(d, byggTavla(d)).spar[0].roller[1]
+    expect(r.spann).not.toBeNull()
+    expect(r.ord).toMatch(/^(Fattas (troligen|upp till)|Hinner – kan fattas)/)
+    expect(byggTavla(d).spar[0].block[1].ord).toMatch(/^(Fattas (ca )?\d|Hinner|Klar)/)
+  })
+  it('utan uppmätt osäkerhet (ingen timmar_spann) är talet ett punktvärde, precis som förut', () => {
+    const d = ind([uppsk('A', 300, 64), uppsk('B', 200, 32)])
+    expect(spannAlla(d).size).toBe(0)
+    const r = byggPrognos(d, byggTavla(d)).spar[0].roller[1]
+    expect(r.spann).toBeNull()
+    expect(r.ord).toBe(byggTavla(d).spar[0].block[1].ord)
+  })
+  it('planerarens egen prognos (ej uppskattad) och trakter som följer sin egen takt är punktvärden', () => {
+    const egen = trakt('A', 'skotare', 'Elefant', { rest_volym: 300, timmar: 64, timmar_spann: { lag: 10, hog: 200 } })
+    const foljer = uppsk('B', 200, 32, { lag: 10, hog: 200 }, { foljer: { restPlanH: 30, skillnad: 0, utfortH: 5 } })
+    expect(spannAlla(ind([egen, foljer])).size).toBe(0)
+  })
+  it('månaden avslutad eller oläst: inget intervall', () => {
+    const t = [uppsk('A', 300, 64, { lag: 48, hog: 96 })]
+    expect(spannAlla({ ...ind(t), status: 'avslutad' }).size).toBe(0)
+    expect(spannAlla({ ...ind(t), klar: null }).size).toBe(0)
+  })
+  it('förslagen visar före och efter som intervall när osäkerhet finns', () => {
+    const maskiner2 = [maskin('Elefant', 'skotare'), maskin('Wisent', 'skotare')]
+    const d: TavlaIndata = {
+      status: 'pagaende', spar: [spar({ bestallt: 1000, skordat: 700, skotat: 200 })],
+      utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }],
+      klar: klar(maskiner2, [uppsk('A', 300, 64, { lag: 48, hog: 96 }), trakt('Fri', 'skotare', null, { rest_volym: 300, timmar: 24, uppskattad: true, timmar_spann: { lag: 18, hog: 36 } })]),
+      egna: new Set(),
+    }
+    const f = byggForslag(d, byggTavla(d)).find(x => x.id.startsWith('maskin:'))
+    expect(f).toBeDefined()
+    expect(f!.fore).toMatch(/Fattas/)
   })
 })

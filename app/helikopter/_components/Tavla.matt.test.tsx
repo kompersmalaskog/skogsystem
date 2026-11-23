@@ -42,14 +42,17 @@ const data = {
   maskinStopp: [{ maskin_id: 'A130743', namn: 'Elefant 26', roll: 'skotare', stopp_fran: '2026-10-26', stopp_till: '2026-10-30', stopp_orsak: 'ledig:Daniel', stopp_status: 'kommande', stopp_kor_igen: '2026-11-02', stopp_dagar: 5, stopp_dagar_gangna: 0, stopp_dagar_manad: 5, stopp_orsaker_manad: [], oforklarade_datum: [], takt_fran: null }],
 }
 
-async function html(klick: string[], params = 'ar=2026&manad=10'): Promise<string> {
+async function html(klick: string[], params = 'ar=2026&manad=10', osaker = false): Promise<string> {
   for (const f of Object.values(q)) if (typeof f !== 'string') f.mockReset()
   q.params = params
   q.hamtaFast.mockResolvedValue({ data: { maskiner: [], senasteData: '2026-10-17T06:00:00Z', avvikelse: [], g15: {} }, error: null })
   q.hamtaManadsdata.mockResolvedValue({ data, error: null })
   q.hamtaPrognosUtfall.mockResolvedValue({ data: [], error: null })
   q.hamtaHistorik.mockResolvedValue({ data: lasHistorik(historikOkt), error: null })
-  q.hamtaKlar.mockResolvedValue({ data: lasKlar(structuredClone(klarOkt)), error: null })
+  const klarData = lasKlar(structuredClone(klarOkt))
+  // Osäkerhet: skotartrakterna är räknade på liknande trakter och bär ett uppmätt spann (så "Fattas troligen 400–800" mäts i Chromium).
+  if (osaker) klarData.trakter = klarData.trakter.map(t => (t.roll === 'skotare' && t.timmar != null ? { ...t, uppskattad: true, timmar_spann: { lag: Math.round(t.timmar * 0.5), hog: Math.round(t.timmar * 2) } } : t))
+  q.hamtaKlar.mockResolvedValue({ data: klarData, error: null })
   q.hamtaEgenSkotningTrakter.mockResolvedValue({ data: new Set(), error: null })
   q.hamtaEgetSkordat.mockResolvedValue({ data: [], error: null })
   q.hamtaMaskinObjekt.mockResolvedValue({ data: [{ maskin_id: 'R64428', roll: 'skordare', objekt_id: 'p1', namn: 'Kjell-Erik Lindström Steglehylte', typ: 'Gallring', bolag: 'Privat', egen_skotning: false, volym: 270 }], error: null })
@@ -83,6 +86,8 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
       { namn: 'skot', html: await html([kort('slutavverkning', 'skotare')], 'ar=2026&manad=10&sida=laget') },
       { namn: 'manader', html: await html([], 'ar=2026&manad=10&sida=manader') },
       { namn: 'prognos', html: await html([]) },
+      { namn: 'prognos-osaker', html: await html([], 'ar=2026&manad=10&sida=prognos', true) },
+      { namn: 'prognos-osaker-detalj', html: await html(['[data-visa-detaljer]'], 'ar=2026&manad=10&sida=prognos', true) },
       { namn: 'prognos-detalj', html: await html(['[data-visa-detaljer]'], 'ar=2026&manad=10&sida=prognos') },
       { namn: 'prognos-maskin', html: await html(['[data-visa-detaljer]', '[data-prognos] [role="tab"]:nth-child(2)'], 'ar=2026&manad=10&sida=prognos') },
     ]
