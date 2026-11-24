@@ -10,6 +10,7 @@ import {
   arViktigtKolumnSaknas, harInnehall, kanRaderaKommentar, laggKoOvanpa, rensaViktigt, senasteLarmKommentarer, sorteraKommentarer,
   type KommentarRad, type KommentarVy,
 } from '@/lib/kartkommentar';
+import { LIVE_RESERV_MASKIN_MIN } from '@/lib/markeringLive';
 import { laggIKo, prenumereraKartkommentarKo, vantandePosterFor, type KoDb } from '@/lib/kartkommentarKo';
 
 export interface KartkommentarerIn {
@@ -23,7 +24,14 @@ export interface KartkommentarerIn {
   /** Admin får radera andras kommentarer (aldrig ändra deras text). */
   arAdmin?: boolean;
   db?: KoDb;
+  /** Körvyn/maskinen (Martin 2026-11-24): nya och ändrade kommentarer från andra kommer fram på sekunder — realtime på objektets rader, och en omläsning var `reservMs` som reserv när realtime tappar anslutningen. Av = som förut. */
+  live?: boolean;
+  /** Reserven (ms). Default LIVE_RESERV_MASKIN_MIN minuter. */
+  reservMs?: number;
 }
+
+/** Så länge samlas en skur av händelser till EN omläsning. */
+export const KOMMENTAR_LIVE_SAMLA_MS = 400;
 
 export interface KartkommentarerUt {
   /** Alla kommentarer för objektet (server + väntande), äldst först. */
@@ -84,6 +92,32 @@ export function useKartkommentarer(i: KartkommentarerIn): KartkommentarerUt {
     document.addEventListener('visibilitychange', synlig);
     return () => { av(); document.removeEventListener('visibilitychange', synlig); };
   }, [las]);
+
+  // Realtime: INSERT/UPDATE på objektets kommentarer (filtrerat på objekt_id hos servern, som markeringarna) → en samlad omläsning. Reserv: omläsning var minut medan sidan syns.
+  const live = !!i.live;
+  const reservMs = i.reservMs ?? LIVE_RESERV_MASKIN_MIN * 60_000;
+  useEffect(() => {
+    if (!live || !idNyckel) return;
+    let samla: ReturnType<typeof setTimeout> | null = null;
+    const snart = () => { if (samla) clearTimeout(samla); samla = setTimeout(() => { samla = null; void las(); }, KOMMENTAR_LIVE_SAMLA_MS); };
+    const klient = dbRef.current as any;
+    let kanal: any = null;
+    try {
+      if (typeof klient?.channel === 'function') {
+        kanal = klient.channel('kartkommentar-' + idNyckel);
+        for (const id of idNyckel.split(',')) {
+          for (const event of ['INSERT', 'UPDATE'] as const) kanal = kanal.on('postgres_changes', { event, schema: 'public', table: 'kartkommentar', filter: 'objekt_id=eq.' + id }, snart);
+        }
+        kanal = kanal.subscribe();
+      }
+    } catch { kanal = null; }
+    const iv = reservMs > 0 ? setInterval(() => { if (typeof document === 'undefined' || document.visibilityState === 'visible') void las(); }, reservMs) : null;
+    return () => {
+      if (samla) clearTimeout(samla);
+      if (iv) clearInterval(iv);
+      try { if (kanal) klient.removeChannel(kanal); } catch { /* */ }
+    };
+  }, [live, idNyckel, las, reservMs]);
 
   const rader = useMemo(() => {
     void koVersion;
