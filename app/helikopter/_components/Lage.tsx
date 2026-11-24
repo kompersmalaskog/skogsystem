@@ -54,7 +54,7 @@ function TrakRad({ b, t }: { b: TidsBar; t: Tidslinje }) {
   const farg = svar.ton === 'klar' ? FARG.text : FARG.orange
   return (
     <div data-tid-trakt={svar.ton} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
-      <span style={{ ...TYP.text, color: FARG.text, minWidth: 0, overflowWrap: 'anywhere' }}>{b.namn}</span>
+      <span style={{ ...TYP.text, color: FARG.text, minWidth: 0, overflowWrap: 'anywhere' }}>{b.namn}{b.vantar && <span data-tid-vantar="" style={{ display: 'block', ...TYP.meta, color: FARG.text2 }}>väntar på skördaren</span>}</span>
       <span style={{ ...TYP.meta, ...TNUM, color: farg, textAlign: 'right', flexShrink: 0, maxWidth: '55%' }}>
         {svar.klar}{svar.langd && <span style={{ display: 'block', color: FARG.text2 }}>{svar.langd}</span>}
       </span>

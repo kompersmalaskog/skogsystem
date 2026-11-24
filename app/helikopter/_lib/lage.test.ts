@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byggTavla, type TavlaIndata } from './tavla'
+import { byggTavla, koerFor, type TavlaIndata } from './tavla'
 import { barSvar, byggTidslinje, lageRutor, lageSvar, MIN_SKOTBART_M3 } from './lage'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
@@ -84,11 +84,18 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
     expect(t.dagar[5].dag).toBe('1 dec')
   })
 
-  it('skotaren: längden räknas på det som är fällt — Brokamåla (2 m³ fällt) ritas inte som 25 dagar utan väntar på skördaren', () => {
+  it('skotaren: Brokamåla (2 m³ fällt) väntar på skördaren — den tar de andra först och har ingen egen stapel före dem', () => {
     const ek = rad('EK26')
-    expect(ek.barer.find(b => b.namn.startsWith('Brokamåla'))).toBeUndefined()
-    expect(ek.not).toMatch(/Brokamåla väntar på skördaren/)
+    expect(ek.barer.find(b => b.namn.startsWith('Brokamåla'))?.start ?? 1).toBeGreaterThan(0)
     expect(2).toBeLessThan(MIN_SKOTBART_M3)
+  })
+
+  it('skotarens kö räknar på det som är fällt och hinner fällas — inte på hela traktens 4 314 m³', () => {
+    const { koer } = koerFor(indata())
+    const brok = koer.get('EK26')!.find(r => r.trakt.namn?.startsWith('Brokamåla') ?? r.trakt.objekt_id === '7469112c-9247-4250-bf32-73d63a76e284')
+    expect(brok).toBeDefined()
+    expect(brok!.kvar).toBeLessThan(4314)
+    expect(brok!.trakt.rest_volym).toBe(brok!.kvar)
   })
 
   it('Bondeskog: fällt 363 av kvar 395 → 2 dagar × 363/395; följande trakt börjar där den slutar', () => {

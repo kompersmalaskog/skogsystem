@@ -69,6 +69,9 @@ export function kvarVolym(t: KlarTrakt): number {
   return Math.max((t.volym ?? 0) - t.utfort_volym, 0)
 }
 
+/** Under så här mycket fällt och inte skotat (ungefär ett lass) finns inget att köra på trakten. */
+export const MIN_SKOTBART_M3 = 20
+
 const klar6 = (x: number) => Math.round(x * 1e6) / 1e6
 
 /** Maskinens kö i körordning, med hur mycket av varje trakt som hinns i månaden. Tolerant: en trakt utan prognos tar noll dagar. */
@@ -352,8 +355,30 @@ export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<strin
     : []
   const sista = klar?.sista_arbetsdag ?? ''
   const koer = new Map<string, KoRad[]>()
-  for (const m of klar?.maskiner ?? []) koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
-  return { trakter, koer, sista }
+  // Skördarna först: skotaren kan bara köra det som är fällt. Det som skördaren hinner fälla före månadens slut räknas med (samma kö, samma takt).
+  for (const m of klar?.maskiner ?? []) if (m.roll === 'skordare') koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
+  const skordNu = new Map<string, number>()
+  const skordTill = new Map<string, number>()
+  for (const t of trakter) if (t.roll === 'skordare') skordNu.set(t.objekt_id, t.utfort_volym)
+  for (const rader of koer.values()) for (const r of rader) skordTill.set(r.trakt.objekt_id, (skordTill.get(r.trakt.objekt_id) ?? 0) + r.kvar * r.andelIManaden)
+  const vantar = new Set<string>()
+  const skotbar = trakter.map((t): KlarTrakt => {
+    if (t.roll !== 'skotare' || t.rest_volym == null || t.rest_volym <= 0 || !skordNu.has(t.objekt_id)) return t
+    const nu = Math.max(0, skordNu.get(t.objekt_id)! - t.utfort_volym)
+    if (nu < MIN_SKOTBART_M3) vantar.add(t.objekt_id)
+    const skotbart = Math.max(0, nu + (skordTill.get(t.objekt_id) ?? 0))
+    if (skotbart >= t.rest_volym) return t
+    const faktor = skotbart / t.rest_volym
+    return { ...t, rest_volym: skotbart, timmar: t.timmar == null ? null : t.timmar * faktor }
+  })
+  for (const m of klar?.maskiner ?? []) {
+    if (m.roll === 'skordare') continue
+    const egna = skotbar.filter(t => t.maskin_id === m.maskin_id)
+    // En trakt där inget är fällt än väntar: maskinen tar de andra först (sortn rörs inte, bara körordningen).
+    const rader = ko(m, egna.map(t => (vantar.has(t.objekt_id) ? { ...t, sortn: t.sortn + 1_000_000 } : t)), sista, d.egna)
+    koer.set(m.maskin_id, rader.map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
+  }
+  return { trakter: skotbar, koer, sista }
 }
 
 export function byggTavla(d: TavlaIndata): Tavla {

@@ -7,10 +7,9 @@
 // Prognos saknas = streckad stapel ("tid saknas"), aldrig en påhittad längd. Inga imports av React eller Supabase.
 import { fmt } from './format'
 import type { KlarRoll } from './klar'
-import { koerFor, traktVy, type Tavla, type TavlaBlock, type TavlaIndata, type TavlaSpar } from './tavla'
+import { koerFor, MIN_SKOTBART_M3, traktVy, type Tavla, type TavlaBlock, type TavlaIndata, type TavlaSpar } from './tavla'
 
-/** Under så här mycket fällt och inte skotat (ungefär ett lass) finns inget att köra på trakten. */
-export const MIN_SKOTBART_M3 = 20
+export { MIN_SKOTBART_M3 }
 /** Så många arbetsdagar framåt ritas tidslinjen. */
 export const TIDSLINJE_DAGAR = 10
 
@@ -91,6 +90,8 @@ export type TidsBar = {
   fore: number
   /** Kort text i stapeln. */
   text: string
+  /** Inget är fällt än på trakten (skotare): den väntar på skördaren. */
+  vantar?: boolean
 }
 export type TidsRad = {
   maskin_id: string
@@ -152,7 +153,6 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
   for (const m of [...klar.maskiner].sort((a, b) => Number(b.roll === 'skotare') - Number(a.roll === 'skotare'))) {
     const ko = koer.get(m.maskin_id) ?? []
     const barer: TidsBar[] = []
-    const vantar: string[] = []
     const efterOkand: string[] = []
     let start = 0
     let okand = false
@@ -161,13 +161,9 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       // Inget kvar att köra på trakten (t.ex. GROT som redan är utkört): ingen stapel.
       if (r.kvar <= 0) continue
       const namn = traktVy(r, null, sista).namn
-      // Skotaren kan inte köra det som inte är fällt.
+      // Skotaren: längden är redan räknad på det som är fällt (och hinner fällas) i tavlans kö. Inget fällt än = väntar på skördaren.
       let faktor = 1
-      if (m.roll === 'skotare' && r.kvar > 0) {
-        const skotbart = Math.max(0, (skordat.get(t.objekt_id) ?? Infinity) - (skotat.get(t.objekt_id) ?? 0))
-        if (Number.isFinite(skotbart) && skotbart < MIN_SKOTBART_M3) { vantar.push(`${namn} väntar på skördaren`); continue }
-        faktor = Number.isFinite(skotbart) ? Math.min(1, skotbart / r.kvar) : 1
-      }
+      const vantar = m.roll === 'skotare' && r.kvar > 0 && skordat.has(t.objekt_id) && Math.max(0, (skordat.get(t.objekt_id) ?? 0) - (skotat.get(t.objekt_id) ?? 0)) < MIN_SKOTBART_M3
       // Skördaren: bara den del som behövs. En trakt som inte behövs ritas inte.
       if (m.roll === 'skordare') {
         if (inteBehovs.has(t.objekt_id)) continue
@@ -176,17 +172,17 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       }
       if (okand) { efterOkand.push(namn); continue }
       if (r.dagar == null) {
-        barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd: Math.max(TIDSLINJE_DAGAR - start, 0), stil: 'saknas', fore: 0, text: `${namn} · tid saknas` })
+        barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd: Math.max(TIDSLINJE_DAGAR - start, 0), stil: 'saknas', fore: 0, text: `${namn} · tid saknas`, vantar })
         okand = true
         continue
       }
       const langd = r.dagar * faktor
       const slutDag = start + langd
       const stil = slutDag <= slut + 1e-9 ? 'klar' : 'efter'
-      barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd, stil, fore: stil === 'efter' && langd > 0 ? Math.max(0, Math.min(1, (slut - start) / langd)) : 0, text: namn })
+      barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd, stil, fore: stil === 'efter' && langd > 0 ? Math.max(0, Math.min(1, (slut - start) / langd)) : 0, text: namn, vantar })
       start = slutDag
     }
-    const not = [...vantar, ...(efterOkand.length > 0 ? [`Sedan: ${efterOkand.join(', ')}`] : [])].join(' · ') || null
+    const not = [...(efterOkand.length > 0 ? [`Sedan: ${efterOkand.join(', ')}`] : [])].join(' · ') || null
     if (barer.length > 0 || not) rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer, not })
   }
   return { dagar: dagar.map((x, i) => dagEtikett(x, i === 0 ? null : dagar[i - 1])), slut, rader }
