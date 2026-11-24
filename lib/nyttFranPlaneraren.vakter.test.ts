@@ -47,7 +47,7 @@ describe('Nytt från — resten', () => {
     expect(k).toContain('LIVE_RESERV_MASKIN_MIN');
   });
   it('migrationen lägger kartkommentar i realtime-publikationen, idempotent, och ändrar ingen policy', () => {
-    const m = las('supabase/migrations/20261124150000_kartkommentar_realtime.sql');
+    const m = las('supabase/migrations/20261124160451_kartkommentar_realtime.sql');
     expect(m).toContain('alter publication supabase_realtime add table public.kartkommentar');
     expect(m).toContain('if not exists');
     expect(m).not.toMatch(/create policy|alter policy|drop policy/i);
