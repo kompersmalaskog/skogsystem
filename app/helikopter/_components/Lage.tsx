@@ -11,6 +11,17 @@ import { lageRutor, lageSvar, type Ruta, type TidsBar, type TidsRad, type Tidsli
 import type { Tavla as TavlaVy, TavlaSpar } from '../_lib/tavla'
 import type { PlaneraRoll } from './Tavla'
 
+/** Från så här bred sida (container query) står de fyra rutorna i en rad. */
+const FYRA_RUTOR_PX = 800
+const LAGE_CSS = `
+.lage-rutor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.rad}px; }
+@container (min-width: ${FYRA_RUTOR_PX}px) { .lage-rutor { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Smala staplar: på smal sida står namnet under raden, på bred sida ryms det i stapeln. */
+.tid-t-smal { display: none; }
+.tid-under-smal { display: block; }
+@container (min-width: ${FYRA_RUTOR_PX}px) { .tid-t-smal { display: inline; } .tid-under-smal { display: none; } }
+`
+
 const STAPEL_HOJD = AVSTAND.s
 const BAR_HOJD = TRAFFYTA.min - AVSTAND.s
 const tonFarg = (ton: Ruta['ton']) => (ton === 'orange' ? FARG.orange : ton === 'gron' ? FARG.gron : FARG.text2)
@@ -53,7 +64,7 @@ function Stapel({ b, farg, n }: { b: TidsBar; farg: string; n: number }) {
   const fore = b.langd > 0 ? Math.min(1, (b.fore * b.langd) / Math.max(bredd, 1e-9)) : 0
   const bg = b.stil === 'efter' ? `linear-gradient(90deg, ${farg} ${fore * 100}%, ${FARG.orange} ${fore * 100}%)` : farg
   const smal = arSmal(b, n)
-  return <span data-tid-stapel={b.stil} title={b.text} style={{ ...bas, background: bg, color: FARG.bg }}>{smal ? '' : b.text}</span>
+  return <span data-tid-stapel={b.stil} title={b.text} style={{ ...bas, background: bg, color: FARG.bg }}><span className={smal ? 'tid-t-smal' : undefined}>{b.text}</span></span>
 }
 
 function MaskinRad({ r, slut, antal }: { r: TidsRad; slut: number; antal: number }) {
@@ -70,7 +81,7 @@ function MaskinRad({ r, slut, antal }: { r: TidsRad; slut: number; antal: number
           <span aria-hidden="true" style={{ position: 'absolute', top: -AVSTAND.xs, bottom: -AVSTAND.xs, left: `${(slut / antal) * 100}%`, width: AVSTAND.xs / 2, marginLeft: -AVSTAND.xs / 4, background: FARG.orange, borderRadius: AVSTAND.xs / 4 }} />
         </div>
       )}
-      {r.barer.some(b => arSmal(b, antal)) && <div data-tid-smal="" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.barer.filter(b => arSmal(b, antal)).map(b => b.namn).join(' · ')}</div>}
+      {r.barer.some(b => arSmal(b, antal)) && <div data-tid-smal="" className="tid-under-smal" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.barer.filter(b => arSmal(b, antal)).map(b => b.namn).join(' · ')}</div>}
       {r.not && <div data-tid-not="" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.not}</div>}
     </div>
   )
@@ -111,14 +122,16 @@ export default function Lage({ tavla, status, onSpar, tidslinje }: {
   const rutor = lageRutor(tavla)
   if (rutor.length === 0) return <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Ingen beställning inlagd</div>
   return (
-    <div data-lage="">
+    // Läget tar hela sidans bredd (gridColumn): rutorna och tidslinjen delar inte kolumn med "Mer".
+    <div data-lage="" style={{ gridColumn: '1 / -1', minWidth: 0 }}>
+      <style>{LAGE_CSS}</style>
       <div data-lage-svar="" style={{ marginBottom: AVSTAND.xl }}>
         <h2 style={{ margin: 0, ...TYP.titel, color: FARG.text }}>{svar.rad1}</h2>
         {svar.rad2 && <h2 style={{ margin: 0, ...TYP.titel, color: svar.avvikelse ? FARG.orange : FARG.gron }}>{svar.rad2}</h2>}
         {svar.under && <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.text, color: FARG.text2 }}>{svar.under}</p>}
       </div>
       <Sektion rubrik="Mot beställningen" kort={false}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: AVSTAND.rad }}>
+        <div className="lage-rutor">
           {rutor.map(r => <RutaKort key={`${r.typ}:${r.roll}`} r={r} onOppna={() => onSpar(r.typ, r.roll)} />)}
         </div>
       </Sektion>
