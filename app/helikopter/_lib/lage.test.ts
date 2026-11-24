@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { byggTavla, type TavlaIndata } from './tavla'
-import { byggTidslinje, lageRutor, lageSvar, MIN_SKOTBART_M3 } from './lage'
+import { barSvar, byggTidslinje, lageRutor, lageSvar, MIN_SKOTBART_M3 } from './lage'
 import type { KlarData, KlarMaskin, KlarTrakt } from './klar'
 import type { SparLage } from './berakningar'
 
@@ -122,5 +122,20 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
   it('ingen tidslinje i en månad som inte pågår eller utan köunderlag', () => {
     expect(byggTidslinje(indata({ status: 'avslutad' }), byggTavla(indata()))).toBeNull()
     expect(byggTidslinje(indata({ klar: null }), byggTavla(indata()))).toBeNull()
+  })
+})
+
+describe('barSvar — ord i stället för tidsaxel', () => {
+  const t = { dagar: [{ dag: '24', vdag: 'tis' }, { dag: '25', vdag: 'ons' }, { dag: '26', vdag: 'tors' }], slut: 3, rader: [] }
+  const bar = (start: number, langd: number, stil: 'klar' | 'efter' | 'saknas') => ({ id: 'x', namn: 'X', start, langd, stil, fore: 0, text: 'X' })
+  it('klar inom månaden: dag och längd', () => {
+    expect(barSvar(bar(0, 2, 'klar'), t)).toEqual({ langd: '2 dagar', klar: 'klar ons 25', ton: 'klar' })
+    expect(barSvar(bar(0, 0.4, 'klar'), t).langd).toBe('under 1 dag')
+  })
+  it('efter månadens slut säger bara det', () => {
+    expect(barSvar(bar(1, 5, 'efter'), t)).toEqual({ langd: '5 dagar', klar: 'klar efter månadens slut', ton: 'efter' })
+  })
+  it('prognos saknas: "tid saknas", ingen längd', () => {
+    expect(barSvar(bar(0, 3, 'saknas'), t)).toEqual({ langd: '', klar: 'tid saknas', ton: 'saknas' })
   })
 })

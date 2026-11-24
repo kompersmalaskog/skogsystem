@@ -108,6 +108,17 @@ export type Tidslinje = {
   rader: TidsRad[]
 }
 
+/** Ett svar i ord per trakt: hur länge och när den är klar. "tid saknas" när prognosen saknas — aldrig en gissad dag. */
+export type BarSvar = { langd: string; klar: string; ton: TidsBar['stil'] }
+export function barSvar(b: TidsBar, t: Tidslinje): BarSvar {
+  if (b.stil === 'saknas') return { langd: '', klar: 'tid saknas', ton: 'saknas' }
+  const langd = b.langd < 1 ? 'under 1 dag' : b.langd < 1.5 ? '1 dag' : `${Math.round(b.langd)} dagar`
+  // Efter månadens slut är det enda som räknas — datumet därefter är ingen nytta för den som läser.
+  if (b.stil === 'efter') return { langd, klar: 'klar efter månadens slut', ton: 'efter' }
+  const d = t.dagar[Math.min(Math.max(0, Math.ceil(b.start + b.langd - 1e-9) - 1), t.dagar.length - 1)]
+  return { langd, klar: `klar ${d.vdag} ${d.dag}`, ton: 'klar' }
+}
+
 const VDAG = ['sön', 'mån', 'tis', 'ons', 'tors', 'fre', 'lör']
 const MAN = ['jan', 'feb', 'mars', 'apr', 'maj', 'juni', 'juli', 'aug', 'sep', 'okt', 'nov', 'dec']
 function dagEtikett(iso: string, forra: string | null): { dag: string; vdag: string } {

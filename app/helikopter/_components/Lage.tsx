@@ -4,10 +4,10 @@
 // En stapel som korsar den orange linjen (månadens slut) hinner inte. Ruta = ett tryck till Planera för spåret. Logiken är _lib/lage.ts; den här filen ritar.
 // Förut: ett kort per spår och maskintyp med stapel, och en lista över trakterna under. Ordet och talet är samma som förut — bara upplägget är nytt.
 import Sektion from '@/components/design/Sektion'
-import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/design/tokens'
+import { AVSTAND, FARG, KORT, RADIE, TNUM, TYP } from '@/lib/design/tokens'
 import { rollFarg } from '@/lib/sparStil'
 import { fmt } from '../_lib/format'
-import { lageRutor, lageSvar, type Ruta, type TidsBar, type TidsRad, type Tidslinje } from '../_lib/lage'
+import { barSvar, lageRutor, lageSvar, type Ruta, type TidsBar, type TidsRad, type Tidslinje } from '../_lib/lage'
 import type { Tavla as TavlaVy, TavlaSpar } from '../_lib/tavla'
 import type { PlaneraRoll } from './Tavla'
 
@@ -16,14 +16,11 @@ const FYRA_RUTOR_PX = 800
 const LAGE_CSS = `
 .lage-rutor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: ${AVSTAND.rad}px; }
 @container (min-width: ${FYRA_RUTOR_PX}px) { .lage-rutor { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-/* Smala staplar: på smal sida står namnet under raden, på bred sida ryms det i stapeln. */
-.tid-t-smal { display: none; }
-.tid-under-smal { display: block; }
-@container (min-width: ${FYRA_RUTOR_PX}px) { .tid-t-smal { display: inline; } .tid-under-smal { display: none; } }
+.lage-maskiner { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.rad}px; align-items: start; }
+@container (min-width: ${FYRA_RUTOR_PX}px) { .lage-maskiner { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 `
 
 const STAPEL_HOJD = AVSTAND.s
-const BAR_HOJD = TRAFFYTA.min - AVSTAND.s
 const tonFarg = (ton: Ruta['ton']) => (ton === 'orange' ? FARG.orange : ton === 'gron' ? FARG.gron : FARG.text2)
 const pst = (x: number, av: number) => `${Math.max(0, Math.min(100, av > 0 ? (x / av) * 100 : 0))}%`
 
@@ -52,66 +49,35 @@ function RutaKort({ r, onOppna }: { r: Ruta; onOppna: () => void }) {
   )
 }
 
-/** Under så här stor andel av raden får namnet inte plats i stapeln — det står då under raden. */
-const SMAL_ANDEL = 0.22
-const arSmal = (b: TidsBar, n: number) => b.stil !== 'saknas' && Math.min(b.langd, n - b.start) / n < SMAL_ANDEL
-
-function Stapel({ b, farg, n }: { b: TidsBar; farg: string; n: number }) {
-  // Stapeln ritas aldrig utanför de dagar som visas; den som fortsätter längre än så slutar vid kanten.
-  const bredd = Math.max(0, Math.min(b.langd, n - b.start))
-  const bas = { position: 'absolute', top: 0, height: BAR_HOJD, left: `${(b.start / n) * 100}%`, width: `${(bredd / n) * 100}%`, borderRadius: RADIE.rad, display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.s}px`, boxSizing: 'border-box', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', ...TYP.meta, fontWeight: 600 } as const
-  if (b.stil === 'saknas') return <span data-tid-stapel="saknas" title={b.text} style={{ ...bas, border: `1px dashed ${FARG.orange}`, color: FARG.orange }}>{b.text}</span>
-  const fore = b.langd > 0 ? Math.min(1, (b.fore * b.langd) / Math.max(bredd, 1e-9)) : 0
-  const bg = b.stil === 'efter' ? `linear-gradient(90deg, ${farg} ${fore * 100}%, ${FARG.orange} ${fore * 100}%)` : farg
-  const smal = arSmal(b, n)
-  return <span data-tid-stapel={b.stil} title={b.text} style={{ ...bas, background: bg, color: FARG.bg }}><span className={smal ? 'tid-t-smal' : undefined}>{b.text}</span></span>
+function TrakRad({ b, t }: { b: TidsBar; t: Tidslinje }) {
+  const svar = barSvar(b, t)
+  const farg = svar.ton === 'klar' ? FARG.text : FARG.orange
+  return (
+    <div data-tid-trakt={svar.ton} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.m, padding: `${AVSTAND.s}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
+      <span style={{ ...TYP.text, color: FARG.text, minWidth: 0, overflowWrap: 'anywhere' }}>{b.namn}</span>
+      <span style={{ ...TYP.meta, ...TNUM, color: farg, textAlign: 'right', flexShrink: 0, maxWidth: '55%' }}>
+        {svar.klar}{svar.langd && <span style={{ display: 'block', color: FARG.text2 }}>{svar.langd}</span>}
+      </span>
+    </div>
+  )
 }
 
-function MaskinRad({ r, slut, antal }: { r: TidsRad; slut: number; antal: number }) {
+function MaskinKort({ r, t }: { r: TidsRad; t: Tidslinje }) {
   const farg = rollFarg(r.roll)
   return (
-    <div data-tid-maskin={r.maskin_id} style={{ marginBottom: AVSTAND.m }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel, marginBottom: AVSTAND.s }}>
+    <div data-tid-maskin={r.maskin_id} style={{ ...KORT, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, ...TYP.listtitel, marginBottom: AVSTAND.xs }}>
         <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
         {r.namn}<span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 400 }}>{r.roll === 'skordare' ? 'skördare' : 'skotare'}</span>
       </div>
-      {r.barer.length > 0 && (
-        <div style={{ position: 'relative', height: BAR_HOJD }}>
-          {r.barer.map(b => <Stapel key={b.id} b={b} farg={farg} n={antal} />)}
-          <span aria-hidden="true" style={{ position: 'absolute', top: -AVSTAND.xs, bottom: -AVSTAND.xs, left: `${(slut / antal) * 100}%`, width: AVSTAND.xs / 2, marginLeft: -AVSTAND.xs / 4, background: FARG.orange, borderRadius: AVSTAND.xs / 4 }} />
-        </div>
-      )}
-      {r.barer.some(b => arSmal(b, antal)) && <div data-tid-smal="" className="tid-under-smal" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.barer.filter(b => arSmal(b, antal)).map(b => b.namn).join(' · ')}</div>}
-      {r.not && <div data-tid-not="" style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{r.not}</div>}
+      {r.barer.map(b => <TrakRad key={b.id} b={b} t={t} />)}
+      {r.not && <div data-tid-not="" style={{ ...TYP.meta, color: FARG.text2, paddingTop: AVSTAND.s, borderTop: `1px solid ${FARG.linje}` }}>{r.not}</div>}
     </div>
   )
 }
 
-function TidslinjeKort({ t }: { t: Tidslinje }) {
-  const n = t.dagar.length
-  // Etiketten står över linjen, men aldrig utanför kortet: ligger linjen nära en kant lutar etiketten inåt.
-  const andel = t.slut / n
-  const slutLage = andel > 0.8 ? { right: 0 } : andel < 0.2 ? { left: 0 } : { left: `${andel * 100}%`, transform: 'translateX(-50%)' }
-  return (
-    <div data-tidslinje="" style={{ ...KORT }}>
-      <div style={{ position: 'relative', paddingTop: AVSTAND.l }}>
-        <span data-tid-slut="" style={{ position: 'absolute', top: 0, ...slutLage, ...TYP.micro, color: FARG.orange, whiteSpace: 'nowrap' }}>Månadens slut</span>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, textAlign: 'center', marginBottom: AVSTAND.m }}>
-          {t.dagar.map((d, i) => (
-            <span key={i} style={{ display: 'flex', flexDirection: 'column', ...TYP.meta, ...TNUM, color: FARG.text2, minWidth: 0 }}>
-              <span style={{ color: FARG.text }}>{d.dag}</span><span style={{ ...TYP.micro, color: FARG.text3 }}>{d.vdag}</span>
-            </span>
-          ))}
-        </div>
-      </div>
-      {t.rader.map(r => <MaskinRad key={r.maskin_id} r={r} slut={t.slut} antal={n} />)}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.l, ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: FARG.text2 }} />klar i november</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: AVSTAND.xs, background: FARG.orange }} />efter månadens slut</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s }}><span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.s, borderRadius: AVSTAND.xs, border: `1px dashed ${FARG.orange}`, boxSizing: 'border-box' }} />prognos saknas</span>
-      </div>
-    </div>
-  )
+function Maskiner({ t }: { t: Tidslinje }) {
+  return <div data-tidslinje="" className="lage-maskiner">{t.rader.map(r => <MaskinKort key={r.maskin_id} r={r} t={t} />)}</div>
 }
 
 /** `tidslinje` = null: månaden pågår inte, eller köunderlaget saknas (då står ingen tom tidslinje — rutorna och svaret räcker). */
@@ -136,8 +102,8 @@ export default function Lage({ tavla, status, onSpar, tidslinje }: {
         </div>
       </Sektion>
       {tidslinje && tidslinje.rader.length > 0 && (
-        <Sektion rubrik="Vem gör vad, dag för dag" kort={false}>
-          <TidslinjeKort t={tidslinje} />
+        <Sektion rubrik="Vem kör vad" kort={false}>
+          <Maskiner t={tidslinje} />
         </Sektion>
       )}
     </div>
