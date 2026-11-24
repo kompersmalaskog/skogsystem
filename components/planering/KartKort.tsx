@@ -13,6 +13,7 @@
 //   Foto                           ← bara när det finns foton
 //   [Kommentar] [Foto] [Röst]      ← EN rad, tre lika knappar (ikon + kort text, ≥ 44 px); en knapp som inte får användas finns inte
 //   <nederst>                      ← ljud, flytta, radera …
+//   (stapel)                       ← ligger flera ytor över varandra under trycket visas de i SAMMA blad efter varandra (`fler`), var och en med eget huvud, kommentarer och åtgärder
 //
 // Tomma sektioner finns inte: en rubrik står bara när det finns något under den. Skriver man en kommentar ersätter skrivfältet åtgärdsraden på samma plats.
 //
@@ -88,6 +89,9 @@ export interface KartKortProps {
   testid?: string;
   /** "‹ Lista": kortet öppnades från förarens lista (Hela trakten) — tillbaka dit. Saknas = ingen knapp. */
   tillbaka?: { etikett: string; onClick: () => void };
+  /** Ytor som ligger över varandra under samma tryck (Hänsyn 3 och en fornlämningsyta): STAPLAS i samma blad, den första i `fler` efter huvudkortet, var och en med eget huvud, kommentarer och
+   *  åtgärder. En enda yta → inget `fler`, och kortet ser ut som alltid. */
+  fler?: Omit<KartKortProps, 'onStang' | 'fler' | 'tillbaka' | 'testid'>[];
 }
 
 export interface KartKortRost {
@@ -102,14 +106,13 @@ export interface KartKortRost {
 /** Markerar det som ska stå under fotona (åtgärder, ljud, vägkontroll …). */
 export function KartKortNederst({ children }: { children?: React.ReactNode }) { return <>{children}</>; }
 
-export function KartKort(p: KartKortProps) {
+/** Själva innehållet i ett kort (huvud, kommentarer, mening, målbild, delar, foton, åtgärder, nederst). Ett kort = ett innehåll; en stapel av överlappande ytor (`fler`) är flera innehåll i samma blad. */
+function KartKortInnehall({ p, las, utanStang }: { p: KartKortProps; las: boolean; utanStang?: boolean }) {
   const g = GRUPPER[p.grupp];
   const barn = React.Children.toArray(p.children);
   const arNederst = (c: React.ReactNode) => React.isValidElement(c) && c.type === KartKortNederst;
   const delar = barn.filter((c) => !arNederst(c));
   const nederst = barn.filter(arNederst);
-  const [svepY, setSvepY] = useState(0);
-  const svepStart = useRef<number | null>(null);
   const [skriverNy, setSkriverNy] = useState(false);
   const [nyText, setNyText] = useState('');
   const [nyViktigt, setNyViktigt] = useState('');
@@ -117,41 +120,9 @@ export function KartKort(p: KartKortProps) {
   const harKommentarer = !!p.kommentarer && p.kommentarer.length > 0;
   const harVida = kommentarPunkter(p.vidaKommentar).length > 0;
   const harFoton = p.foton.length > 0;
-  // LÄSLÄGE (Martin 2026-11-12): kortet öppnades ur förarens lista (Hela trakten). Föraren läser — han redigerar inte.
-  // Kortet ligger där listan satt (till höger på bred skärm, kartan syns), ingen mening som upprepar kommentaren, litet foto,
-  // bara "Kommentar" kvar av åtgärderna, inget "Ta bort", och vägen tillbaka till listan är en tydlig knapp.
-  const las = !!p.tillbaka;
-  const lasBred = las && typeof window !== 'undefined' && window.innerWidth >= 900;
   const harAtgarder = kanKommentera || (!las && (!!p.onLaggTillFoto || !!p.rost));
   return (
-    <div
-      data-testid={p.testid ?? 'kartkort'}
-      data-grupp={p.grupp}
-      data-las={las ? '1' : undefined}
-      style={{ position: 'fixed', inset: 0, background: lasBred ? 'transparent' : `${FARG.bg}40`, zIndex: 300, display: 'flex', alignItems: lasBred ? 'stretch' : 'flex-end', justifyContent: lasBred ? 'flex-end' : 'center', padding: lasBred ? AVSTAND.s : 0 }}
-      onClick={p.onStang}
-    >
-      <style>{designCss}</style>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%', maxWidth: lasBred ? oversiktPanelBredd(window.innerWidth) : 560, maxHeight: lasBred ? undefined : '82vh', display: 'flex', flexDirection: 'column', background: FARG.kort, border: `1px solid ${FARG.linje}`, borderBottom: lasBred ? undefined : 'none',
-          borderRadius: lasBred ? RADIE.sheet : undefined,
-          borderTopLeftRadius: RADIE.sheet, borderTopRightRadius: RADIE.sheet, paddingBottom: 'env(safe-area-inset-bottom, 0px)', transform: `translateY(${svepY}px)`,
-          transition: svepStart.current == null ? 'transform 0.25s cubic-bezier(0.32,0.72,0,1)' : 'none',
-        }}
-      >
-        {/* Grepp: svep nedåt stänger */}
-        <div
-          style={{ flexShrink: 0, padding: `${AVSTAND.m}px 0 ${AVSTAND.s}px`, display: 'flex', justifyContent: 'center', touchAction: 'none' }}
-          onTouchStart={(e) => { svepStart.current = e.touches[0].clientY; }}
-          onTouchMove={(e) => { if (svepStart.current != null) setSvepY(Math.max(0, e.touches[0].clientY - svepStart.current)); }}
-          onTouchEnd={() => { const y = svepY; svepStart.current = null; if (y > SVEP_STANG_PX) p.onStang(); else setSvepY(0); }}
-        >
-          <div style={{ width: 40, height: 5, borderRadius: RADIE.rad, background: FARG.text3 }} />
-        </div>
-
-        <div style={{ overflowY: 'auto', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+    <>
           {/* Huvud: ikon, "Namn · Grupp", larmregel (inte för Info — det larmar aldrig), ✕ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.l }}>
             <span data-testid="kartkort-ikon" style={{ flexShrink: 0, display: 'flex' }}>{p.ikon}</span>
@@ -161,10 +132,10 @@ export function KartKort(p: KartKortProps) {
               </div>
               {p.grupp !== 'info' && <div data-testid="kartkort-larmregel" style={{ ...TYP.meta, color: FARG.text2 }}>{p.larmRegel}</div>}
             </div>
-            <button type="button" aria-label="Stäng" onClick={p.onStang} data-testid="kartkort-stang" className="press-dim"
+            {!utanStang && (<button type="button" aria-label="Stäng" onClick={p.onStang} data-testid="kartkort-stang" className="press-dim"
               style={{ flexShrink: 0, alignSelf: 'flex-start', width: TRAFFYTA.min, height: TRAFFYTA.min, margin: `-${AVSTAND.xs}px -${AVSTAND.s}px 0 0`, padding: 0, border: 'none', background: 'transparent', color: FARG.text2, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span className="material-symbols-outlined" aria-hidden style={{ fontSize: IKON.rad }}>close</span>
-            </button>
+            </button>)}
           </div>
           {/* Det unika om just den här punkten först: kommentarerna direkt under huvudet, var sin ruta — bara när det finns några. Målbilden är EN rad under dem (aldrig utfälld). */}
           {(harVida || (p.kommentarer && harKommentarer)) && (
@@ -198,6 +169,53 @@ export function KartKort(p: KartKortProps) {
           {p.fotoFel && <div data-testid="kartkort-foto-fel" style={{ ...TYP.meta, color: FARG.rod }}>{p.fotoFel}</div>}
 
           {!las && nederst}
+    </>
+  );
+}
+
+export function KartKort(p: KartKortProps) {
+  const [svepY, setSvepY] = useState(0);
+  const svepStart = useRef<number | null>(null);
+  // LÄSLÄGE (Martin 2026-11-12): kortet öppnades ur förarens lista (Hela trakten). Föraren läser — han redigerar inte.
+  // Kortet ligger där listan satt (till höger på bred skärm, kartan syns), ingen mening som upprepar kommentaren, litet foto,
+  // bara "Kommentar" kvar av åtgärderna, inget "Ta bort", och vägen tillbaka till listan är en tydlig knapp.
+  const las = !!p.tillbaka;
+  const lasBred = las && typeof window !== 'undefined' && window.innerWidth >= 900;
+  return (
+    <div
+      data-testid={p.testid ?? 'kartkort'}
+      data-grupp={p.grupp}
+      data-las={las ? '1' : undefined}
+      style={{ position: 'fixed', inset: 0, background: lasBred ? 'transparent' : `${FARG.bg}40`, zIndex: 300, display: 'flex', alignItems: lasBred ? 'stretch' : 'flex-end', justifyContent: lasBred ? 'flex-end' : 'center', padding: lasBred ? AVSTAND.s : 0 }}
+      onClick={p.onStang}
+    >
+      <style>{designCss}</style>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: '100%', maxWidth: lasBred ? oversiktPanelBredd(window.innerWidth) : 560, maxHeight: lasBred ? undefined : '82vh', display: 'flex', flexDirection: 'column', background: FARG.kort, border: `1px solid ${FARG.linje}`, borderBottom: lasBred ? undefined : 'none',
+          borderRadius: lasBred ? RADIE.sheet : undefined,
+          borderTopLeftRadius: RADIE.sheet, borderTopRightRadius: RADIE.sheet, paddingBottom: 'env(safe-area-inset-bottom, 0px)', transform: `translateY(${svepY}px)`,
+          transition: svepStart.current == null ? 'transform 0.25s cubic-bezier(0.32,0.72,0,1)' : 'none',
+        }}
+      >
+        {/* Grepp: svep nedåt stänger */}
+        <div
+          style={{ flexShrink: 0, padding: `${AVSTAND.m}px 0 ${AVSTAND.s}px`, display: 'flex', justifyContent: 'center', touchAction: 'none' }}
+          onTouchStart={(e) => { svepStart.current = e.touches[0].clientY; }}
+          onTouchMove={(e) => { if (svepStart.current != null) setSvepY(Math.max(0, e.touches[0].clientY - svepStart.current)); }}
+          onTouchEnd={() => { const y = svepY; svepStart.current = null; if (y > SVEP_STANG_PX) p.onStang(); else setSvepY(0); }}
+        >
+          <div style={{ width: 40, height: 5, borderRadius: RADIE.rad, background: FARG.text3 }} />
+        </div>
+
+        <div style={{ overflowY: 'auto', padding: `${AVSTAND.xs}px ${AVSTAND.xl}px ${AVSTAND.xl}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.l }}>
+          <KartKortInnehall p={p} las={las} />
+          {(p.fler ?? []).map((q, i) => (
+            <div key={i} data-testid="kartkort-stapel-del" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, paddingTop: AVSTAND.l, borderTop: `1px solid ${FARG.linje}` }}>
+              <KartKortInnehall p={{ ...q, onStang: p.onStang }} las={las} utanStang />
+            </div>
+          ))}
           {p.tillbaka && (
             <button type="button" data-testid="kartkort-tillbaka" onClick={p.tillbaka.onClick} className="press-dim"
               style={{ ...KNAPP.sekundar, minHeight: TRAFFYTA.primar, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: AVSTAND.s, color: FARG.text }}>

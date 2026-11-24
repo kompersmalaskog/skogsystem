@@ -46,7 +46,7 @@ const txt = (v: any): string => (v == null ? '' : String(v).trim());
 export function traktArealHa(props: Record<string, any>): number | null {
   const aHa = num(props['AREA_HA']);
   if (Number.isFinite(aHa) && aHa > 0) return aHa;
-  const aM2 = num(props['SHAPE.STAr'] ?? props['SHAPE_STAr'] ?? props['Shape_Area']);
+  const aM2 = num(props['SHAPE.STAr'] ?? props['SHAPE_STAr'] ?? props['Shape_Area'] ?? props['_arealM2']);   // _arealM2: räknad ur geometrin för ytor som saknar Vidas areal (lib/traktAreal)
   return Number.isFinite(aM2) && aM2 > 0 ? aM2 / 10000 : null;
 }
 
