@@ -64,7 +64,8 @@ describe('Läget — Kontrollerna (Skogforsk 2026-11-18)', () => {
     expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('2 kontroller');
     expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('1 slumpvalda');
     expect(s.querySelector('[data-rad="kyla"]')!.textContent).toContain('1 av 2');
-    expect(s.querySelector('[data-rad="idag"]')!.textContent).toMatch(/av 2/);
+    expect(s.querySelector('[data-rad="idag"]')!.textContent).toMatch(/Gjord|Inte än/);
+    expect(s.querySelector('[data-rad="idag"]')!.textContent).not.toMatch(/av 2|två gånger/);
     const m = s.querySelector<HTMLElement>('[data-rad="matdon"]')!;
     expect(m.textContent).toContain('Aldrig kollade');
     expect(m.textContent).toContain('Dags att kolla');
