@@ -797,15 +797,3 @@ export async function hamtaKorNu(fran: string): Promise<Svar<KorNu[]>> {
     return { data: null, error: felText(e) }
   }
 }
-
-/** Vad varje maskin faktiskt gjort per dag och trakt i månaden (helikopter_kalender_matt) — mätt, inget beräknat. Kalender-sidan. */
-export type KalenderMatt = { maskin_id: string; datum: string; objekt_id: string | null; namn: string | null; volym: number }
-export async function hamtaKalenderMatt(ar: number, manad: number): Promise<Svar<KalenderMatt[]>> {
-  try {
-    const r = await supabase.rpc('helikopter_kalender_matt', { p_ar: ar, p_manad: manad })
-    if (r.error) return { data: null, error: felText(r.error) }
-    return { data: ((r.data ?? []) as any[]).map(x => ({ maskin_id: String(x.maskin_id), datum: String(x.datum), objekt_id: x.objekt_id == null ? null : String(x.objekt_id), namn: x.namn ?? null, volym: Number(x.volym) || 0 })), error: null }
-  } catch (e) {
-    return { data: null, error: felText(e) }
-  }
-}

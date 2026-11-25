@@ -28,17 +28,16 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, hamtaKorNu, type KorNu, hamtaKalenderMatt, type KalenderMatt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, hamtaKorNu, type KorNu, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
-import { medPrognoser, raknaAlla } from '../_lib/klar'
-import { kalenderRader } from '../_lib/kalender'
+import { medPrognoser } from '../_lib/klar'
 import Kalender from './Kalender'
 import type { SkogKort } from '@/lib/skogsdata/las'
 import { byggForslag, byggPrognos } from '../_lib/prognos'
-import { arKorAnnat, byggTidslinje } from '../_lib/lage'
+import { byggTidslinje } from '../_lib/lage'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -286,20 +285,6 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [status, version])
 
-  // Kalendern: vad maskinerna faktiskt gjort per dag i månaden (mätt). Läses bara när sidan är öppen.
-  const [kalMatt, setKalMatt] = useState<KalenderMatt[] | null>(null)
-  const [kalFel, setKalFel] = useState(false)
-  useEffect(() => {
-    if (sida !== 'kalender') return
-    setKalMatt(null); setKalFel(false)
-    let avbruten = false
-    hamtaKalenderMatt(ar, manad).then(r => {
-      if (avbruten) return
-      if (r.error != null) { console.error('[helikopter] kalender', r.error); setKalFel(true) } else setKalMatt(r.data)
-    })
-    return () => { avbruten = true }
-  }, [sida, ar, manad, version])
-
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -482,8 +467,7 @@ export default function HelikopterVy() {
                   )}
                   {sida === 'kalender' ? (
                     <div data-sida="kalender">
-                      <Kalender ar={ar} manad={manad} idag={idag} matt={kalFel ? 'fel' : kalMatt == null ? 'laser' : 'klar'}
-                        rader={klarData && tavla && kalMatt ? kalenderRader({ klar: klarData, planer: raknaAlla(klarData), matt: kalMatt, idag, senaste: senaste ?? undefined, korAnnat: new Set(klarData.maskiner.filter(m => arKorAnnat(tavla, m)).map(m => m.maskin_id)) }) : []} />
+                      <Kalender tidslinje={tidslinje} korNu={korNu} manadNamn={MANAD_NAMN[manad - 1]} ar={ar} />
                     </div>
                   ) : sida === 'planera' ? (
                     <div data-sida="planera">
