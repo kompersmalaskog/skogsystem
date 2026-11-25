@@ -1,4 +1,5 @@
 "use client";
+import { utanMaskinkonton } from "@/lib/admin/utanMaskinkonton";
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -45,11 +46,11 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
     setLaddar(true); setFel(null);
     try {
       const [medRes, valRes] = await Promise.all([
-        supabase.from("medarbetare").select("id, namn").order("namn"),
+        supabase.from("medarbetare").select("id, namn, roll").order("namn"),
         supabase.from("atk_val").select("*").eq("period", period),
       ]);
       if (medRes.error) throw medRes.error;
-      setMedarbetare(medRes.data || []);
+      setMedarbetare(utanMaskinkonton(medRes.data));
       const map: Record<string, AtkVal> = {};
       for (const v of (valRes.data || [])) map[v.medarbetare_id] = v;
       setVal(map);
