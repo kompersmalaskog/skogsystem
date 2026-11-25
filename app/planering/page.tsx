@@ -141,7 +141,8 @@ import { dagManad } from '@/lib/klarFormat';
 import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
-import { oppnaRing, slutRing, taBortHorn, kantMittpunkter, ringMitt, forenklaRing, skjutInSteg, angraSteg, ringAvtryck } from '../../lib/ringEdit'
+import { slutRing, ringMitt, ringAvtryck } from '../../lib/ringEdit'
+import { byggTopologi, justeraDelar, ringar as topRingar, unikaHorn, unikaKanter, flyttaHorn as topFlytta, laggTillHorn as topLaggTill, taBortHorn as topTaBort, skjutInSteg, angraSteg, antalHorn, type Topologi } from '../../lib/traktTopologi'
 import { kopplaHornRedigering } from '../../lib/hornRedigering'
 import { valjKlickKategori, kategoriForLager, bastaKategoriFeatures, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { vinnandeKategoriNara, narmasteTraff, ragangToleransM, stapelOrdning, stapelRang } from '../../lib/klickNara'
@@ -1219,8 +1220,11 @@ export default function PlannerPage() {
     }
   }, [valtObjekt?.id, currentMedarbetare?.id, currentMedarbetare?.namn]);
 
+  // Radera en justerad del: frågan "bara den här delen eller alla justerade delar (tillbaka till Vidas)?" visas i kortet när objektet har fler än en justerad del.
+  const [raderaFraga, setRaderaFraga] = useState(false);
   // Stäng trakt-kortet + nollställ dess anteckning-/område-state.
   const stangTraktKort = () => {
+    setRaderaFraga(false);
     setTraktInfo(null); setTraktKortNyckel(null); setTraktKortVida(null);
     setAnteckningSkrivlage(false); setAnteckningFel(null); setTraktKortSvepY(0);
   };
@@ -1248,13 +1252,16 @@ export default function PlannerPage() {
     const ringLatLon = (marker.path || []).map((p: any) => svgToLatLon(p.x, p.y));
     // fromVidaTd-kopia → undertext "Traktdel <nr>" (ärver Vida-bitens ursprung); annars eget område.
     let kalla = 'Kompersmåla Skog';
+    let arvdaRader: { text: string }[] = [];
     if (marker.fromVidaTd) {
       const del = traktdelDelarRef.current.find((d: any) => d.partKey === String(marker.fromVidaTd));
       const trdel = del?.props?.TRDEL_NR_K != null ? String(del.props.TRDEL_NR_K).trim() : '';
       kalla = trdel ? `Traktdel ${trdel}` : 'Justerad traktgräns';
+      const typ = del?.props?.FLBESKR != null ? String(del.props.FLBESKR).trim() : '';   // typen ärvs: samma rad som Vidas egen traktdel (t.ex. "Första gallring", "Föryngringsavverkning")
+      if (typ) arvdaRader = [{ text: typ }];
     }
     const kort: TraktKort = {
-      kategori: 'omrade', arealHa: null, rader: [],
+      kategori: 'omrade', arealHa: null, rader: arvdaRader,
       rubrik: nr != null ? `Område ${nr}` : 'Traktgräns',   // titeln räknas live i kortet (följer numret vid ändring)
       kalla, nr: '', grupp: linjeKort('boundary').grupp, forklaring: linjeKort('boundary').forklaring,
     };
@@ -1268,22 +1275,46 @@ export default function PlannerPage() {
     setAnteckningSkrivlage(false);
     setTraktKortSvepY(0);
   };
-  // "Justera gräns": kopiera Vida-traktdelens ring till en egen redigerbar traktgräns-markering
-  // (planering_markeringar), tagga med fromVidaTd → Vida-biten döljs, och de vanliga effekterna kör
-  // om TMA + traktanalys på den nya markören. Bara planerare.
-  const justeraGrans = (key: string, ringLatLon: { lat: number; lon: number }[]) => {
-    if (!ringLatLon || ringLatLon.length < 3) return;
-    // Vidas ring har många hörn (Brokamåla 61): förenkla med 2 m tolerans (minst 4 hörn) så den går att redigera utan att dra ett hörn bland 61.
-    const forenklad = forenklaRing(ringLatLon.map(p => [p.lon, p.lat] as [number, number]), 2, 4);
-    const path = slutRing(forenklad.ring).map(([lng, lat]) => latLonToSvg(lat, lng));
-    visaHornKvitto(forenklad.efter < forenklad.fore ? `Gränsen förenklad: ${forenklad.fore} → ${forenklad.efter} hörn` : `Gränsen har ${forenklad.fore} hörn`, 'ok');
-    // fromVidaTd = bitens partKey → kopian ÄRVER bitens serienummer (numreraObjekt). Inget lagrat nummer.
-    const nyGrans: any = { id: Date.now(), isLine: true, lineType: 'boundary', path, fromVidaTd: key };
+  // "Justera gräns": kopiera ALLA Vida-traktdelar på objektet till egna redigerbara traktgränser (planering_markeringar, en markör per del), tagga var och en med sin fromVidaTd → Vida-delarna döljs,
+  // och de vanliga effekterna kör om TMA + traktanalys på de nya markörerna. Bara planerare. Delar som delar gräns kopieras ihop (lib/traktTopologi: gemensamma hörn, förenklingen bevarar dem), så
+  // grannens original aldrig ligger kvar längs samma gräns och glider isär när ett hörn flyttas. En del som redan har en justerad kopia (och dess hörn) behålls som den är — ingen data förloras.
+  const justeraGrans = (key: string) => {
+    const delar = traktdelDelarRef.current;
+    if (!delar || delar.length === 0) return;
+    const befintliga = (markersRef.current as any[]).filter((m: any) => m.isLine && m.lineType === 'boundary' && m.fromVidaTd && Array.isArray(m.path) && m.path.length >= 3);
+    const kopiaAv = new Map<string, any>();
+    for (const m of befintliga) kopiaAv.set(String(m.fromVidaTd), m);
+    // Förenkla Vidas ringar (2 m, minst 4 hörn per del) med gemensamma hörn bevarade; redan justerade delar rörs inte (lib/traktTopologi justeraDelar).
+    const f = justeraDelar(delar.map((d) => {
+      const kopia = kopiaAv.get(d.partKey);
+      return kopia
+        ? { id: d.partKey, last: true, ring: kopia.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; }) }
+        : { id: d.partKey, ring: d.ringLngLat as [number, number][] };
+    }), 2, 4);
+    const ringarUt = new Map(topRingar(f.t).map((r) => [r.id, r.ring]));
+    const nya: any[] = [];
+    const andrade = new Map<string, any>();
+    const bas = Date.now();
+    delar.forEach((d, i) => {
+      const ring = ringarUt.get(d.partKey);
+      if (!ring || ring.length < 3) return;
+      const path = slutRing(ring).map(([lng, lat]) => latLonToSvg(lat, lng));
+      const kopia = kopiaAv.get(d.partKey);
+      if (kopia) { if (ringAvtryck(path) !== ringAvtryck(kopia.path)) andrade.set(String(kopia.id), { ...kopia, path }); return; }
+      // fromVidaTd = delens partKey → kopian ÄRVER delens serienummer (numreraObjekt) och typ (Vidas åtgärd visas i kortet). Inget lagrat nummer.
+      nya.push({ id: bas + i, isLine: true, lineType: 'boundary', path, fromVidaTd: d.partKey });
+    });
+    if (nya.length === 0 && andrade.size === 0) { visaHornKvitto('Alla delar är redan justerade', 'ok'); const m0 = kopiaAv.get(key); if (m0) { stangTraktKort(); oppnaGranskort(m0); } return; }
+    visaHornKvitto(delar.length > 1
+      ? (f.efter < f.fore ? `${delar.length} delar justerade · förenklade ${f.fore} → ${f.efter} hörn` : `${delar.length} delar justerade · ${f.fore} hörn`)
+      : (f.efter < f.fore ? `Gränsen förenklad: ${f.fore} → ${f.efter} hörn` : `Gränsen har ${f.fore} hörn`), 'ok');
     saveToHistory([...markers]);
-    setMarkers((prev: any[]) => [...prev, nyGrans]);
-    saveMarkerToDb(nyGrans);
+    setMarkers((prev: any[]) => [...prev.map((m: any) => andrade.get(String(m.id)) || m), ...nya]);
+    for (const m of andrade.values()) saveMarkerToDb(m);
+    for (const m of nya) saveMarkerToDb(m);
     stangTraktKort();
-    oppnaGranskort(nyGrans);   // öppna SAMMA yt-kort som Vida-bitarna för den nya, redigerbara gränsen
+    const oppna = nya.find((m) => String(m.fromVidaTd) === key) || andrade.get(String(kopiaAv.get(key)?.id)) || kopiaAv.get(key) || nya[0];
+    if (oppna) oppnaGranskort(oppna);   // öppna SAMMA yt-kort som Vida-bitarna för den justerade delen
   };
   // Redigera en boundary-markörs (eget område / traktgräns) nummer. Sätter m.nummer (lagras) → serien
   // uppdateras och kartsiffran + kortets titel följer med. Redigerbart utan kollision (serien hoppar upptagna).
@@ -1735,17 +1766,18 @@ export default function PlannerPage() {
       const isMainRoad = lt.id === 'mainRoad';
       // Zoom-interpolerade linjebredder
       // Traktgräns: alltid tydlig — minst 4px vid utzoom
+      // Traktgräns = Vidas traktdel: EN stil (TRAKTGRANS_BREDD / _KANT_*, samma som trakt-gr-*) — en justerad kopia och Vidas egen del ska inte se ut som två sorters traktgräns.
       const lw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8]
+        ? [...TRAKTGRANS_BREDD]
         : lt.tunn ? [...NATURVARD_BREDD]
         : ['interpolate', ['linear'], ['zoom'], 5, 2, 8, 2, 11, 3, 13, 4, 15, 6, 17, 7];
       const cwLw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10]
+        ? [...TRAKTGRANS_KANT_BREDD]
         : lt.tunn ? [...NATURVARD_KANT_BREDD]
         : ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
       // Mörk kant bakom varje linje. Vägarna (basväg och stickväg) behåller sin snitselfärg (röd/gul/blå, blå med gula streck) och får samma kraftiga mörka kant som
       // traktgräns och stig, så de syns mot det nedtonade fotot (Kartan lugnare). VAG_KANT_FARG bor i lib/kartstil.
-      const casingColor = (isBoundary || isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)';
+      const casingColor = isBoundary ? TRAKTGRANS_KANT_FARG : (isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)';
       // Körordning: en väg i ordningen ritas tunnare (nästa, kommande) eller grå och svagare (körd) — property `kor` på featuren (lib/korordningKarta).
       const arVag = isMainRoad || arStickvag(lt.id);
       map.addLayer({
@@ -3053,24 +3085,24 @@ export default function PlannerPage() {
   const [ritaHistoria, setRitaHistoria] = useState<[number, number][][]>([]);   // ↩ i Rita: koordinaterna FÖRE varje handling (ett tryck = en punkt, ett frihandsdrag = hela draget)
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
-  // "Redigera hörn" på ett eget område: redigera path på BEFINTLIG boundary-markör (behåll id → nummer,
-  // anteckning och media följer med automatiskt). redigeraGransRef = markörens ögonblicksbild; redigeraGransId
-  // (state) = id:t som döljs i renderingen (3 sync-effekter) medan man redigerar. Null = ingen redigering.
-  const redigeraGransRef = useRef<any | null>(null);
-  const [redigeraGransId, setRedigeraGransId] = useState<string | number | null>(null);
-  // Corner-drag ("dra hörnen"): aktivt läge + live-ring (öppen, [lng,lat]) i ref (pekar-handlarna läser
-  // stale-fritt) + siffran som visas live. hornEditNrRef fångas vid start (ändras inte under redigering).
+  // "Redigera hörn": redigera path på BEFINTLIGA boundary-markörer (behåll id → nummer, anteckning och media följer med automatiskt). En justerad trakt har EN markör per Vida-traktdel och
+  // delarna redigeras SAMTIDIGT (lib/traktTopologi: ett hörn som två delar delar är ETT hörn). redigeraGransRef = markörernas ögonblicksbild; redigeraGransIdn = id:n som döljs i renderingen
+  // (3 sync-effekter) medan man redigerar. Tom lista = ingen redigering.
+  const redigeraGransRef = useRef<{ markers: any[]; primar: string } | null>(null);
+  const [redigeraGransIdn, setRedigeraGransIdn] = useState<string[]>([]);
+  // Corner-drag ("dra hörnen"): aktivt läge + live-topologin i ref (pekar-handlarna läser stale-fritt) + siffrorna som visas live (del-id = markörens id → siffra).
   const [hornEditActive, setHornEditActive] = useState(false);
   const hornEditActiveRef = useRef(false);
   useEffect(() => { hornEditActiveRef.current = hornEditActive; }, [hornEditActive]);
-  const hornEditRingRef = useRef<[number, number][]>([]);   // öppen ring i [lng,lat]
-  const hornEditNrRef = useRef<string>('');
-  const hornAngraRef = useRef<[number, number][][]>([]);          // ångra-stapeln: ringen FÖRE varje handling, hela redigeringen (lib/ringEdit skjutInSteg/angraSteg)
+  const hornTopRef = useRef<Topologi | null>(null);
+  const hornNrRef = useRef<Map<string, string>>(new Map());
+  const hornAngraRef = useRef<Topologi[]>([]);          // ångra-stapeln: topologin FÖRE varje handling, hela redigeringen (lib/traktTopologi skjutInSteg/angraSteg)
   const [hornAngraAntal, setHornAngraAntal] = useState(0);       // antal steg att ångra (styr Ångra-knappen)
-  const [hornAntal, setHornAntal] = useState(0);                 // antal hörn i ringen just nu (listen säger det)
+  const [hornAntal, setHornAntal] = useState(0);                 // antal unika hörn just nu (listen säger det)
+  const [hornDelarAntal, setHornDelarAntal] = useState(1);       // antal delar som redigeras samtidigt
   const [hornVal, setHornVal] = useState<number | null>(null);   // markerat hörn (tryck) → "Ta bort hörn" vid det
   const hornValRef = useRef<number | null>(null);
-  const hornDragRef = useRef<{ index: number; finger: [number, number] | null } | null>(null);   // under ett drag: vilket hörn och var fingret är
+  const hornDragRef = useRef<{ id: number; finger: [number, number] | null } | null>(null);   // under ett drag: vilket hörn och var fingret är
   const [hornKvitto, setHornKvitto] = useState<{ text: string; ton: 'ok' | 'fel' } | null>(null);   // kvitto efter Justera gräns / Spara (visas också i planeringsläget, där körvyns kvitto inte ritas)
   const hornKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hornKnappRef = useRef<HTMLDivElement | null>(null);       // "Ta bort hörn"-knappen följer hörnet imperativt (ingen omrendering av sidan per kartrörelse)
@@ -6539,12 +6571,14 @@ export default function PlannerPage() {
     }
     ritaHornEdit();
     return kopplaHornRedigering(map as any, {
-      hamtaRing: () => hornEditRingRef.current,
-      sattRing: (r) => { hornEditRingRef.current = r; ritaHornEdit(); },
+      horn: () => (hornTopRef.current ? unikaHorn(hornTopRef.current) : []),
+      mitt: () => (hornTopRef.current ? unikaKanter(hornTopRef.current).map((k) => ({ id: k.id, pt: k.pt })) : []),
+      flytta: (id, pt) => { if (hornTopRef.current) { hornTopRef.current = topFlytta(hornTopRef.current, id, pt); ritaHornEdit(); } },
+      laggTill: (kantId) => { const r = hornTopRef.current ? topLaggTill(hornTopRef.current, kantId) : null; if (!r) return null; hornTopRef.current = r.t; ritaHornEdit(); return r.id; },
       fore: () => hornSkjutInAngra(),
-      valj: (i) => hornValj(i),
+      valj: (id) => hornValj(id),
       hamtaValt: () => hornValRef.current,
-      drag: (d) => { hornDragRef.current = d; ritaHornEdit(); if (d === null) setHornAntal(hornEditRingRef.current.length); },
+      drag: (d) => { hornDragRef.current = d; ritaHornEdit(); if (d === null && hornTopRef.current) setHornAntal(antalHorn(hornTopRef.current)); },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hornEditActive, mapLibreReady]);
@@ -6554,7 +6588,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !hornEditActive || hornVal == null) return;
     const flytta = () => {
-      const el = hornKnappRef.current; const p = hornEditRingRef.current[hornVal];
+      const el = hornKnappRef.current; const p = hornTopRef.current?.horn[hornVal];
       if (!el || !p) return;
       const px = map.project([p[0], p[1]] as any); const r = map.getCanvas().getBoundingClientRect();
       el.style.transform = `translate(${Math.round(r.left + px.x)}px, ${Math.round(r.top + px.y)}px)`;
@@ -7233,32 +7267,33 @@ export default function PlannerPage() {
     } catch { /* ok */ }
   };
 
-  // === "Redigera hörn" (dra hörnen) — corner-drag på en boundary-markör. Behåller markörens id →
-  // nummer, anteckning och media (nyckel omrade:<id>) följer med. Ring-operationerna är rena (lib/ringEdit).
-  // Rita live-preview (snitsel + siffra) + handtag ur den öppna ringen (hornEditRingRef, [lng,lat]).
+  // === "Redigera hörn" (dra hörnen) — corner-drag på boundary-markörer. Behåller markörernas id →
+  // nummer, anteckning och media (nyckel omrade:<id>) följer med. En justerad trakt redigeras som EN helhet: alla Vida-delar samtidigt, gemensamma hörn ritas och flyttas EN gång (lib/traktTopologi).
+  // Rita live-preview (snitsel + siffror) + handtag ur topologin (hornTopRef, [lng,lat]).
   const ritaHornEdit = () => {
     const map = mapInstanceRef.current; if (!map) return;
-    const ring = hornEditRingRef.current;
+    const top = hornTopRef.current;
     try {
       const polySrc = map.getSource('hornedit-poly-source') as any;
+      const ringar = top ? topRingar(top) : [];
       if (polySrc) {
-        const closed = ring.length >= 3 ? slutRing(ring) : [];
-        polySrc.setData({ type: 'FeatureCollection', features: closed.length ? [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [closed] } }] : [] });
+        polySrc.setData({ type: 'FeatureCollection', features: ringar.filter((r) => r.ring.length >= 3).map((r) => ({ type: 'Feature', properties: { id: r.id }, geometry: { type: 'Polygon', coordinates: [slutRing(r.ring)] } })) });
       }
       const ptsSrc = map.getSource('hornedit-pts-source') as any;
-      if (ptsSrc) {
+      if (ptsSrc && top) {
         const feats: any[] = [];
         const sel = hornValRef.current, dr = hornDragRef.current;
-        ring.forEach((p, i) => feats.push({ type: 'Feature', properties: { kind: 'vertex', i, sel: sel === i, drag: dr?.index === i }, geometry: { type: 'Point', coordinates: [p[0], p[1]] } }));
-        for (const m of kantMittpunkter(ring)) feats.push({ type: 'Feature', properties: { kind: 'mid', kantIndex: m.kantIndex }, geometry: { type: 'Point', coordinates: [m.pt[0], m.pt[1]] } });
+        for (const h of unikaHorn(top)) feats.push({ type: 'Feature', properties: { kind: 'vertex', i: h.id, sel: sel === h.id, drag: dr?.id === h.id }, geometry: { type: 'Point', coordinates: [h.pt[0], h.pt[1]] } });
+        for (const k of unikaKanter(top)) feats.push({ type: 'Feature', properties: { kind: 'mid', kantId: k.id }, geometry: { type: 'Point', coordinates: [k.pt[0], k.pt[1]] } });
         // På touch ritas det dragna hörnet ovanför fingret: en tunn linje + en liten prick visar var fingret är.
-        if (dr?.finger && ring[dr.index]) {
-          feats.push({ type: 'Feature', properties: { kind: 'stem' }, geometry: { type: 'LineString', coordinates: [[ring[dr.index][0], ring[dr.index][1]], [dr.finger[0], dr.finger[1]]] } });
+        if (dr?.finger && top.horn[dr.id]) {
+          const p = top.horn[dr.id];
+          feats.push({ type: 'Feature', properties: { kind: 'stem' }, geometry: { type: 'LineString', coordinates: [[p[0], p[1]], [dr.finger[0], dr.finger[1]]] } });
           feats.push({ type: 'Feature', properties: { kind: 'finger' }, geometry: { type: 'Point', coordinates: [dr.finger[0], dr.finger[1]] } });
         }
-        if (hornEditNrRef.current) { const c = ringMitt(ring); feats.push({ type: 'Feature', properties: { kind: 'nr', nr: hornEditNrRef.current }, geometry: { type: 'Point', coordinates: [c[0], c[1]] } }); }
+        for (const r of ringar) { const nr = hornNrRef.current.get(r.id); if (nr && r.ring.length >= 3) { const c = ringMitt(r.ring); feats.push({ type: 'Feature', properties: { kind: 'nr', nr }, geometry: { type: 'Point', coordinates: [c[0], c[1]] } }); } }
         ptsSrc.setData({ type: 'FeatureCollection', features: feats });
-      }
+      } else if (ptsSrc) ptsSrc.setData({ type: 'FeatureCollection', features: [] });
     } catch { /* source not ready */ }
   };
   // Ångra-stapeln och markeringen av ett hörn (Redigera hörn). EN ångra-steg = en handling (ett drag, ett nytt hörn, ett borttaget hörn).
@@ -7268,76 +7303,94 @@ export default function PlannerPage() {
     hornKvittoTimerRef.current = setTimeout(() => { setHornKvitto(null); hornKvittoTimerRef.current = null; }, ton === 'ok' ? 4000 : 6000);
   };
   const hornSkjutInAngra = () => {
-    hornAngraRef.current = skjutInSteg(hornAngraRef.current, hornEditRingRef.current);
+    if (!hornTopRef.current) return;
+    hornAngraRef.current = skjutInSteg(hornAngraRef.current, hornTopRef.current);
     setHornAngraAntal(hornAngraRef.current.length);
   };
-  const hornValj = (i: number | null) => { hornValRef.current = i; setHornVal(i); ritaHornEdit(); };
+  const hornValj = (id: number | null) => { hornValRef.current = id; setHornVal(id); ritaHornEdit(); };
   const hornAngra = () => {
     const r = angraSteg(hornAngraRef.current);
-    if (!r.ring) return;
+    if (!r.t) return;
     hornAngraRef.current = r.steg; setHornAngraAntal(r.steg.length);
-    hornEditRingRef.current = r.ring; setHornAntal(r.ring.length);
+    hornTopRef.current = r.t; setHornAntal(antalHorn(r.t));
     hornValRef.current = null; setHornVal(null);
     ritaHornEdit();
   };
   const hornTaBort = () => {
-    const i = hornValRef.current; const ring = hornEditRingRef.current;
-    if (i == null) return;
-    const ny = taBortHorn(ring, i);
-    if (ny.length === ring.length) return;   // en yta behöver minst tre hörn
+    const id = hornValRef.current; const top = hornTopRef.current;
+    if (id == null || !top) return;
+    const ny = topTaBort(top, id);
+    if (ny === top) return;   // en yta behöver minst tre hörn
     hornSkjutInAngra();
-    hornEditRingRef.current = ny; setHornAntal(ny.length);
+    hornTopRef.current = ny; setHornAntal(antalHorn(ny));
     hornValRef.current = null; setHornVal(null);
     ritaHornEdit();
   };
-  // Starta corner-drag på en boundary-markör. Öppnar ringen (unika hörn), döljer originalet, tänder handtagen.
+  // Vilka delar hör ihop med markören? En justerad del (fromVidaTd) redigeras tillsammans med ALLA justerade delar på objektet; ett eget område redigeras ensamt.
+  const gransGrupp = (marker: any): any[] => {
+    const arGrans = (m: any) => m.isLine && m.lineType === 'boundary' && Array.isArray(m.path) && m.path.length >= 3;
+    if (!marker?.fromVidaTd) return [marker];
+    return (markersRef.current as any[]).filter((m: any) => arGrans(m) && m.fromVidaTd);
+  };
+  // Starta corner-drag på en boundary-markör (och dess grannar). Öppnar ringarna (unika hörn), döljer originalen, tänder handtagen.
   const startaHornEdit = (marker: any) => {
     if (!marker || !marker.path || marker.path.length < 3) return;
-    const ringLL = oppnaRing(marker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; }));
-    if (ringLL.length < 3) return;
-    hornEditRingRef.current = ringLL;
-    hornAngraRef.current = []; setHornAngraAntal(0); setHornAntal(ringLL.length);
+    const grupp = gransGrupp(marker).filter((m: any) => m && m.path && m.path.length >= 3);
+    if (grupp.length === 0) return;
+    const top = byggTopologi(grupp.map((m: any) => ({ id: String(m.id), ring: m.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; }) })));
+    hornTopRef.current = top;
+    hornAngraRef.current = []; setHornAngraAntal(0); setHornAntal(antalHorn(top)); setHornDelarAntal(grupp.length);
     hornValRef.current = null; setHornVal(null); hornDragRef.current = null;
-    redigeraGransRef.current = { ...marker };
+    redigeraGransRef.current = { markers: grupp.map((m: any) => ({ ...m })), primar: String(marker.id) };
     const num = numreringRef.current;
-    const n = num.visaGransNummer ? num.gransNr.get(String(marker.id)) : null;
-    hornEditNrRef.current = n != null ? String(n) : '';
+    hornNrRef.current = new Map(grupp.map((m: any) => { const n = num.visaGransNummer ? num.gransNr.get(String(m.id)) : null; return [String(m.id), n != null ? String(n) : '']; }));
     saveToHistory([...markers]);
-    setRedigeraGransId(marker.id);   // dölj originalets snitsel/tappyta/siffra medan man redigerar
+    setRedigeraGransIdn(grupp.map((m: any) => String(m.id)));   // dölj originalens snitsel/tappyta/siffra medan man redigerar
     setHornEditActive(true);
     stangTraktKort();
   };
-  // Avsluta corner-drag. spara=true → uppdatera path på BEFINTLIG markör (samma id) + verifierat spara.
+  // Avsluta corner-drag. spara=true → uppdatera path på BEFINTLIGA markörer (samma id) + verifierat spara. Bara markörer vars ring ändrats skrivs.
   const avslutaHornEdit = (spara: boolean) => {
-    const ring = hornEditRingRef.current;
-    const marker = redigeraGransRef.current;
-    if (spara && marker && ring.length >= 3) {
-      const svgPath = slutRing(ring).map(([lng, lat]) => latLonToSvg(lat, lng));
-      const uppdaterad = { ...marker, path: svgPath };
-      setMarkers((prev: any[]) => prev.map((m: any) => String(m.id) === String(marker.id) ? uppdaterad : m));
-      // Sparat lokalt först, sedan skickas kön direkt och kvittot säger SANNINGEN: "Gränsen är sparad" först när servern tagit emot den, annars att den väntar.
-      const oid = valtObjekt?.id ? String(valtObjekt.id) : null;
-      void (async () => {
-        try {
-          await saveMarkerToDb(uppdaterad);
-          await skickaVantandeForst(8000);
-          // Kön kan ha ett varv igång (en annan flik/startaren): vänta in att markeringen lämnar kön, högst ~8 s, innan kvittot säger att den väntar.
-          let kvar = true;
-          for (let i = 0; i < 16 && kvar; i++) {
-            kvar = oid ? (await vantandeMarkeringar(oid)).some((v) => v.markerId === String(marker.id)) : true;
-            if (kvar) await new Promise((r) => setTimeout(r, 500));
-          }
-          visaHornKvitto(kvar ? 'Gränsen är sparad på enheten · skickas när nätet finns' : 'Gränsen är sparad', 'ok');
-        } catch { visaHornKvitto('Gränsen kunde inte sparas – försök igen', 'fel'); }
-      })();
+    const top = hornTopRef.current;
+    const grupp = redigeraGransRef.current;
+    if (spara && grupp && top) {
+      const ut = new Map(topRingar(top).map((r) => [r.id, r.ring]));
+      const andrade: any[] = [];
+      for (const m of grupp.markers) {
+        const ring = ut.get(String(m.id));
+        if (!ring || ring.length < 3) continue;
+        const svgPath = slutRing(ring).map(([lng, lat]) => latLonToSvg(lat, lng));
+        if (ringAvtryck(svgPath) === ringAvtryck(m.path || [])) continue;   // oförändrad del skrivs inte
+        andrade.push({ ...m, path: svgPath });
+      }
+      if (andrade.length > 0) {
+        const ider = new Map(andrade.map((m) => [String(m.id), m]));
+        setMarkers((prev: any[]) => prev.map((m: any) => ider.get(String(m.id)) || m));
+        // Sparat lokalt först, sedan skickas kön direkt och kvittot säger SANNINGEN: "Gränsen är sparad" först när servern tagit emot den, annars att den väntar.
+        const oid = valtObjekt?.id ? String(valtObjekt.id) : null;
+        void (async () => {
+          try {
+            for (const m of andrade) await saveMarkerToDb(m);
+            await skickaVantandeForst(8000);
+            // Kön kan ha ett varv igång (en annan flik/startaren): vänta in att markeringarna lämnar kön, högst ~8 s, innan kvittot säger att de väntar.
+            let kvar = true;
+            for (let i = 0; i < 16 && kvar; i++) {
+              kvar = oid ? (await vantandeMarkeringar(oid)).some((v) => ider.has(v.markerId)) : true;
+              if (kvar) await new Promise((r) => setTimeout(r, 500));
+            }
+            const flera = andrade.length > 1;
+            visaHornKvitto(kvar ? (flera ? 'Gränserna är sparade på enheten · skickas när nätet finns' : 'Gränsen är sparad på enheten · skickas när nätet finns') : (flera ? 'Gränserna är sparade' : 'Gränsen är sparad'), 'ok');
+          } catch { visaHornKvitto('Gränsen kunde inte sparas – försök igen', 'fel'); }
+        })();
+      }
     }
     hornAngraRef.current = []; setHornAngraAntal(0);
     hornValRef.current = null; setHornVal(null); hornDragRef.current = null;
     setHornEditActive(false);
     redigeraGransRef.current = null;
-    hornEditRingRef.current = [];
-    hornEditNrRef.current = '';
-    setRedigeraGransId(null);
+    hornTopRef.current = null;
+    hornNrRef.current = new Map();
+    setRedigeraGransIdn([]);
     const map = mapInstanceRef.current;
     try {
       (map?.getSource('hornedit-poly-source') as any)?.setData({ type: 'FeatureCollection', features: [] });
@@ -8495,7 +8548,7 @@ export default function PlannerPage() {
       const korvyPos = korvyActive ? (currentPosition as any) : null;
       const korStatus = statusPerVag(korVagar);
       markers
-        .filter((m: any) => m.isLine && m.path && m.path.length > 1 && String(m.id) !== String(redigeraGransId))   // dölj gränsen som redigeras (ritas som preview i st.)
+        .filter((m: any) => m.isLine && m.path && m.path.length > 1 && !redigeraGransIdn.includes(String(m.id)))   // dölj gränserna som redigeras (ritas som preview i st.)
         .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
@@ -8535,7 +8588,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransId, korVagar, vagSpokeFarg]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition, objektSaknarPosition, redigeraGransIdn, korVagar, vagSpokeFarg]);
 
   // 1b) Basväg-NUMRERING: varje mainRoad utan `nummer` får ett stabilt löpnummer i skapelseordning
   // (via id). Backfill av de befintliga + nytt när en basväg ritas. Numret sparas på markören (JSONB)
@@ -8642,7 +8695,7 @@ export default function PlannerPage() {
       if (objektSaknarPosition) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
       const features: any[] = [];
       markers
-        .filter((m: any) => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2 && String(m.id) !== String(redigeraGransId))   // dölj tappytan för gränsen som redigeras
+        .filter((m: any) => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2 && !redigeraGransIdn.includes(String(m.id)))   // dölj tappytan för gränserna som redigeras
         .forEach((m: any) => {
           const coords = m.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
           const f = coords[0], l = coords[coords.length - 1];
@@ -8651,7 +8704,7 @@ export default function PlannerPage() {
         });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition, redigeraGransId]);
+  }, [markers, mapLibreReady, mapCenter, objektSaknarPosition, redigeraGransIdn]);
 
   // 2a-nr) EN siffra per yta på yta-nr-source: bit-centroider (traktdel-delar, ej justerade) + boundary-centroider.
   // Punktkälla → aldrig dubblerad vid inzoomning. Tom siffra = ensam-yta-regeln (visa*Nummer=false) → hoppas över.
@@ -8678,7 +8731,7 @@ export default function PlannerPage() {
       if (objektNumrering.visaGransNummer) {
         for (const m of markers as any[]) {
           if (!(m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1)) continue;
-          if (String(m.id) === String(redigeraGransId)) continue;   // dölj siffran för gränsen som redigeras
+          if (redigeraGransIdn.includes(String(m.id))) continue;   // dölj siffran för gränserna som redigeras
           const nr = objektNumrering.gransNr.get(String(m.id));
           if (nr == null) continue;
           let sx = 0, sy = 0;
@@ -8689,7 +8742,7 @@ export default function PlannerPage() {
       }
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering, redigeraGransId]);
+  }, [markers, traktdelDelar, justeradeTraktdelar, mapLibreReady, mapCenter, objektSaknarPosition, objektNumrering, redigeraGransIdn]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
   // Körvyns symbolfade (avstånd från maskinen) räknas per feature nedan.
@@ -12309,6 +12362,16 @@ export default function PlannerPage() {
     else visaBorttagen(marker);
   };
 
+  // Radera justerade traktdelar (boundary med fromVidaTd): bara den här, eller ALLA justerade delar på objektet (tillbaka till Vidas egna delar, som visas igen). Yt-data städas per del.
+  const raderaJusterade = (id: string | number, alla: boolean) => {
+    const ider = new Set<string>(alla ? (markers as any[]).filter((m: any) => m.isLine && m.lineType === 'boundary' && m.fromVidaTd).map((m: any) => String(m.id)) : [String(id)]);
+    saveToHistory([...markers]);
+    setMarkers((prev: any[]) => prev.filter((m: any) => !ider.has(String(m.id))));
+    setMarkerMenuOpen(null);
+    for (const m of markers as any[]) if (ider.has(String(m.id))) { deleteMarkerFromDb(m.id); raderaYtaData('omrade:' + m.id); }
+    stangTraktKort();
+  };
+
   // === Document-level event listeners for marker drag and arrow rotation ===
   useEffect(() => {
     if (!draggingMarker && !rotatingArrow) return;
@@ -12520,7 +12583,7 @@ export default function PlannerPage() {
     setDrawPaused(false);
     setDrawCursor(null);
     // Avbruten "Redigera hörn" → återställ det dolda originalet oförändrat (ingen radering skedde).
-    if (redigeraGransRef.current) { redigeraGransRef.current = null; setRedigeraGransId(null); }
+    if (redigeraGransRef.current) avslutaHornEdit(false);
   };
 
   // === RENDER HELPERS ===
@@ -17005,17 +17068,31 @@ export default function PlannerPage() {
                           <KortAtgarder>
                             <KortKnapp testid="trakt-kort-berakna-volym" text="Beräkna volym" onClick={() => runVolymBerakning(vida.ringLatLon)} />
                             {/* Vida-bit → "Justera gräns" (skapar en egen redigerbar kopia). Egen boundary → redigera hörn direkt. */}
-                            {isAdminRiktig && boundaryId == null && <KortKnapp testid="trakt-kort-justera-gran" text="Justera gräns" onClick={() => justeraGrans(vida.key, vida.ringLatLon)} />}
+                            {isAdminRiktig && boundaryId == null && <KortKnapp testid="trakt-kort-justera-gran" text="Justera gräns" onClick={() => justeraGrans(vida.key)} />}
                             {isAdminRiktig && boundaryId != null && (() => {
                               const bMarker: any = markers.find((mm: any) => String(mm.id) === String(boundaryId));
                               return (
                                 <>
                                   <KortKnapp testid="trakt-kort-redigera-horn" text="Redigera hörn" onClick={() => startaHornEdit(bMarker)} />
-                                  <KortKnapp testid="trakt-kort-radera" text="Radera" destruktiv onClick={() => { deleteMarker(boundaryId); stangTraktKort(); }} />
+                                  <KortKnapp testid="trakt-kort-radera" text="Radera" destruktiv onClick={() => {
+                                    const antalJusterade = (markers as any[]).filter((mm: any) => mm.isLine && mm.lineType === 'boundary' && mm.fromVidaTd).length;
+                                    if (bMarker?.fromVidaTd && antalJusterade > 1) setRaderaFraga(true);   // fler justerade delar: fråga om bara den här eller alla
+                                    else { deleteMarker(boundaryId); stangTraktKort(); }
+                                  }} />
                                 </>
                               );
                             })()}
                           </KortAtgarder>
+                        )}
+                        {objektListaVal && raderaFraga && boundaryId != null && (
+                          <div data-testid="trakt-kort-radera-fraga" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
+                            <div style={{ ...TYP.text, color: FARG.text }}>Radera bara den här delen, eller alla justerade delar (tillbaka till Vidas)?</div>
+                            <KortAtgarder>
+                              <KortKnapp testid="trakt-kort-radera-denna" text="Bara den här" destruktiv onClick={() => raderaJusterade(boundaryId, false)} />
+                              <KortKnapp testid="trakt-kort-radera-alla" text="Alla justerade delar" destruktiv onClick={() => raderaJusterade(boundaryId, true)} />
+                              <KortKnapp testid="trakt-kort-radera-avbryt" text="Avbryt" onClick={() => setRaderaFraga(false)} />
+                            </KortAtgarder>
+                          </div>
                         )}
                       </div>
                     );
@@ -17119,7 +17196,7 @@ export default function PlannerPage() {
         <KorvyNertillList
           testid="hornedit-list"
           smal={smalSkarm}
-          text={`${hornAntal} hörn · dra hörn · dra mittpunkt = nytt`}
+          text={`${hornAntal} hörn${hornDelarAntal > 1 ? ` · ${hornDelarAntal} delar` : ''} · dra hörn · dra mittpunkt = nytt`}
           knappar={[
             { etikett: 'Ångra', onClick: hornAngra, av: hornAngraAntal === 0, testid: 'hornedit-angra' },
             { etikett: 'Spara', onClick: () => avslutaHornEdit(true), gron: true, testid: 'hornedit-spara' },
@@ -17131,7 +17208,7 @@ export default function PlannerPage() {
         <KorvyKvitto text={hornKvitto.text} ton={hornKvitto.ton} smal={smalSkarm} />
       )}
       {/* "Ta bort hörn" vid det markerade hörnet (följer hörnet när kartan rör sig). Inte under tre hörn: en yta behöver minst tre. */}
-      {hornEditActive && hornVal != null && hornAntal > 3 && (
+      {hornEditActive && hornVal != null && hornTopRef.current != null && topTaBort(hornTopRef.current, hornVal) !== hornTopRef.current && (
         <div ref={hornKnappRef} data-testid="hornedit-tabort-ram" style={{ position: 'fixed', left: 0, top: 0, zIndex: 410, pointerEvents: 'none', willChange: 'transform' }}>
           <button type="button" data-testid="hornedit-tabort" onClick={hornTaBort} className="press-dim"
             style={{ ...KNAPP.sekundar, pointerEvents: 'auto', width: 'auto', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, background: FARG.kort, border: `1px solid ${FARG.linje}`, color: FARG.rod, whiteSpace: 'nowrap', transform: `translate(-50%, calc(-100% - ${AVSTAND.l}px))` }}>

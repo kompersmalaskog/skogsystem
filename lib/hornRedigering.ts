@@ -11,7 +11,7 @@
 //   • Ett drag som börjar utanför alla handtag panorerar kartan som vanligt.
 // Ren logik (valjHandtag) och en tunn koppling mot kartan (kopplaHornRedigering). Testas i lib/hornRedigering.test.ts och i riktig Chromium (hornRedigering.hytt.test.ts).
 
-import { flyttaHorn, kantMittpunkter, laggTillHorn, type Punkt } from './ringEdit';
+import type { Punkt } from './ringEdit';
 
 export const HORN_REGLER = {
   /** Hur nära ett handtag (px) ett tryck ska vara för att ta det. Finger är trubbigare än mus. */
@@ -50,19 +50,25 @@ export interface HornKarta {
 }
 
 export interface HornKoppling {
-  hamtaRing(): Punkt[];
-  /** Ersätter ringen och ritar om. */
-  sattRing(ring: Punkt[]): void;
+  /** Unika hörn (ett hörn som flera delar delar finns EN gång) i lng/lat. */
+  horn(): { id: number; pt: Punkt }[];
+  /** Unika kantmittpunkter (en gemensam kant EN gång). Id är kantens id i topologin. */
+  mitt(): { id: string; pt: Punkt }[];
+  /** Flytta ett hörn (i alla delar som har det) och rita om. */
+  flytta(id: number, pt: Punkt): void;
+  /** Lägg ett nytt hörn på kanten (i alla delar som har kanten) och rita om. Returnerar nya hörnets id. */
+  laggTill(kantId: string): number | null;
   /** Anropas EN gång innan en ändring görs (ångra-steget tas här). */
   fore(): void;
   /** Hörn markerat (tryck) / avmarkerat (null). */
-  valj(index: number | null): void;
+  valj(id: number | null): void;
   hamtaValt(): number | null;
   /** Under ett drag: vilket hörn som dras och var fingret är (null = inget finger, t.ex. mus). null = draget slut. */
-  drag(d: { index: number; finger: [number, number] | null } | null): void;
+  drag(d: { id: number; finger: [number, number] | null } | null): void;
 }
 
-interface Gest { id: number; handtag: Handtag; index: number; start: Px; pekare: string; drar: boolean }
+type GestHandtag = { typ: 'horn'; id: number } | { typ: 'mitt'; id: string };
+interface Gest { id: number; handtag: GestHandtag; hornId: number; start: Px; pekare: string; drar: boolean }
 
 export function kopplaHornRedigering(map: HornKarta, k: HornKoppling): () => void {
   const canvas = map.getCanvas();
@@ -84,13 +90,12 @@ export function kopplaHornRedigering(map: HornKarta, k: HornKoppling): () => voi
       return;
     }
     const { x, y } = tillCanvas(e);
-    const ring = k.hamtaRing();
-    const horn = ring.map((p) => map.project([p[0], p[1]]));
-    const mitt = kantMittpunkter(ring).map((m) => map.project([m.pt[0], m.pt[1]]));
+    const horn = k.horn(), mitt = k.mitt();
     const traff = e.pointerType === 'mouse' ? HORN_REGLER.traffMus : HORN_REGLER.traffTouch;
-    const h = valjHandtag(horn, mitt, x, y, traff);
+    const h = valjHandtag(horn.map((p) => map.project([p.pt[0], p.pt[1]])), mitt.map((p) => map.project([p.pt[0], p.pt[1]])), x, y, traff);
     if (!h) { tom = { id: e.pointerId, start: { x, y }, t: Date.now() }; return; }   // utanför handtagen: kartan panorerar
-    gest = { id: e.pointerId, handtag: h, index: h.typ === 'horn' ? h.index : -1, start: { x, y }, pekare: e.pointerType, drar: false };
+    const handtag: GestHandtag = h.typ === 'horn' ? { typ: 'horn', id: horn[h.index].id } : { typ: 'mitt', id: mitt[h.kant].id };
+    gest = { id: e.pointerId, handtag, hornId: handtag.typ === 'horn' ? handtag.id : -1, start: { x, y }, pekare: e.pointerType, drar: false };
     map.dragPan.disable();
     e.preventDefault();
   };
@@ -104,25 +109,23 @@ export function kopplaHornRedigering(map: HornKarta, k: HornKoppling): () => voi
       gest.drar = true;
       k.fore();   // ångra-steget FÖRE ändringen: ett drag (också ett nytt hörn som dras ut) = ett steg
       if (gest.handtag.typ === 'mitt') {
-        const ring = k.hamtaRing();
-        const m = kantMittpunkter(ring)[gest.handtag.kant];
-        if (!m) { slutaGest(); return; }
-        k.sattRing(laggTillHorn(ring, gest.handtag.kant, m.pt));
-        gest.index = gest.handtag.kant + 1;
+        const nytt = k.laggTill(gest.handtag.id);
+        if (nytt == null) { slutaGest(); return; }
+        gest.hornId = nytt;
       }
       k.valj(null);
     }
     const lyft = e.pointerType === 'touch' ? HORN_REGLER.LYFT_PX : 0;
     const ll = map.unproject([x, y - lyft]);
-    k.sattRing(flyttaHorn(k.hamtaRing(), gest.index, [ll.lng, ll.lat]));
+    k.flytta(gest.hornId, [ll.lng, ll.lat]);
     const f = lyft ? map.unproject([x, y]) : null;
-    k.drag({ index: gest.index, finger: f ? [f.lng, f.lat] : null });
+    k.drag({ id: gest.hornId, finger: f ? [f.lng, f.lat] : null });
     e.preventDefault();
   };
 
   const onUp = (e: PointerEvent) => {
     if (gest && e.pointerId === gest.id) {
-      if (!gest.drar && gest.handtag.typ === 'horn') k.valj(k.hamtaValt() === gest.index ? null : gest.index);   // tryck på ett hörn = markera det (mittpunkt: inget)
+      if (!gest.drar && gest.handtag.typ === 'horn') k.valj(k.hamtaValt() === gest.handtag.id ? null : gest.handtag.id);   // tryck på ett hörn = markera det (mittpunkt: inget)
       slutaGest();
       return;
     }
