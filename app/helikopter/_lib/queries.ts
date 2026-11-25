@@ -701,7 +701,7 @@ export async function sattEgenSkotning(objektId: string, egen: boolean): Promise
 
 /** Var maskinerna faktiskt arbetat de senaste dagarna, i köns egna id (objekt.id): `pa` = de köade trakter de arbetat på, tomt = arbetat, men inte på något i kön.
  *  Skördare ur fakt_produktion, skotare ur helikopter_lass. En maskin utan rader i fönstret är inte med (okänt, inte "kör annat"). */
-export type SenasteArbete = { maskin_id: string; pa: string[] }
+export type SenasteArbete = { maskin_id: string; pa: string[]; /** false = allt maskinen gjort utanför kön är på AVSLUTADE objekt (den är klar och på väg vidare, kör inte annat); saknas = okänt. */ annat_oppet?: boolean }
 export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise<Svar<SenasteArbete[]>> {
   try {
     const [p, l, o] = await Promise.all([
@@ -727,6 +727,15 @@ export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise
       if (x.dim_objekt_id) koPerNyckel.set(`d:${x.dim_objekt_id}`, String(x.id))
       if (x.vo_nummer) koPerNyckel.set(`v:${x.vo_nummer}`, String(x.id))
     }
+    // Status per objekt (vo_nummer): arbete utanför kön på ett AVSLUTAT objekt är inte "kör annat" — maskinen är klar där.
+    const vos = [...new Set([...dim.values()].filter((v): v is string => !!v))]
+    const oppen = new Map<string, boolean>()
+    for (let i = 0; i < vos.length; i += 200) {
+      const st = await supabase.from('objekt').select('vo_nummer, status').in('vo_nummer', vos.slice(i, i + 200))
+      if (st.error) return { data: null, error: felText(st.error) }
+      for (const x of (st.data ?? []) as any[]) if (x.vo_nummer) oppen.set(String(x.vo_nummer), !['avslutat', 'avslutad'].includes(String(x.status)))
+    }
+    const annatOppet = new Map<string, boolean>()
     const per = new Map<string, Set<string>>()
     for (const r of rader) {
       if (!r.maskin_id) continue
@@ -736,8 +745,9 @@ export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise
       const vo = dim.get(String(r.objekt_id))
       const ko = koPerNyckel.get(`d:${r.objekt_id}`) ?? (vo ? koPerNyckel.get(`v:${vo}`) : undefined) ?? koPerNyckel.get(`v:${r.objekt_id}`)
       if (ko) s.add(ko)
+      else if (oppen.get(vo ?? '') !== false) annatOppet.set(String(r.maskin_id), true)
     }
-    return { data: [...per.entries()].map(([maskin_id, s]) => ({ maskin_id, pa: [...s] })), error: null }
+    return { data: [...per.entries()].map(([maskin_id, s]) => ({ maskin_id, pa: [...s], annat_oppet: annatOppet.get(maskin_id) === true })), error: null }
   } catch (e) {
     return { data: null, error: felText(e) }
   }

@@ -275,7 +275,7 @@ export type TavlaIndata = {
   /** Stopptext per maskin. */
   stopp?: Record<string, string | null>
   /** Var maskinerna arbetat de senaste dagarna (köns trakt-id). Utelämnat = inte läst: ingen avkänning, prognosen som förut. */
-  senaste?: { maskin_id: string; pa: string[] }[]
+  senaste?: { maskin_id: string; pa: string[]; annat_oppet?: boolean }[]
   flytt?: Flytt
   /** Förhandsvisning: trakterna i NY ordning (objekt_id). De tar över varandras platser i körordningen; övriga rörs inte. */
   ordning?: string[]
@@ -423,7 +423,7 @@ export function byggTavla(d: TavlaIndata): Tavla {
         const egnaRader = rader.filter(raknas)
         // Kör annat: arbete de senaste dagarna, men inte på någon av köns trakter i spåret → ingen prognos läggs på maskinen.
         const sen = d.senaste?.find(x => x.maskin_id === id)
-        const korAnnat = d.status !== 'avslutad' && sen != null && egnaRader.length > 0 && !egnaRader.some(r => sen.pa.includes(r.trakt.objekt_id))
+        const korAnnat = d.status !== 'avslutad' && sen != null && egnaRader.length > 0 && !egnaRader.some(r => sen.pa.includes(r.trakt.objekt_id)) && sen.annat_oppet !== false
         const tillkommer = korAnnat ? 0 : egnaRader.reduce((sum, r) => sum + r.kvar * r.andelIManaden, 0)
         // Osäkert: en trakt före eller i spårets del av kön saknar prognos, eller bygger på ett förslag.
         const ca = !korAnnat && (rader.some(r => r.dagar == null) || egnaRader.some(r => r.trakt.uppskattad === true && !r.trakt.foljer))

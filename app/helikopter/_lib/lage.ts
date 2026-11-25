@@ -98,6 +98,8 @@ export type TidsRad = {
   namn: string
   roll: KlarRoll
   barer: TidsBar[]
+  /** Maskinen kör annat just nu (GROT, energiklippning …): kortet säger bara det, ingen kö och ingen prognos. */
+  korAnnat?: boolean
   /** Trakter som står efter en trakt utan prognos (starten går inte att räkna), eller väntar på skördaren — i ord under raden. */
   not: string | null
 }
@@ -152,6 +154,9 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
   const rader: TidsRad[] = []
   for (const m of [...klar.maskiner].sort((a, b) => Number(b.roll === 'skotare') - Number(a.roll === 'skotare'))) {
     const ko = koer.get(m.maskin_id) ?? []
+    // Kör annat i alla spår där maskinen har trakter: kortet visar bara vad den kör, inte en kö som prognosen ändå inte räknar på.
+    const mx = tavla.spar.flatMap(s => s.block).filter(b => b.roll === m.roll).flatMap(b => b.maskiner).filter(x => x.namn === m.namn)
+    if (mx.length > 0 && mx.every(x => x.korAnnat)) { rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer: [], not: null, korAnnat: true }); continue }
     const barer: TidsBar[] = []
     const efterOkand: string[] = []
     let start = 0

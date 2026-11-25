@@ -74,9 +74,10 @@ function MaskinKort({ r, t, nu }: { r: TidsRad; t: Tidslinje; nu?: KorNu }) {
       </div>
       {nu && (
         <div data-kor-nu="" style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>
-          Senast: {nu.namn ?? 'okänt objekt'}{nu.typ && nu.typ !== 'slutavverkning' && nu.typ !== 'gallring' ? ` (${KLAR_TYP_NAMN[nu.typ as KlarTyp] ?? nu.typ})` : ''} · {relativTid(nu.tid ?? `${nu.datum}T12:00:00`)}
+          {r.korAnnat ? 'Kör' : 'Senast'}: {nu.namn ?? 'okänt objekt'}{nu.typ && nu.typ !== 'slutavverkning' && nu.typ !== 'gallring' ? ` (${KLAR_TYP_NAMN[nu.typ as KlarTyp] ?? nu.typ})` : ''} · {relativTid(nu.tid ?? `${nu.datum}T12:00:00`)}
         </div>
       )}
+      {r.korAnnat && <div data-kor-annat="" style={{ ...TYP.meta, color: FARG.text2 }}>Räknas inte in i prognosen.</div>}
       {r.barer.map(b => <TrakRad key={b.id} b={b} t={t} />)}
       {r.not && <div data-tid-not="" style={{ ...TYP.meta, color: FARG.text2, paddingTop: AVSTAND.s, borderTop: `1px solid ${FARG.linje}` }}>{r.not}</div>}
     </div>
