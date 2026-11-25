@@ -18,13 +18,40 @@
 // block med tom rad emellan. Ingen inledning, ingen avslutning, inga råd.
 import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, stoppNotisText, valjBas, type SparLage } from './berakningar'
 import { MANAD_NAMN, fmt, kortNamn } from './format'
-import type { Typ } from './queries'
+import type { SparRad, Typ } from './queries'
 import { ORDNING, TOM_DAGAR, bolagText, ca, flaskRoll, saknarData, sedanText, utanDataRad, type VeckolageData, type VeckolageMaskin } from './veckolage'
 
 // Payload-typen och hjälpfunktionerna delas med sidan /helikopter/veckolage (veckolage.ts).
 export type VeckoNotisData = VeckolageData
 export type VeckoNotisMaskin = VeckolageMaskin
 export { bolagText, ca, saknarData, sedanText }
+
+
+/**
+ * Spårens skördat/skotat/takt från helikopter_ny_bolag — samma tal som Veckor och Per bolag, MED egen skotning (markägaren skotar: räknas på skördad volym).
+ * helikopter_ny_spar lämnar egen skotning utanför (tavlan lägger till den själv i TypeScript), så gallring stod på 38 skördat fast 848 var fällt (2026-11-25).
+ * Bara bolag med beställning (lovat > 0) räknas, som spårets "bestallt"-bas. Prognosen räknas då på spårets takt × dagar kvar (inte per maskin: maskinernas
+ * takt lämnar också egen skotning utanför, och skördaren på en egen-skotning-trakt stod på 0/dag). Saknas bolag-raderna (äldre köade payloads) lämnas spåren orörda.
+ */
+export function spararMedBolag(d: VeckoNotisData): { spar: SparRad[]; takt: VeckoNotisData['takt'] } {
+  const rader = (d.bolag ?? []).filter(b => b.lovat > 0)
+  if (rader.length === 0) return { spar: d.spar, takt: d.takt }
+  const spar = d.spar.map((s): SparRad => {
+    if (s.bas !== 'bestallt') return s
+    const r = rader.filter(b => b.typ === s.typ)
+    if (r.length === 0) return s
+    const summa = (f: (b: (typeof r)[number]) => number | null) => r.some(b => f(b) != null) ? r.reduce((a, b) => a + (f(b) ?? 0), 0) : null
+    return {
+      ...s,
+      skordat: r.reduce((a, b) => a + b.skordat, 0),
+      skotat: r.reduce((a, b) => a + b.skotat, 0),
+      takt_skordat: summa(b => b.takt_skordat),
+      takt_skotat: summa(b => b.takt_skotat),
+      takt_dagar: Math.max(...r.map(b => b.takt_dagar)),
+    }
+  })
+  return { spar, takt: undefined }
+}
 
 function sparRader(s: SparLage, d: VeckoNotisData): string[] {
   const rader = [`Vecka ${d.isovecka} · ${TYP_NAMN[s.typ]} · ${fmt(s.bestallt)}${bolagText(s.bolag)}`]
@@ -74,10 +101,11 @@ export function formateraVeckoNotis(d: VeckoNotisData): string {
   const manadNamn = MANAD_NAMN[d.manad - 1] ?? ''
   const dagar = d.dagar ?? TOM_DAGAR
   const block: { typ: Typ; rader: string[] }[] = []
+  const { spar, takt } = spararMedBolag(d)
   for (const typ of ORDNING) {
-    const bas = valjBas(d.spar, typ)
+    const bas = valjBas(spar, typ)
     if (!bas || bas.bestallt <= 0) continue
-    block.push({ typ, rader: sparRader(raknaSpar(bas, dagar, d.takt), d) })
+    block.push({ typ, rader: sparRader(raknaSpar(bas, dagar, takt), d) })
   }
   if (block.length === 0) return `Ingen beställning inlagd i ${manadNamn}`
 
@@ -141,10 +169,11 @@ function kortBlock(s: SparLage, d: VeckoNotisData): KortBlock {
 function kortBlockAlla(d: VeckoNotisData): KortBlock[] {
   const dagar = d.dagar ?? TOM_DAGAR
   const block: KortBlock[] = []
+  const { spar, takt } = spararMedBolag(d)
   for (const typ of ORDNING) {
-    const bas = valjBas(d.spar, typ)
+    const bas = valjBas(spar, typ)
     if (!bas || bas.bestallt <= 0) continue
-    block.push(kortBlock(raknaSpar(bas, dagar, d.takt), d))
+    block.push(kortBlock(raknaSpar(bas, dagar, takt), d))
   }
   return block
 }

@@ -187,3 +187,51 @@ describe('kort version till alla', () => {
     expect(formateraVeckoNotisKort(d)).toBe('Ingen beställning inlagd i september')
   })
 })
+
+describe('egen skotning: spårens tal ur helikopter_ny_bolag (prod 2026-11-25)', () => {
+  // helikopter_ny_spar lämnar egen skotning utanför: gallring stod på 38 skördat, 0 skotat och "fattas 1 000" fast 848 var fällt och 810 skotat.
+  const kv = ['2026-11-25', '2026-11-26', '2026-11-27', '2026-11-30']
+  const prod: VeckoNotisData = {
+    ...bas, idag: '2026-11-25', manad: 11, isovecka: 48, vecka_gangna: 3,
+    dagar: { maskin_id: null, totalt: 21, gangna: 17, kvar: 4, gangna_datum: [], kvar_datum: kv },
+    spar: [
+      spar('gallring', { bestallt: 1000, skordat: 37.8, skotat: 0, takt_skordat: 0, takt_skotat: 0, ingaende_oskotat: 98, oskotat_forandring_per_dag: 0 }),
+      spar('slutavverkning', { bestallt: 5000, skordat: 5012.6, skotat: 3425.2, takt_skordat: 202.6, takt_skotat: 310.8, ingaende_oskotat: 1529.6, oskotat_forandring_per_dag: -108.3 }),
+    ],
+    takt: [
+      { bas: 'bestallt', typ: 'gallring', maskin_id: 'R64428', roll: 'skordare', takt: 0, takt_dagar: 5, kvar: 4, kvar_datum: kv, volym_manad: 37.8 },
+      { bas: 'bestallt', typ: 'slutavverkning', maskin_id: 'A130743', roll: 'skotare', takt: 209.2, takt_dagar: 5, kvar: 4, kvar_datum: kv, volym_manad: 2760 },
+    ],
+    bolag: [
+      { typ: 'gallring', bolag: 'Vida', lovat: 1000, skordat: 847.9836, skotat: 810.1761, takt_skordat: 64.8, takt_skotat: 64.8, takt_dagar: 5 },
+      { typ: 'gallring', bolag: 'Privat', lovat: 0, skordat: 169.7831, skotat: 113.7489, takt_skordat: 1.9, takt_skotat: 0, takt_dagar: 5 },
+      { typ: 'slutavverkning', bolag: 'Vida', lovat: 5000, skordat: 5012.5733, skotat: 3425.1506, takt_skordat: 202.6, takt_skotat: 310.8, takt_dagar: 5 },
+    ],
+    planerade: { gallring: 2, slutavverkning: 8 }, veckor: {}, maskiner: [], stopp: [],
+  }
+
+  it('kort: gallring räcker (848 skördat, 810 skotat, 65/dag), slutavverkning fattas 332 — som Per bolag', () => {
+    expect(formateraVeckoNotisKort(prod)).toBe([
+      'Slutavverkning · Vida: ● fattas 332',
+      'Skördare klar ✓',
+      'Skotare 311/dag · behövs 394 ●',
+      '',
+      'Gallring · Vida: ✓ räcker',
+      'Skördare 65/dag · behövs 38 ✓',
+      'Skotare 65/dag · behövs 47 ✓',
+      '',
+      'Räknat på takten senaste 5 arbetsdagarna.',
+    ].join('\n'))
+    expect(veckoNotisTitel(prod, 'kort')).toBe('Slutavverkning släpar')
+  })
+
+  it('full: samma tal på raden "landar" — och Privat (ingen beställning) räknas inte med', () => {
+    const rad = formateraVeckoNotis(prod).split('\n\n').find(b => b.startsWith('Vecka 48 · Gallring'))!.split('\n')[1]
+    expect(rad).toBe(`Skördat landar ${n(1107)} · skotat landar ${n(1069)} av ${n(1000)} · om takten håller`)
+  })
+
+  it('utan bolag-raderna (äldre köad payload) räknas som förut', () => {
+    const utan = { ...prod, bolag: undefined }
+    expect(formateraVeckoNotisKort(utan)).toContain('Gallring · Vida: ●')
+  })
+})
