@@ -47,3 +47,11 @@ describe('egen skotning', () => {
     expect(r.skotat.ord).toBe('46 kvar')
   })
 })
+
+describe('alla bolag', () => {
+  it('visar hela veckan inklusive bolag utan beställning, annars inget', () => {
+    expect(veckoRader(v({ skordat: 192.2, skotat: 192.2, skordat_ovrigt: 46.6, skotat_ovrigt: 52.3 })).alla).toBe('Alla bolag: skördat 239 · skotat 244')
+    expect(veckoRader(v({ skordat_ovrigt: 0, skotat_ovrigt: 0 })).alla).toBeNull()
+    expect(veckoRader(v({})).alla).toBeNull()
+  })
+})

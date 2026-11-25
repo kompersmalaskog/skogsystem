@@ -24,8 +24,8 @@ function rad(namn: string, varde: number, plan: number | null, status: VeckaRad[
 }
 
 /** Veckans två rader. Utan beställning (plan saknas) står bara volymen, inget ord. */
-export function veckoRader(v: VeckaRad): { skordat: VeckoRadRad; skotat: VeckoRadRad; egen: string | null } {
-  return { skordat: rad('Skördat', v.skordat, v.plan, v.status), skotat: rad('Skotat', v.skotat, v.plan, v.status), egen: egenText(v) }
+export function veckoRader(v: VeckaRad): { skordat: VeckoRadRad; skotat: VeckoRadRad; egen: string | null; alla: string | null } {
+  return { skordat: rad('Skördat', v.skordat, v.plan, v.status), skotat: rad('Skotat', v.skotat, v.plan, v.status), egen: egenText(v), alla: allaText(v) }
 }
 
 /** "varav egen skotning 192" — den del av skotat som markägaren skotar och som räknas på skördad volym. Inget när det inte finns. */
@@ -40,4 +40,12 @@ export function veckoSvar(veckor: VeckaRad[]): { rubrik: string; under: string }
   if (!v) return null
   const n = v.arbetsdagar_kvar
   return { rubrik: `Vecka ${v.isovecka} pågår`, under: `${n} ${n === 1 ? 'dag' : 'dagar'} kvar av veckan` }
+}
+
+/** "Alla bolag: skördat 239 · skotat 161" — hela veckan, även bolag utan beställning (Privat). Står bara när något sådant finns; raderna ovanför är mot beställningen. */
+export function allaText(v: VeckaRad): string | null {
+  const sk = Math.round(v.skordat_ovrigt ?? 0)
+  const st = Math.round(v.skotat_ovrigt ?? 0)
+  if (sk <= 0 && st <= 0) return null
+  return `Alla bolag: skördat ${fmt(Math.round(v.skordat) + sk)} · skotat ${fmt(Math.round(v.skotat) + st)}`
 }

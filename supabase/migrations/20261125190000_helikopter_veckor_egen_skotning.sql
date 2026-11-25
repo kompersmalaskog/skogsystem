@@ -82,3 +82,8 @@ $function$;
 -- Samma behörighet som förut: inloggade och service_role, inte anon.
 REVOKE ALL ON FUNCTION public.helikopter_ny_veckor(integer, integer, text, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.helikopter_ny_veckor(integer, integer, text, date) TO authenticated, service_role;
+
+-- TILLÄGG (körd i prod 2026-11-25 som egen migration `helikopter_veckor_ovriga_bolag`): kolumnerna skordat_ovrigt och skotat_ovrigt =
+-- skördat/skotat på bolag UTAN beställning (t.ex. Privat), egen skotning på dem inräknad. De står utanför plan och "kvar" men visas i
+-- vyn som "Alla bolag: skördat 239 · skotat 244", så veckans tal stämmer med Maskinvy (v46 gallring: 192,2 + 46,6 = 238,8).
+-- Är ingen beställning lagd räknas alla bolag redan i skordat/skotat och övrigt är 0.

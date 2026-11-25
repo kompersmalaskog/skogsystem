@@ -202,6 +202,7 @@ function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
                       <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
                     </div>
                     {k === 1 && r.egen && <div data-egen="1" style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>{r.egen}</div>}
+                    {k === 1 && r.alla && <div data-alla="1" style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>{r.alla}</div>}
                   </div>
                 ))}
                 sista={i === lista.length - 1 && !oppen}

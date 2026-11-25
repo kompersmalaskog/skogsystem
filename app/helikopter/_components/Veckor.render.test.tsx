@@ -58,4 +58,12 @@ describe('Veckor — Hur gick veckorna?', () => {
     expect(el.querySelector('[data-egen-maskin]')!.textContent).toContain('192')
     ;(q.hamtaVeckor as any).mockImplementation(orig)
   })
+  it('rad med alla bolag under Skotat när bolag utan beställning har volym', async () => {
+    const q = await import('../_lib/queries')
+    const orig = (q.hamtaVeckor as any).getMockImplementation()
+    ;(q.hamtaVeckor as any).mockImplementation(async () => ({ data: [vecka({ isovecka: 46, status: 'last', plan: 238, skordat: 192, skotat: 192, skordat_ovrigt: 47, skotat_ovrigt: 52 })], error: null }))
+    await act(async () => { root.render(<VeckorVy />) }); await vanta()
+    expect(el.querySelector('[data-vecka="46"] [data-alla]')!.textContent).toBe('Alla bolag: skördat 239 · skotat 244')
+    ;(q.hamtaVeckor as any).mockImplementation(orig)
+  })
 })
