@@ -79,7 +79,12 @@ describe('markägarrapportens PDF', () => {
   it('filnamn, tecken och kartans skala', () => {
     expect(slug('Husjönäs 1:18 JE-G LRK -25')).toBe('husjonas-1-18-je-g-lrk-25');
     expect(byggRapportVy(data).filnamn).toBe('markagarrapport-husjonas-1-18-je-g-lrk-25');
-    expect(sanera('−26 382 m³ · ✓')).toBe('-26 382 m³ · ?');
+    // ² och ³ skrivs som 2 och 3: pdf-lib RITAR dem inte med
+    // StandardFonts.Helvetica (texten hamnar i filen, glyfen blir ett tomrum
+    // på papperet — uppmätt 2026-11-25). Testet låste tidigare in "m³", och
+    // därför har markägarrapporten skrivit "1 746 m fub" till markägare.
+    expect(sanera('−26 382 m³ · ✓')).toBe('-26 382 m3 · ?');
+    expect(sanera('12 m²')).toBe('12 m2');
     // Lika skala i båda led: en trakt dubbelt så bred som hög (i meter) blir dubbelt så bred som hög.
     const cos = Math.cos((56.6 * Math.PI) / 180);
     const { punkter, h } = projicera([

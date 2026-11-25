@@ -12,6 +12,75 @@
 - Markägarrapport-algoritm verifierad mot
   Husjönäs 2026-05-06
 
+## Skotningsrapporten: PDF till Vidas inköpare — 2026-11-25
+**Martin:** "kan vi göra det till pdf så jag kan skicka det till inköparna".
+
+Raden **Skotningsrapport** under "Skicka till inköparen" på en trakt i
+`/ekonomi/fakturaunderlag/<vo>`. **Ingen migration.** Talen kommer ur fakturans
+eget underlag (`granskning.avstand`), så rapporten kan aldrig säga ett annat
+tal än trakten; läsningen hämtar bara kartan, perioden och skotarnas namn.
+
+**Sida 1:** avståndet stort, var talet kommer ifrån, de fyra måtten (det
+fakturerade först och märkt), prislistan och kronorna.
+**Sida 2:** kartan — traktgräns, virket som prickar, skotarens körspår,
+avläggen numrerade, norr uppåt, skalstock och teckenförklaring i ord.
+
+### Tre fel som hittades genom att faktiskt rendera PDF:en
+
+1. **`²` och `³` ritas inte** av pdf-lib med StandardFonts.Helvetica. Texten
+   hamnar i filen (pdftotext läser "m³fub") men glyfen blir ett TOMRUM på
+   papperet. **Det gällde alla appens PDF:er — markägarrapporten har skrivit
+   "1 746 m fub" till markägare sedan den byggdes**, och dess egna test låste
+   in beteendet (`expect(sanera('…m³')).toBe('…m³')`). `sanera` skriver dem nu
+   som `2`/`3`. Ett textprov hade aldrig avslöjat det; bara en pixelmätning.
+2. **Handsatt avstånd märktes inte som det fakturerade.** Med `skotavstand_manuell`
+   = 450 stod "Ut till virket 414 m · fakturerat" i rapporten medan fakturan
+   vilade på 450, källmeningen saknades helt och noten sa "Mätt ur GPS:en".
+   En inköpare hade läst fel tal som priset.
+3. **Kartan klippte bort avlägget och halva körspåret.** `kartExtent` tar som
+   standard bara traktgräns + stammar, och avlägget ligger nästan alltid
+   UTANFÖR traktgränsen, vid vägen — alltså precis det rapporten handlar om.
+   Ny opt-in-flagga `extentAllt`; egenkontrollen är oförändrad.
+
+### Beslut som är mätta, inte tyckta
+- **Kartan på egen sida.** Fakta + svar + två avsnitt tar nästan en hel A4, så
+  en karta i flödet gav två sidor **även vid 60 pt** och bröt prisavsnittet
+  mitt itu. `PdfKarta.egenSida` i `lib/arbetsmiljo/pdf.ts`. Utan karta: en sida.
+- **Texten kortades** (Martin: "inte för mycket text, det blir rörigt då") —
+  måttens förklaringar från tre rader till en var.
+
+### Ärligt om det som inte är gjort
+- **Inte provat i den inloggade sidan** mot riktig data — PDF:en är renderad
+  och läst tillbaka i test, kartan mot Skälvikens riktiga geometri ur prod.
+- Virkesprickarna är egenkontrollens små röda. Rött betyder annars fara i
+  appen; ändras inte utan Martins ord.
+- Rapporten följer inte med fakturan till Vida automatiskt (Martins fråga före
+  kompakteringen) — den görs och delas för hand.
+
+Tester: `lib/faktura/{skotningsrapport,skotningsrapportPdf,lasSkotningsrapport}.test.ts`,
+`components/faktura/Skotningsrapport.render.test.tsx`;
+mutationskontroll `node scripts/mutationskontroll-skotningsrapport.mjs` (14 av 14).
+Ångra: ta bort raden i `TraktKlient.tsx` — inget skrivs någonstans.
+
+## Skotningsavståndet: måttet avgjort av facit — 2026-11-25
+**Fråga Martin ställde:** "det ska avar så det stämmer" — alltså inte välja mellan mina tre förslag, utan hitta det mått som är SANT.
+**Beslutet, och varför:** tillägget betalar TRANSPORTEN mellan virket och avlägget. Priset räknas på `ytterst_m` (avståndet ut till virket, enkel väg), inte på halva cykeln. Halva cykeln bär också sortering vid avlägget (169–251 m per lass, på Mölleryd 39 % av cykeln) och plockningen mellan högarna — båda redan betalda i kubikpriset.
+**FACIT som avgjorde (mätt i prod 2026-11-25, de två trakter där Martin satt avståndet för hand och Vida betalade):**
+
+| trakt | handsatt | betalt | ut till virket | transportvägen | halva cykeln |
+|---|---|---|---|---|---|
+| Skälviken | 450 m → 12 kr/m³fub | **20 956 kr** | 414,4 → 12 ✓ | 613,3 → 20 | 738,6 → 24 |
+| Edestad | 350 m → 8 kr/m³fub | **4 708 kr** | 366,5 → 8 ✓ | 472,0 → 12 | 556,7 → 16 |
+
+Avståndet ut reproducerar BÅDA fakturorna exakt. De andra två måtten reproducerar inte en enda — de hade gett 41 912 resp. 34 927 kr på Skälviken i stället för 20 956.
+**Andra halvan av regeln:** priset sätts EN gång, på traktens avstånd × traktens skördade volym — aldrig per lass. Per-lass-prissättning gav Skälviken 7,52 kr/m³fub i stället för 12, eftersom 15 av 85 lass saknar mätt cykel och bar 0 kr. Ett omätt lass räknas nu inte alls, i stället för som noll.
+**Vad det gör med de sex trakter som inte har handsatt avstånd (netto −6 440 kr — appen hade fakturerat för högt):** Arvidstorp −3 088, Mölleryd −2 528, Tröjemåla 1:115 −520, Krokshult −500, Tröjemåla AU −424, Bondeskog +620.
+**INGEN MIGRATION:** `skotar_lass_cykel` returnerade redan `ytterst_m`. Bara appkod.
+**Optis lass:** `fakt_lass` har bara `korstracka_m` (hela cykeln) och inget spår, så de bär halva cykeln som förut — ett för högt tal, och det syns i granskningen (källan per rad). Av de åtta trakter som mättes vinner Opti EN dag på EN trakt (Mölleryd 20 okt, halva cykeln 155 m — under grundavståndet, 0 kr åt båda hållen). Varje trakt sedan appen började fakturera har app-lass.
+**Ärligt om svagheten:** `ytterst_m` är fågelvägen till lassets yttersta punkt — kortare än den körda vägen, men mätt till ytterpunkten i stället för virkets tyngdpunkt, så felen pekar mot varandra. Facit visar att nettot landar där Martins egna mätningar landade. Fel på en trakt → `skotavstand_manuell`.
+**Vaktat av:** `lib/faktura/lassAvstand.test.ts` (blocket "facit": de två fakturorna, och att halva cykeln/transportvägen ger andra tal) + `node scripts/mutationskontroll-avstandsregeln.mjs` (10 av 10 mutanter dödade: halva cykeln tillbaka som mått, dubbelhalvering, per-lass-pris, lassens volym i stället för traktens, osnittat snitt, omätta lass som 0 m, summerade källor).
+**Ej gjort:** granskning och sändning till Fortnox (knappen är fortfarande inaktiv); maskinvyn visar fortfarande rå Opti-`korstracka_m` som "Skotningsavstånd".
+
 ## Personal: mat, anställningsdatum, påminnelse — 2026-11-01
 - Migration `20261101133753_medarbetare_mat.sql` körd i prod (filen byte-identisk, md5 add9dbf6…). RLS provad med en körning som rullades tillbaka: förare skriver bara sin egen rad (annans → 42501, update 0 rader), ser bara sin egen; admin ser alla; `andrad_av` sätts av databasen.
 - Ångra: `drop table public.medarbetare_mat; drop function public.medarbetare_mat_stampla();` (+ ta bort raden i schema_migrations).

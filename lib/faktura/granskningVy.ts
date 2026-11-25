@@ -492,12 +492,15 @@ export type AvstandVy = {
   /** Står bara när avståndet är satt för hand. */
   manuelltRad: string | null;
   /**
-   * SAMMA KÖRNING, TRE MÅTT. Tom lista när trakten inte har app-lass.
+   * SAMMA KÖRNING, FYRA MÅTT. Tom lista när trakten inte har app-lass.
    *
-   * Talen skiljer sig kraftigt på en trakt som Skälviken (739 / 660 / 250 m),
-   * och Martins handinskrivna avstånd på Brokamåla och Tjuvön kan inte avgöra
-   * vilket Vida menar — där sammanföll de. Därför står alla tre på skärmen
-   * när han sätter avståndet, i stället för att appen låtsas veta.
+   * Första raden är den priset räknas på — avståndet UT till virket. De andra
+   * tre är samma körning mätt på andra sätt och står kvar som jämförelse:
+   * halva cykeln (Optis sätt, 739 m där avståndet ut är 414), körningen efter
+   * vändpunkten och arbetet vid avlägget. Måttet avgjordes 2026-11-25 av de
+   * två fakturor Vida betalat (se lib/faktura/lassCykel), men raderna står
+   * kvar så Martin ser VAD som skiljer dem — och så att en diskussion med
+   * Vida kan föras på tal i stället för på minnet.
    */
   jamforRader: { etikett: string; varde: string; not: string }[];
   /** Vad som INTE kunde mätas, i ord. null när allt är mätt. */
@@ -545,10 +548,10 @@ export type AvstandIndata = {
  * väga tjugo kubik. Det är också det tal som ligger närmast vad man skriver in
  * om lassen stämmer, så det är rätt tal att föreslå i stegaren.
  *
- * TÄCKNINGEN SÄGS ALLTID. Tillägget summeras per lass på LASSETS egen volym
- * och delas sedan på hela trakten (lib/faktura/hamtaUnderlag), så två lass på
- * en stor trakt ger ett tillägg nära noll. Det är hela skälet till att den här
- * skärmen finns: Skälviken har 1 725 m³ och två lass som bär 40.
+ * TÄCKNINGEN SÄGS ALLTID. Sedan 2026-11-25 sätts priset en gång på traktens
+ * volym, så ett omätt lass drar inte längre ner tillägget — men täckningen
+ * avgör hur mycket snittet är värt: två lass av 85 är ett svagt underlag för
+ * en hel trakt, och det ska stå på skärmen (se lib/faktura/fattas).
  */
 /**
  * Lassens volymviktade snitt i meter, enkel väg. null = inget lass med mätt
@@ -618,20 +621,30 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
         + `med mätt sträcka. De bär ${m3(lassVolym)} av ${heltal(i.volym)} m³fub `
         + `— ${tackning} % av trakten.`;
 
-  // Maskinen mäter sträckan sedan förra lossningen: ut i trakten, lasta,
-  // tillbaka. Ackordet räknar enkel väg, alltså halva. Det här är frågan
-  // Martin ställde, och den ska stå på skärmen — inte bara i koden.
-  const raknasRad = 'Maskinen mäter hela vägen ut och tillbaka. Ackordet '
-    + 'räknar enkel väg, så sträckan halveras.';
+  // Vad talet ÄR, i en mening. Tillägget betalar transporten mellan virket och
+  // avlägget — inte körningen vid avlägget och inte plockningen mellan
+  // högarna, som båda ligger i kubikpriset. Se lib/faktura/lassCykel.
+  const raknasRad = 'Avståndet är hur långt ut i trakten lasset hämtades, '
+    + 'enkel väg från avlägget. Sortering vid avlägget och körning mellan '
+    + 'högarna räknas inte — de är betalda i kubikpriset.';
 
   const c = a.cykel;
   const jamforRader: AvstandVy['jamforRader'] = [];
   if (c && c.enkelVagM != null) {
+    if (c.ytterstM != null) {
+      jamforRader.push({
+        etikett: 'Ut till virket',
+        varde: `${heltal(c.ytterstM)} m`,
+        not: 'Det här talet räknas priset på. Längsta avståndet från avlägget '
+          + 'under lasset — alltså enkel väg, ingen halvering.',
+      });
+    }
     jamforRader.push({
       etikett: 'Halva cykeln',
       varde: `${heltal(c.enkelVagM)} m`,
-      not: 'Det här talet räknas priset på. Hela körningen fram och tillbaka, '
-        + 'delat på två — samma sätt som Opti mäter.',
+      not: 'Hela körningen fram och tillbaka, delat på två — Optis sätt att '
+        + 'mäta. Räknar in sortering vid avlägget och körning mellan högarna, '
+        + 'så den är högre än avståndet ut.',
     });
     if (c.hemMedLassM != null) {
       jamforRader.push({
@@ -649,24 +662,26 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
       jamforRader.push({
         etikett: 'Vid avlägget',
         varde: `${heltal(c.vidAvlaggetM)} m`,
-        // EXAKT: landningsarbetet ligger i hela cykeln, så HÄLFTEN av det
-        // ligger i talet priset räknas på. "Ingår i halva cykeln" hade varit
-        // slarvigt — 250 m ingår inte i 739, 125 m gör det.
+        // Sedan 2026-11-25 ligger det INTE i priset: avståndet ut mäts från
+        // avlägget till virket, och landningsarbetet ligger inte på den
+        // sträckan. Raden står kvar som förhandlingsunderlag — den visar vad
+        // halva cykeln bär som inte är transport.
         not: 'Körning inom 60 m från lossningen — sortering och läggning, '
-          + 'inte skotning. Ligger i cykeln, så hälften av det räknas in i talet ovan.',
+          + 'inte skotning. Ingår i halva cykeln, inte i avståndet ut.',
       });
     }
   }
 
-  // Lass utan cykel bär 0 kr. Det gör talet försiktigt, inte fel — men det
+  // Lass utan cykel räknas inte i snittet (sedan 2026-11-25 bär de inte 0 m,
+  // de räknas inte alls). Talet vilar alltså på en del av trakten — och det
   // ska synas, annars ser tillägget ut som att det räknats på hela trakten.
   const luckor = c ? Object.entries(c.utan)
     .filter(([, n]) => (n ?? 0) > 0)
     .map(([orsak, n]) => `${n} ${n === 1 ? 'lass' : 'lass'}: `
       + SKAL_TEXT[orsak as keyof typeof SKAL_TEXT]) : [];
   const cykelLuckaRad = !c || !luckor.length ? null
-    : `${c.medCykel} av ${c.lass} lass har mätt cykel. De andra bär 0 kr — `
-      + luckor.join('; ') + '.';
+    : `${c.medCykel} av ${c.lass} lass har mätt cykel. De andra räknas inte i `
+      + `snittet och drar inte ner det — ` + luckor.join('; ') + '.';
 
   const prislistaRad = a.grundavstandM == null || a.krPer100m == null ? null
     : [`${heltal(a.grundavstandM)} m ingår`,
@@ -692,9 +707,11 @@ export function byggAvstandVy(i: AvstandIndata): AvstandVy {
     raknasRad,
     prislistaRad,
     pengar,
+    // INGA KRONOR PER LASS: priset sätts en gång på traktens avstånd och
+    // volym, så ett lass har inget eget belopp (lib/faktura/lassAvstand).
     lassRader: synliga.map(l => ({
       avstand: `${heltal(l.avstandM)} m`,
-      under: [`${m3(l.volym)} m³`, `${heltal(l.kronor)} kr`,
+      under: [`${m3(l.volym)} m³`,
               bada ? KALLA_ORD[l.kalla] : null].filter(Boolean).join(' · '),
     })),
     kallaRad: kallaText(a.kallor),

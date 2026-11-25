@@ -65,8 +65,8 @@ const props = (vy: Vy): GranskningProps => ({
   avstand: {
     manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680,
     lass: [
-      { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
-      { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
+      { avstandM: 1538, volym: 20, kalla: 'opti' as const },
+      { avstandM: 858, volym: 20, kalla: 'opti' as const },
     ],
     kallor: ['opti' as const],
     // Skälvikens riktiga cykel ur prod 2026-11-18: de tre raderna ska MÄTAS,

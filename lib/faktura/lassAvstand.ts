@@ -32,9 +32,16 @@
 //      helikoptern använder för skotat (vyn `helikopter_lass`), så det finns
 //      inte två sätt att väga Opti mot appen.
 //
-//   2. PRISET RÄKNAS PER LASS, som förut. `skotAvstandKr` summeras på
-//      LASSETS egen volym; den här filen levererar bara fler lass att summera
-//      över. Ingen ny viktning, ingen ny avrundning.
+//   2. PRISET SÄTTS EN GÅNG PÅ TRAKTENS VOLYM (Martin 2026-11-25), ur det
+//      volymviktade avståndet över lassen som har en mätt sträcka. Ett lass
+//      utan mätt sträcka räknas INTE som 0 m — det räknas inte alls.
+//
+//      Förut summerades priset per lass på lassets egen volym och delades
+//      sedan på hela trakten. Då drog varje omätt lass ner tillägget: Skälviken
+//      blev 7,52 kr/m³fub i stället för 12, eftersom 15 av 85 lass saknade
+//      cykel. Prislistan har ett avstånd per trakt och ett tillägg per trakt,
+//      och det är så Martin har fakturerat — båda hans handsatta trakter
+//      stämmer på öret med den här regeln, ingen av dem med den gamla.
 //
 // Appens volym är förarens egna m³, OSKALADE — `skotar_trakt_avslut`-faktorn
 // (Färdigskotad) används med flit inte här: den finns för att stämma av
@@ -132,11 +139,12 @@ export function kallorIOrd(valda: AvstandsLass[]): Lasskalla[] {
 // sa 9 000: Arvidstorp 516 m kört, 0 kr i Ackord. Nu räknar båda här, så de
 // kan inte glida isär igen (vakt: lassAvstand.test.ts "samma tal som fakturan").
 //
-// Reglerna är fakturans, oförändrade:
-//   - handsatt avstånd (`manuellM` ej null) går före lassen och räknas på
-//     traktens SKÖRDADE volym, på avräkningsdagen
-//   - annars per lass, på lassets egen volym och dag, ur den källa som
-//     vinner per maskin och dag (`valjLassKalla`)
+// Reglerna:
+//   - handsatt avstånd (`manuellM` ej null) går före lassen
+//   - annars lassens volymviktade avstånd, ur den källa som vinner per maskin
+//     och dag (`valjLassKalla`)
+//   - och i båda fallen räknas priset EN gång, på traktens SKÖRDADE volym och
+//     på avräkningsdagen
 // ─────────────────────────────────────────────────────────────────────────
 
 
@@ -163,9 +171,12 @@ export type AvstandsTillagg = {
   /** De lass som bär tillägget (har sträcka). */
   barande: AvstandsLass[];
   /**
-   * Kronor per maskin när tillägget kommer ur lassen. null när det är
-   * handsatt — då hör det till trakten, inte till ett lass, och den som
-   * delar upp det per maskin får göra det på volym.
+   * ALLTID null sedan 2026-11-25: tillägget hör till TRAKTEN, inte till ett
+   * enskilt lass, så det finns inga kronor per maskin att dela ut. Den som
+   * delar upp det per skotare gör det på volym (`fordelaPaSkotare`).
+   *
+   * Fältet står kvar så `fordelaPaSkotare` behåller sin signatur och kan dela
+   * upp ett tillägg som en framtida regel skulle lägga per maskin.
    */
   perMaskin: Map<string | null, number> | null;
   /** Volymviktat avstånd (enkel väg) över lassen som bär tillägget. */
@@ -188,20 +199,15 @@ export function avstandsTillagg(p: {
   const vol = barande.reduce((s, l) => s + l.volym, 0);
   const lassSnittM = vol > 0 ? barande.reduce((s, l) => s + l.avstandM! * l.volym, 0) / vol : null;
 
-  if (p.manuellM != null) {
-    return {
-      kr: skotAvstandKr(p.uppslag, p.manuellM, p.skordadVolym, p.avstList),
-      grund: 'manuell', valda, barande, perMaskin: null, lassSnittM,
-    };
-  }
-  const perMaskin = new Map<string | null, number>();
-  let kr = 0;
-  for (const l of barande) {
-    const k = skotAvstandKr(l.datum, l.avstandM!, l.volym, p.avstList);
-    kr += k;
-    perMaskin.set(l.maskinId, (perMaskin.get(l.maskinId) || 0) + k);
-  }
-  return { kr, grund: valda.length ? 'lass' : 'inga', valda, barande, perMaskin, lassSnittM };
+  // EN sträcka, ETT pris, på traktens volym — handsatt eller mätt.
+  const avstandM = p.manuellM ?? lassSnittM;
+  const grund: AvstandsTillagg['grund'] =
+    p.manuellM != null ? 'manuell' : avstandM != null ? 'lass' : 'inga';
+  const kr = avstandM == null
+    ? 0
+    : skotAvstandKr(p.uppslag, avstandM, p.skordadVolym, p.avstList);
+
+  return { kr, grund, valda, barande, perMaskin: null, lassSnittM };
 }
 
 /**

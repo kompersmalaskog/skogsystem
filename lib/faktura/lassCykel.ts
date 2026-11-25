@@ -10,41 +10,67 @@
 // skrivs om.
 //
 // ─────────────────────────────────────────────────────────────────────────
-// TRE TAL, TRE TOLKNINGAR — OCH DE SKILJER SIG PÅ EN TRAKT SOM SKÄLVIKEN
+// PRISET RÄKNAS PÅ AVSTÅNDET TILL VIRKET — `ytterstM` (Martin 2026-11-25)
 //
-// Uppmätt på Skälviken (85 app-lass, 1 553 m³, volymviktat):
+// Tillägget betalar TRANSPORTEN mellan virket och avlägget. Halveringen av en
+// cykel finns bara för att man inte vetat vilken del av körningen som var
+// transport; med hyttspåret vet vi det, och då ska talet vara avståndet, inte
+// en halverad totalsumma.
 //
-//   377 m   fågelväg till virket (stamhögarna ur detalj_stam)
-//   660 m   `hemMedLassM` — all körning efter den yttersta punkten
-//   739 m   `enkelVagM` = cykel 1 477 ÷ 2 — Optis sätt att räkna
+// Uppmätt i prod 2026-11-25 (volymviktat, lass med mätt cykel):
 //
-// `hemMedLassM` ÄR INTE HEMRESAN, trots SQL-kolumnens namn (`hem_med_lass_m`,
-// som står kvar — migrationen är körd). Det är all körning efter den punkt som
-// låg längst från lossningen, så kryssar maskinen innan den åker hem räknas
-// det med: uppmätt i prod 2026-11-18 är det mer än halva cykeln på 18 av 141
-// lass (snitt 38 % av cykeln, max 67 %). Vyn kallar det därför "Efter
-// vändpunkten", aldrig "hem" — ett tal får inte heta något det inte är.
+//   trakt              ytterst   cykel ÷ 2   vid avlägget/lass
+//   Skälviken  (70)     414 m      739 m        251 m
+//   Mölleryd   (33)     142        227          179
+//   Edestad    (28)     367        557          169
+//   Bondeskog  (21)     484        599          187
+//   Arvidstorp (19)     285        516          243
+//   Krokshult  (18)     141        248          181
 //
-// På Brokamåla och Tjuvön, de två trakter där Martin satt avståndet för hand,
-// SAMMANFALLER fågelväg och cykel ÷ 2 — båda trakterna är långa smala remsor
-// (Brokamåla 657 × 176 m, Tjuvön 276 × 159 m), och en jämnt fördelad volym
-// längs en sådan ger ~430–450 resp. ~200 m åt båda måtten. Kalibreringen
-// (450 mot Opti 455, 200 mot Opti 215) kan därför INTE avgöra vilket mått som
-// är Vidas — den säger bara att de råkade vara lika där.
+// VARFÖR INTE HALVA CYKELN: den räknar in körningen VID avlägget — sortering
+// och läggning, 169–251 m per lass, på Mölleryd 39 % av hela cykeln. Det
+// arbetet är redan betalt i kubikpriset, och transporttillägget ska inte
+// betala det en andra gång.
 //
-// Därför levererar den här filen alla tre, och granskningsarket visar dem.
-// Priset räknas på `enkelVagM` (cykel ÷ 2), eftersom det är Martins egna ord
-// ("vad skotaren kört, sen får man dela det med 2") och det Vida redan betalt
-// på faktura 2026140. Tycker han att talet är för högt mot Vida sätter han
-// `skotavstand_manuell` — appen föreslår, människan godkänner.
+// VARFÖR INTE "TRANSPORTVÄGEN" (cykel − avlägget, delat på två): den räknar
+// fortfarande in plockningen — körningen mellan högarna medan lasset fylls.
+// Också lastning, också redan betald.
+//
+// FACIT, DET SOM AVGJORDE: på de två trakter där Martin satt avståndet för
+// hand och Vida betalat fakturan ger `ytterstM` samma pris som hans eget tal:
+//
+//   Skälviken  handsatt 450 m → 12 kr/m³fub   ytterst 414 m → 12 kr   20 956 kr
+//   Edestad    handsatt 350 m →  8 kr/m³fub   ytterst 367 m →  8 kr    4 708 kr
+//
+// Halva cykeln ger 41 912 resp. 9 416 kr på samma trakter — 24 och 16 kr/m³fub
+// i stället för 12 och 8. Transportvägen 34 927 resp. 7 062 (20 och 12 kr).
+// Ingen av dem reproducerar en enda av fakturorna; `ytterstM` reproducerar
+// båda. Talen är kontrollräknade mot prod och låsta i
+// lib/faktura/lassAvstand.test.ts ("facit").
+//
+// ÄRLIGT OM SVAGHETEN: `ytterstM` är fågelvägen, och maskinen följer en väg —
+// talet är alltså något kortare än den körda sträckan. Men det mäts till
+// lassets YTTERSTA punkt, inte till virkets tyngdpunkt, vilket drar åt andra
+// hållet. De två felen pekar mot varandra, och facit visar att nettot landar
+// där Martins egna mätningar landade. Tycker han att talet är fel på en trakt
+// sätter han `skotavstand_manuell` — appen föreslår, människan godkänner.
+//
+// OPTIS LASS KAN INTE MÄTAS SÅ: `fakt_lass` har bara `korstracka_m` (hela
+// cykeln) och inget spår per lass, så de bär halva cykeln som förut — alltså
+// ett något för högt tal. Det syns i granskningen (källan per rad). Av de åtta
+// trakter som mättes 2026-11-25 vinner Opti EN dag på EN trakt (Mölleryd
+// 20 okt, halva cykeln 155 m — under grundavståndet, så 0 kr åt båda hållen).
+// Från och med att appen började fakturera har varje trakt app-lass.
 // ─────────────────────────────────────────────────────────────────────────
 //
-// HALVERINGEN SKER PÅ ETT STÄLLE: `skotningsavstandM` (lib/skotningsavstand).
-// SQL-funktionen returnerar hela cykeln, aldrig halva. Aldrig två gånger.
+// `enkelVagM` (cykel ÷ 2) räknas fortfarande fram och visas i granskningen som
+// jämförelse. HALVERINGEN SKER PÅ ETT STÄLLE: `skotningsavstandM`
+// (lib/skotningsavstand). SQL-funktionen returnerar hela cykeln, aldrig halva.
 //
 // KÄND BEGRÄNSNING, mätt 2026-11-18: 30 av 106 skotarspår i `hyttspar` saknar
 // `maskin_id`. Funktionen joinar på maskin, så ett sådant spår matchar inget
-// lass och punkterna tappas — lasset blir `inga_punkter` och bär 0 kr. Det
+// lass och punkterna tappas — lasset blir `inga_punkter` och räknas inte i
+// traktens avståndssnitt. Det
 // drabbar INGEN trakt i dag: alla 13 trakter med maskinlösa spår har noll
 // bekräftade lass (spåren är från september, lassrapporteringen började 20
 // oktober). Att gissa maskin ur objektet vore att gissa, och `inga_punkter`
@@ -104,7 +130,11 @@ export const SKAL_TEXT: Record<Exclude<CykelSkal, 'ok'>, string> = {
 };
 
 /**
- * Cykeln → lass som kan bära tillägg, med avståndet som ENKEL VÄG.
+ * Cykeln → lass som kan bära tillägg, med AVSTÅNDET TILL VIRKET i meter.
+ *
+ * Talet är `ytterstM` — längsta avståndet från lossningen under cykeln, alltså
+ * enkel väg redan, ingen halvering. Se blocket högst upp i filen för varför
+ * det och inte halva cykeln.
  *
  * Ett lass utan cykel får `avstandM: null` och bidrar med 0 kr, men följer med
  * i listan: det kördes, och ska väga när Opti och appen jämförs
@@ -114,8 +144,15 @@ export function cykelTillAvstandsLass(rader: LassCykel[]): AvstandsLass[] {
   return rader.map(r => ({
     datum: r.datum,
     maskinId: r.maskinId,
-    avstandM: r.skal === 'ok' && r.cykelM != null && r.cykelM > 0
-      ? skotningsavstandM(r.cykelM)
+    // INVARIANT: avståndet gäller bara när spåret gav en körning. `ytterstM`
+    // och `cykelM` räknas ur samma punkter, så en cykel på noll med ett
+    // avstånd över noll kan inte uppstå i verkligheten — men skulle den göra
+    // det är spåret trasigt, och då är 0 kr rätt svar. Hellre inget tal än
+    // ett som vilar på en rad som säger emot sig själv.
+    avstandM: r.skal === 'ok'
+      && r.cykelM != null && r.cykelM > 0
+      && r.ytterstM != null && r.ytterstM > 0
+      ? r.ytterstM
       : null,
     volym: r.volym,
     kalla: 'app' as const,

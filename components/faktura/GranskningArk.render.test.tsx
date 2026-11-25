@@ -47,8 +47,8 @@ const SORT = {
 const PROPS_AVSTAND: GranskningProps['avstand'] = {
   manuellt: null, lassVolym: 40, lassAntal: 2, kronor: 1680,
   lass: [
-    { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
-    { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
+    { avstandM: 1538, volym: 20, kalla: 'opti' as const },
+    { avstandM: 858, volym: 20, kalla: 'opti' as const },
   ],
   kallor: ['opti' as const],
   cykel: null,
@@ -294,10 +294,11 @@ describe('skotningsavståndet', () => {
     expect(t).toContain('% av trakten');
   });
 
-  it('svarar på HUR det räknas — tur och retur, halverat', () => {
+  it('svarar på HUR det räknas — ut till virket, enkel väg', () => {
     rita(props({ vy: 'avstand' }));
-    expect(txt()).toContain('ut och tillbaka');
-    expect(txt()).toContain('halveras');
+    expect(txt()).toContain('enkel väg från avlägget');
+    expect(txt()).toContain('kubikpriset');
+    expect(txt()).not.toContain('halveras');
     expect(txt()).toContain('per påbörjad 100 m');
   });
 
@@ -338,11 +339,11 @@ describe('skotningsavståndet', () => {
     expect(txt()).not.toContain('Hem med lasset');
   });
 
-  it('säger hur många lass som saknar cykel och att de bär 0 kr', () => {
+  it('säger hur många lass som saknar cykel och att de inte drar ner snittet', () => {
     rita(props({ vy: 'avstand', avstand: MED_CYKEL }));
     const t = txt();
     expect(t).toContain('70 av 85');
-    expect(t).toContain('0 kr');
+    expect(t).toContain('räknas inte i snittet');
     expect(t).toContain('3 timmar');
   });
 

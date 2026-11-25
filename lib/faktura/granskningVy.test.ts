@@ -287,8 +287,8 @@ const SKALVIKEN_AVSTAND = {
   lassAntal: 2,
   kronor: 1680,
   lass: [
-    { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
-    { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
+    { avstandM: 1538, volym: 20, kalla: 'opti' as const },
+    { avstandM: 858, volym: 20, kalla: 'opti' as const },
   ],
   kallor: ['opti'] as Lasskalla[],
   cykel: null as CykelSammanstallning | null,
@@ -318,10 +318,14 @@ describe('avståndet: 1 680 kr på 1 725 m³ är 0,97 kr/m³fub', () => {
     expect(txt(v.mening)).toContain('2 % av trakten');
   });
 
-  it('säger att maskinen mäter tur och retur — frågan Martin ställde', () => {
+  it('säger att avståndet är UT TILL VIRKET, inte hela körningen', () => {
+    // Beslut Martin 2026-11-25: tillägget betalar transporten mellan virket
+    // och avlägget, enkel väg. Sortering vid avlägget och körning mellan
+    // högarna är betalda i kubikpriset och ska inte stå i avståndet.
     const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
-    expect(v.raknasRad).toContain('ut och tillbaka');
-    expect(v.raknasRad).toContain('halveras');
+    expect(v.raknasRad).toContain('enkel väg');
+    expect(v.raknasRad).toContain('kubikpriset');
+    expect(v.raknasRad).not.toContain('halveras');
   });
 
   it('prislistan och kronorna står i ord', () => {
@@ -331,16 +335,19 @@ describe('avståndet: 1 680 kr på 1 725 m³ är 0,97 kr/m³fub', () => {
     expect(txt(v.pengar)).toContain('0,97 kr/m³fub');
   });
 
-  it('lassen står var för sig, längst först', () => {
+  it('lassen står var för sig, längst först — utan kronor per lass', () => {
+    // Priset sätts EN gång på traktens avstånd och volym (2026-11-25), så ett
+    // lass har inga egna kronor. En utslagen summa per lass hade varit en
+    // uppfunnen siffra: tillägget är inte summan av lassen.
     const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
     expect(v.lassRader.map(r => txt(r.avstand))).toEqual(['1 538 m', '858 m']);
-    expect(txt(v.lassRader[0].under)).toBe('20,0 m³ · 1 120 kr');
+    expect(txt(v.lassRader[0].under)).toBe('20,0 m³');
     expect(v.merRad).toBeNull();
   });
 
   it('en lång lista kapas och SÄGER hur många som inte visas', () => {
     const lass = Array.from({ length: LASS_SYNLIGA + 3 }, (_, i) =>
-      ({ avstandM: 1000 - i * 10, volym: 20, kronor: 100, kalla: 'opti' as const }));
+      ({ avstandM: 1000 - i * 10, volym: 20, kalla: 'opti' as const }));
     const v = byggAvstandVy({
       a: { ...SKALVIKEN_AVSTAND, lass, lassAntal: lass.length, lassVolym: lass.length * 20 },
       volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
@@ -430,8 +437,8 @@ describe('avstandRadVy — metrarna syns på trakten, inte bara kronorna', () =>
       a: {
         ...SKALVIKEN_AVSTAND,
         lass: [
-          { avstandM: 900, volym: 90, kronor: 0, kalla: 'opti' as const },
-          { avstandM: 100, volym: 10, kronor: 0, kalla: 'opti' as const },
+          { avstandM: 900, volym: 90, kalla: 'opti' as const },
+          { avstandM: 100, volym: 10, kalla: 'opti' as const },
         ],
         lassAntal: 2, lassVolym: 100,
       },
@@ -487,14 +494,18 @@ describe('tillägget: Δkr/m³fub × skotarens antal, inget annat', () => {
   });
 });
 
-// ── Samma körning, tre mått ───────────────────────────────────────────────
+// ── Samma körning, fyra mått ──────────────────────────────────────────────
 //
 // FACIT ÄR SKÄLVIKEN I PROD 2026-11-18: hyttspårets cykel 1 477 m, alltså
-// 739 m enkel väg, varav 660 m är hemresan med lasset och 250 m är arbete
-// inom 60 m från lossningen. Fågelvägen till stamhögarna är 377 m. De tre
-// talen ska stå bredvid varandra — Martins handinskrivna 450 m på Brokamåla
-// kan inte avgöra vilket Vida menar, för där sammanföll de.
-describe('samma körning, tre mått', () => {
+// 739 m enkel väg, varav 660 m är körning efter vändpunkten och 250 m är
+// arbete inom 60 m från lossningen. Längst ut från avlägget: 416 m.
+//
+// PRISET RÄKNAS PÅ 416 (Martin 2026-11-25). Facit är de två trakter där han
+// satt avståndet för hand och Vida betalade: Skälviken 450 m → 12 kr/m³fub
+// (mätt ut: 414 → 12), Edestad 350 → 8 (mätt: 367 → 8). Halva cykeln hade
+// gett 24 respektive 16 — dubbelt mot det han fakturerade. Raderna står
+// bredvid varandra så det går att se vad som skiljer dem.
+describe('samma körning, fyra mått', () => {
   const SKALVIKEN_CYKEL: CykelSammanstallning = {
     lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
     cykelM: 1477, enkelVagM: 738.5, hemMedLassM: 660, vidAvlaggetM: 250,
@@ -506,9 +517,10 @@ describe('samma körning, tre mått', () => {
     a: { ...SKALVIKEN_AVSTAND, cykel: c }, volym: 1734, prisdatum: '2026-11-02',
   });
 
-  it('visar halva cykeln, hemresan och landningsarbetet', () => {
+  it('det priset räknas på står FÖRST, halva cykeln under', () => {
     const r = vy(SKALVIKEN_CYKEL);
     expect(r.jamforRader.map(x => [x.etikett, x.varde])).toEqual([
+      ['Ut till virket', '416 m'],
       ['Halva cykeln', '739 m'],
       ['Efter vändpunkten', '660 m'],
       ['Vid avlägget', '250 m'],
@@ -518,28 +530,35 @@ describe('samma körning, tre mått', () => {
   it('säger vilket tal priset räknas på', () => {
     const r = vy(SKALVIKEN_CYKEL);
     expect(r.jamforRader[0].not).toMatch(/räknas priset på/i);
+    // Och att det INTE halveras — talet är redan enkel väg.
+    expect(r.jamforRader[0].not).toMatch(/ingen halvering/i);
   });
 
   it('förklarar vad talen ÄR, i ord', () => {
     const r = vy(SKALVIKEN_CYKEL);
+    // Halva cykeln är Optis sätt, och den är HÖGRE — raden ska säga varför,
+    // annars ser de två talen ut som två mätningar av samma sak.
+    expect(r.jamforRader[1].not).toMatch(/delat på två/i);
+    expect(r.jamforRader[1].not).toMatch(/högre än avståndet ut/i);
     // ÄRLIG ETIKETT: talet är inte hemresan. Säger texten "hem med virket"
     // ljuger den på 13 % av lassen, där kryssandet efter vändpunkten är mer
     // än halva cykeln.
-    expect(r.jamforRader[1].etikett).not.toMatch(/hem/i);
-    expect(r.jamforRader[1].not).toMatch(/längst från avlägget/i);
-    expect(r.jamforRader[1].not).toMatch(/kryssar/i);
-    expect(r.jamforRader[2].not).toMatch(/sortering och läggning/i);
-    // Landningsarbetet ingår i priset — det ska stå, annars ser raden ut som
-    // ett avdrag som redan är gjort. Och det ska stå EXAKT: 250 m ligger i
-    // cykeln, alltså 125 m i talet priset räknas på.
-    expect(r.jamforRader[2].not).toMatch(/hälften/i);
-    expect(r.jamforRader[2].not).not.toMatch(/ingår i halva cykeln/i);
+    expect(r.jamforRader[2].etikett).not.toMatch(/hem/i);
+    expect(r.jamforRader[2].not).toMatch(/längst från avlägget/i);
+    expect(r.jamforRader[2].not).toMatch(/kryssar/i);
+    // Landningsarbetet ligger INTE i det priset räknas på (2026-11-25) —
+    // raden ska säga var det ligger, annars ser den ut som ett avdrag.
+    expect(r.jamforRader[3].not).toMatch(/sortering och läggning/i);
+    expect(r.jamforRader[3].not).toMatch(/inte i avståndet ut/i);
+    expect(r.jamforRader[3].not).not.toMatch(/hälften/i);
   });
 
   it('säger hur många lass som saknar cykel och varför', () => {
     const r = vy(SKALVIKEN_CYKEL);
     expect(r.cykelLuckaRad).toContain('70 av 85');
-    expect(r.cykelLuckaRad).toContain('0 kr');
+    // Sedan 2026-11-25 bär ett omätt lass inte 0 kr — det räknas inte alls.
+    expect(r.cykelLuckaRad).toContain('räknas inte i snittet');
+    expect(r.cykelLuckaRad).not.toContain('0 kr');
     expect(r.cykelLuckaRad).toMatch(/14 lass/);
     expect(r.cykelLuckaRad).toMatch(/3 timmar/);
   });
@@ -547,7 +566,7 @@ describe('samma körning, tre mått', () => {
   it('inget att säga när alla lass har cykel', () => {
     const r = vy({ ...SKALVIKEN_CYKEL, lass: 70, medCykel: 70, utan: {} });
     expect(r.cykelLuckaRad).toBeNull();
-    expect(r.jamforRader).toHaveLength(3);
+    expect(r.jamforRader).toHaveLength(4);
   });
 
   it('utan app-lass finns inga rader — inte tre nollor', () => {
@@ -557,7 +576,17 @@ describe('samma körning, tre mått', () => {
 
   it('en del som inte gick att mäta får ingen rad', () => {
     const r = vy({ ...SKALVIKEN_CYKEL, hemMedLassM: null, vidAvlaggetM: null });
-    expect(r.jamforRader.map(x => x.etikett)).toEqual(['Halva cykeln']);
+    expect(r.jamforRader.map(x => x.etikett)).toEqual(['Ut till virket', 'Halva cykeln']);
+  });
+
+  it('utan mätt avstånd ut står bara halva cykeln — aldrig ett påhittat tal', () => {
+    // Skulle SQL:en svara utan ytterst_m (gammal funktion, oläst kolumn) får
+    // raden som priset räknas på inte finnas. Hellre en rad mindre än en rad
+    // med ett tal vi inte mätt.
+    const r = vy({ ...SKALVIKEN_CYKEL, ytterstM: null });
+    expect(r.jamforRader.map(x => x.etikett)).toEqual([
+      'Halva cykeln', 'Efter vändpunkten', 'Vid avlägget',
+    ]);
   });
 
   it('för få lass för ett snitt ger inga rader alls', () => {

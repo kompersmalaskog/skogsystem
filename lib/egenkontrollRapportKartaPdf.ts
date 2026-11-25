@@ -36,16 +36,26 @@ export type Ruta = { x: number; top: number; b: number; h: number };
 
 const SIDHOJD = 841.89;
 
-/** Det kartan handlar om: traktgrans + stammoln; saknas de, allt som finns. */
-export function kartExtent(l: KartLager): LatLng[] {
-  const karna = [...l.granser.flat(), ...l.stammar];
-  if (karna.length > 0) return karna;
-  return [
+/**
+ * Det kartan handlar om: traktgrans + stammoln; saknas de, allt som finns.
+ *
+ * `allt`: ta med pinnar och hyttspar aven nar traktgransen finns. Egenkontrollen
+ * vill INTE det - dess kontrollpunkter ligger i trakten, och en karta som
+ * zoomas ut for ett spar pa vag hem blir samre. Skotningsrapporten maste:
+ * avlagget ligger nastan alltid UTANFOR traktgransen, vid vagen, och rapporten
+ * handlar om avstandet fran just det avlagget ut i trakten. Utan flaggan klipps
+ * avlagget och halva sparet bort (uppmatt pa Skalviken 2026-11-25).
+ */
+export function kartExtent(l: KartLager, opts: { allt?: boolean } = {}): LatLng[] {
+  const ovrigt = [
     ...l.pinnar.map((p) => p.plats),
     ...(l.hyttspar ?? []).flatMap((h) => h.linjer.flat()),
     ...(l.noteringar ?? []).filter(arMedIRapport).flatMap((n) => n.punkter),
     ...(l.markeringar ?? []).flatMap((m) => (m.slag === 'symbol' ? [m.plats] : m.punkter)),
   ];
+  const karna = [...l.granser.flat(), ...l.stammar];
+  if (karna.length === 0) return ovrigt;
+  return opts.allt ? [...karna, ...ovrigt] : karna;
 }
 
 /** Meter -> en "snygg" langd for skalstocken: 10, 20, 50, 100 ... */
@@ -80,8 +90,8 @@ export function projicera(punkter: LatLng[], b: number, h: number, pad = 18) {
 }
 
 /** Kartans hojd for bredden b: foljer trakten (hog trakt = hog karta) inom [min, max]. */
-export function kartaHojd(l: KartLager, b: number, min = 230, max = 400, pad = 18): number {
-  const e = kartExtent(l);
+export function kartaHojd(l: KartLager, b: number, min = 230, max = 400, pad = 18, opts: { allt?: boolean } = {}): number {
+  const e = kartExtent(l, opts);
   if (e.length === 0) return min;
   const lat0 = e.reduce((s, p) => s + p.lat, 0) / e.length;
   const k = Math.cos((lat0 * Math.PI) / 180);
@@ -101,11 +111,11 @@ export function ritaKarta(
   ruta: Ruta,
   l: KartLager,
   san: (s: string) => string,
-  opts: { stammarBlek?: boolean; etiketter?: boolean } = {},
+  opts: { stammarBlek?: boolean; etiketter?: boolean; extentAllt?: boolean } = {},
 ): { meterPerPt: number } | null {
   const grå = (g: number) => lib.rgb(g / 255, g / 255, g / 255);
   sida.drawRectangle({ x: ruta.x, y: SIDHOJD - ruta.top - ruta.h, width: ruta.b, height: ruta.h, color: grå(247), borderColor: grå(215), borderWidth: 0.5 });
-  const extent = kartExtent(l);
+  const extent = kartExtent(l, { allt: opts.extentAllt });
   if (extent.length === 0) return null;
   const pr = projicera(extent, ruta.b, ruta.h);
   /** Toppbaserade koordinater i SVG-banor (origo = sidans ovre vanstra hornet, se `SVG`). */

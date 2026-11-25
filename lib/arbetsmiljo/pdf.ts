@@ -20,8 +20,37 @@ function hex(h: string): [number, number, number] {
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
 }
 
-export async function skapaArbetsmiljoPdf(dok: Dokument): Promise<Uint8Array> {
-  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+/**
+ * En karta i dokumentet. Ritningen kommer från ANROPAREN — `Dokument` är en
+ * ren datatyp och ska aldrig bära pdf-lib-typer. Så kan fakturans
+ * skotningsrapport rita sin vektorkarta (`ritaKarta` i egenkontrollens ritare)
+ * utan att arbetsmiljön behöver veta vad en karta är.
+ *
+ * `rita` får rutan i pt. null = inget att rita (då hoppas rutan över).
+ *
+ * `egenSida`: kartan ritas SIST, på en egen sida, och fyller den. En karta som
+ * ska kunna läsas behöver ungefär en halv A4, och ett dokument med fakta, svar
+ * och två avsnitt har inte så mycket plats kvar — mätt på skotningsrapporten
+ * blev det två sidor även med en karta på 60 pt. Då är det bättre att sida 1
+ * svarar på frågan ensam och kartan får hela sida 2, än att innehållet bryts
+ * mitt i. `hojd` ignoreras då; rutan är sidan minus marginal och rubrik.
+ */
+export type PdfKarta = {
+  hojd: number;
+  egenSida?: boolean;
+  /** Rubriken över kartan på dess egen sida. */
+  rubrik?: string;
+  rita: (a: {
+    sida: unknown;
+    lib: unknown;
+    fonter: { normal: unknown; fet: unknown };
+    ruta: { x: number; top: number; b: number; h: number };
+  }) => void;
+};
+
+export async function skapaArbetsmiljoPdf(dok: Dokument, karta?: PdfKarta): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  const { PDFDocument, StandardFonts, rgb } = pdfLib;
   type Farg = ReturnType<typeof rgb>;
   const pdf = await PDFDocument.create();
   pdf.setTitle(sanera(dok.titel));
@@ -79,6 +108,13 @@ export async function skapaArbetsmiljoPdf(dok: Dokument): Promise<Uint8Array> {
   svarRader.forEach((r, i) => text(r, MARG + 12, y + 10 + i * STEG.svar * 1.3, STEG.svar, fet, tonFarg(dok.svarTon)));
   y += svarH + 22;
 
+  // ── Kartan (valfri) ───────────────────────────────────────────────────────────────────────────────────────────────
+  if (karta && !karta.egenSida) {
+    plats(karta.hojd + 8);
+    karta.rita({ sida, lib: pdfLib, fonter: { normal, fet }, ruta: { x: MARG, top: y, b: B, h: karta.hojd } });
+    y += karta.hojd + 18;
+  }
+
   // ── Avsnitt ───────────────────────────────────────────────────────────────────────────────────────────────────────
   for (const s of dok.sektioner) {
     const underRader = s.under ? bryt(s.under, STEG.text, normal, B) : [];
@@ -116,6 +152,17 @@ export async function skapaArbetsmiljoPdf(dok: Dokument): Promise<Uint8Array> {
     const rader = bryt(dok.not, STEG.micro, normal, B);
     plats(rader.length * STEG.micro * 1.4);
     for (const r of rader) { text(r, MARG, y, STEG.micro, normal, F.sek); y += STEG.micro * 1.4; }
+  }
+
+  // Kartan på egen sida, sist: hela sidan minus marginal och rubrik.
+  if (karta?.egenSida) {
+    nySida();
+    if (karta.rubrik) {
+      text(karta.rubrik, MARG, y, STEG.rubrik, fet, F.text);
+      y += STEG.rubrik * 1.3 + 6;
+    }
+    const h = FOT_Y - MARG - y - STEG.micro - 8;
+    karta.rita({ sida, lib: pdfLib, fonter: { normal, fet }, ruta: { x: MARG, top: y, b: B, h } });
   }
 
   sidor.forEach((s, i) => {

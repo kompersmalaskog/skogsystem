@@ -33,6 +33,7 @@ import { arbetsprisNot } from '@/lib/faktura/arbetspris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import { fattasRubrik, type FattasPost } from '@/lib/faktura/fattas';
 import GranskningArk, { type Vy } from '@/components/faktura/GranskningArk';
+import SkotningsrapportArk from '@/components/faktura/SkotningsrapportArk';
 import { type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import {
   AVSTAND, FARG, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TAL_FONT, TYP, TRAFFYTA,
@@ -136,6 +137,7 @@ export default function TraktKlient({ vo, manuellt }: { vo: string; manuellt: Ma
 
 function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArbete | null; omlasning: () => void }) {
   const [granskning, setGranskning] = useState<Vy | null>(null);
+  const [rapport, setRapport] = useState(false);
   const maskinRader = d.rader.filter(r => ['1', '2', '11', '12'].includes(r.artikelnr ?? ''));
   const ovriga = d.rader.filter(r => !maskinRader.includes(r) && r.antal !== 0);
   const skordarrad = maskinRader.find(r => r.artikelnr === '1');
@@ -332,6 +334,29 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
       {d.noter.filter(n => n.niva !== 'varning').map((n, i) => (
         <p key={`i${i}`} style={{ margin: `0 0 ${AVSTAND.m}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>{n.text}</p>
       ))}
+
+      {/*
+        SKOTNINGSRAPPORTEN — det Martin skickar till Vidas inköpare
+        (2026-11-25: "kan vi göra det till pdf så jag kan skicka det till
+        inköparna"). En RAD, inte en knapp: skärmens enda primära knapp är
+        "Markera som granskad". Raden finns bara när trakten har ett avstånd
+        att visa — en rapport utan tal är ingen rapport.
+      */}
+      {d.granskning && avstandRad && (
+        <Sektion rubrik="Skicka till inköparen" inset>
+          <Rad
+            sista
+            attr={{ 'data-skotningsrapport': '' }}
+            titel="Skotningsrapport"
+            under="Avståndet, kartan över körningen och vad det ger på fakturan."
+            onTryck={() => setRapport(true)}
+          />
+        </Sektion>
+      )}
+
+      {rapport && d.granskning && (
+        <SkotningsrapportArk d={d} onStang={() => setRapport(false)} />
+      )}
 
       <div style={{ maxWidth: KOLUMN.smal / 2 }}>
         <button type="button" disabled style={{ ...KNAPP.primar, ...INAKTIV }}>Markera som granskad</button>
