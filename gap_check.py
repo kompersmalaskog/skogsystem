@@ -362,39 +362,12 @@ def check_deploy_drift():
     return [], 'OK', f'OK — {len(DRIFT_FILER)} importfiler byte-identiska med origin/main ({sha})'
 
 
-def check_import_fel():
-    """import_fel-rader senaste 8 dygnen (täcker en veckokörning med
-    marginal) -> LARM-rader. Varje rad är ett verifierat datatapp — en
-    tabellskrivning som misslyckades i importen (upsert_data:s felgren).
-    Wisent-läxan 21/7: skiftdata tappades tyst i en logg ingen läser;
-    nu ska tappet nå både datahälsan (läser tabellen direkt) och den
-    här kontrollen. READ-ONLY.
-    -> (larmrader, antal | None om tabellen inte kunde läsas)."""
-    try:
-        sedan = (datetime.datetime.now(datetime.timezone.utc)
-                 - datetime.timedelta(days=8)).isoformat()
-        req = urllib.request.Request(
-            imp.SUPABASE_URL + '/rest/v1/import_fel'
-            + '?tid=gte.' + sedan.replace('+', '%2B')
-            + '&select=tid,tabell,filnamn,felkod,feltext&order=tid.desc&limit=100',
-            headers=_hdr())
-        rows = json.loads(urllib.request.urlopen(req, timeout=30).read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode('utf-8', 'replace')[:200]
-        # PostgREST säger "Could not find the table ... in the schema cache"
-        # (PGRST205) när migrationen inte är körd — larma inte i evighet då.
-        if ('does not exist' in body or 'Could not find the table' in body
-                or 'PGRST205' in body):
-            return [], None
-        return [f'  LARM  import_fel gick inte att läsa (HTTP {e.code}): {body}'], None
-    except Exception as e:
-        return [f'  LARM  import_fel gick inte att läsa: {e}'], None
-    larm = [
-        f'  LARM  IMPORTFEL {str(r.get("tid", ""))[:16]} tabell={r.get("tabell")} '
-        f'fil={r.get("filnamn") or "?"} {r.get("felkod")}: {(r.get("feltext") or "")[:120]}'
-        for r in rows
-    ]
-    return larm, len(rows)
+# Importfel (tabellen import_fel) kontrolleras INTE här längre (2026-11-25).
+# De bevakas i databasen: pg_cron-jobbet 'import-larm' kör
+# import_larm_kontroll() var 15:e minut, skriver raden 'import_live' i
+# meta_datahalsa_status och skickar en notis till admin. En kontroll här —
+# som mest två gånger om dygnet, och med en vecka gamla fel kvar i fönstret —
+# gav bara samma larm en gång till, i efterhand.
 
 
 def check_stammar_utan_stockar():
@@ -603,6 +576,7 @@ def main():
 
     # ── Del 2: MOM-avstämning i fönstret ──
     alarms, infos = list(inv_larm), []
+    mom_larm = []   # (maskin, dag) där fakt_tid och MOM-taket går isär — egen statusrad
     for maskin in discover_machines():
         ceil = mom_ceiling(maskin, dayset)
         db = db_day_pt(maskin, dayset)
@@ -613,10 +587,12 @@ def main():
             pct = (gap / c) if c > 0 else 0.0
             if gap_h > ABS_THRESHOLD_H:
                 alarms.append((maskin, d))
-                L.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%) — under-count, importen tappar')
+                mom_larm.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%) — under-count, importen tappar')
+                L.append(mom_larm[-1])
             elif gap_h < -ABS_THRESHOLD_H:
                 alarms.append((maskin, d))
-                L.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap={gap_h:5.2f}h — DB > MOM: dubblering ELLER MOM-fil borta ur Behandlade (nästa dag-rebuild raderar då datat!)')
+                mom_larm.append(f'  LARM  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap={gap_h:5.2f}h — DB > MOM: dubblering ELLER MOM-fil borta ur Behandlade (nästa dag-rebuild raderar då datat!)')
+                L.append(mom_larm[-1])
             elif c > 0 and pct >= REL_THRESHOLD and gap_h > 0.05:
                 infos.append((maskin, d))
                 L.append(f'  info  {maskin:<20} {d}  tak={c/3600:6.2f}h  DB={v/3600:6.2f}h  gap=+{gap_h:5.2f}h ({pct*100:4.1f}%)')
@@ -627,14 +603,8 @@ def main():
     L.extend(drift_larm)
     alarms.extend(drift_larm)   # drift-larm ska larma: LARM-fil + exit-kod 1
 
-    # ── Del 4: tappades något vid import? (import_fel, senaste 8 dygnen) ──
-    fel_larm, fel_antal = check_import_fel()
-    if fel_antal is None and not fel_larm:
-        L.append('    import_fel: tabellen saknas (migration ej körd) — hoppar kontrollen')
-    else:
-        L.append(f'    import_fel senaste 8 dygnen: {fel_antal if fel_antal is not None else "?"} rader')
-    L.extend(fel_larm)
-    alarms.extend(fel_larm)     # datatapp ska larma — det var så Wisent-tappet gömde sig
+    # ── Del 4 (import_fel) är borttagen 2026-11-25: importfel bevakas i databasen
+    #    (import_larm_kontroll → raden 'import_live'), se kommentaren ovan. ──
     # ── Del 5: objekt med stammar men inga stockar ──
     stock_larm, stock_antal = check_stammar_utan_stockar()
     if stock_antal is None and not stock_larm:
@@ -685,20 +655,24 @@ def main():
         fh.write(text + '\n' if alarms else f'INGA LARM {datetime.datetime.now():%Y-%m-%d %H:%M}\n')
 
     # Statusrader till appen (Datahälsa-vyn läser meta_datahalsa_status).
-    # Två rader: 'gap_check' (hela körningen, inkl. drift-larm) och
-    # 'deploy_drift' (bara drift-tillståndet, med OKÄND som ärligt tredje läge).
+    # EN rad per kontroll, så vyn kan säga vilken som larmar. Samlingsraden
+    # 'gap_check' (hela körningen i en rad) skrivs INTE längre (2026-11-25):
+    # den blandade ihop importfelen — som nu bevakas i databasen, raden
+    # 'import_live' — med kontrollerna nedan. 'fakt_tid_mot_mom' bär det som
+    # bara den här körningen kan se (invarianterna + MOM-avstämningen mot
+    # filerna i Behandlade) och som annars bara hade stått i loggen.
     # Mjuk felhantering: saknas tabellen (migration ej körd) får körningen
     # INTE krascha — loggen/larmfilen är fortfarande primärkanalen.
     try:
-        larm_rader = [r.strip() for r in L if r.strip().startswith('LARM')]
         nu = datetime.datetime.now().astimezone().isoformat()
+        tid_larm = [r.strip() for r in list(inv_larm) + mom_larm]
         statusrader = [{
-            'id': 'gap_check',
+            'id': 'fakt_tid_mot_mom',
             'kord_tid': nu,
-            'status': 'LARM' if alarms else 'OK',
-            'larm_antal': len(alarms),
-            'sammanfattning': ('\n'.join(larm_rader)[:1500] if alarms
-                               else f'Inga larm — {n_rader} rader kontrollerade, tomgång-arv {tomgang_arv}'),
+            'status': 'LARM' if tid_larm else 'OK',
+            'larm_antal': len(tid_larm),
+            'sammanfattning': ('\n'.join(tid_larm)[:1500] if tid_larm
+                               else f'{n_rader} rader kontrollerade — fakt_tid matchar MOM-filerna ({args.days} dagar)'),
         }, {
             'id': 'deploy_drift',
             'kord_tid': nu,
