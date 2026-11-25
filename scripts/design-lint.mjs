@@ -201,7 +201,6 @@ export const SKARPA = [
   "components/kalibrering/MaskinMeny.tsx",
   "components/kalibrering/NyAtgardArk.tsx",
   "components/kalibrering/OverTidFlik.tsx",
-  "components/kalibrering/Procentrad.tsx",
   "components/kalibrering/Rutnat.tsx",
   "components/kalibrering/GrovlekVinkel.tsx",
   "components/kalibrering/GreppVinkel.tsx",

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Läget (2026-10-25): tre delar — svaret, Vidas krav sämst först, trädslagen. Det som kan smyga tillbaka: kortet "Gör så här", ett andra stort tal,
+// Läget (2026-11-25): svaret, Idag, Vidas krav sämst först, Var sitter felet? — trädslagen och kontrollernas siffror bakom Fler siffror. Det som kan smyga tillbaka: kortet "Gör så här", ett andra stort tal,
 // åtgärdslistan (bor nu i Över tid) — och ett godkänt mått överst när domen är "Under kravet".
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
@@ -54,33 +54,42 @@ const montera = (el: ReturnType<typeof createElement>) => { host = document.crea
 afterEach(() => { act(() => rot?.unmount()); host?.remove(); rot = null; host = null; oppnaHjalp.mockClear(); oppnaArt.mockClear(); });
 
 const sektion = (h: HTMLElement, namn: string) => h.querySelector<HTMLElement>(`section[aria-label="${namn}"]`);
+const oppnaFler = (h: HTMLElement) => act(() => h.querySelector<HTMLElement>('[data-rad="fler"]')!.click());
 const radtitlar = (s: HTMLElement) => Array.from(s.querySelectorAll('button')).map(b => b.textContent ?? '');
 
 describe('Läget — Kontrollerna (Skogforsk 2026-11-18)', () => {
   it('räknar bara fönstret, slumpvalda och sträng kyla; klaven aldrig kollad = orange "Dags att kolla"', () => {
     const h = montera(createElement(LagetFlik, { d: d(), ark }));
-    const s = sektion(h, 'Kontrollerna')!;
-    expect(s.querySelector('[data-rad="senaste"]')!.textContent).toContain('21 okt');
-    expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('2 kontroller');
-    expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('1 slumpvalda');
-    expect(s.querySelector('[data-rad="kyla"]')!.textContent).toContain('1 av 2');
-    expect(s.querySelector('[data-rad="idag"]')!.textContent).toMatch(/Gjord|Inte än/);
-    expect(s.querySelector('[data-rad="idag"]')!.textContent).not.toMatch(/av 2|två gånger/);
-    const m = s.querySelector<HTMLElement>('[data-rad="matdon"]')!;
+    const idag = sektion(h, 'Idag')!;
+    expect(idag.querySelector('[data-rad="idag"]')!.textContent).toMatch(/Gjord|Inte än/);
+    expect(idag.querySelector('[data-rad="idag"]')!.textContent).not.toMatch(/av 2|två gånger/);
+    // Klaven aldrig kollad = något att göra: den står under Idag, inte bakom Fler siffror.
+    const m = idag.querySelector<HTMLElement>('[data-rad="matdon"]')!;
     expect(m.textContent).toContain('Aldrig kollade');
     expect(m.textContent).toContain('Dags att kolla');
     act(() => m.click());
     expect(oppnaMatdon).toHaveBeenCalled();
+    expect(sektion(h, 'Kontrollerna')).toBeNull();
+    oppnaFler(h);
+    const s = sektion(h, 'Kontrollerna')!;
+    expect(s.querySelector('[data-rad="matdon"]')).toBeNull();
+    expect(s.querySelector('[data-rad="senaste"]')!.textContent).toContain('21 okt');
+    expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('2 kontroller');
+    expect(s.querySelector('[data-rad="antal"]')!.textContent).toContain('1 slumpvalda');
+    expect(s.querySelector('[data-rad="kyla"]')!.textContent).toContain('1 av 2');
   });
   it('ingen kyla i fönstret = ingen rad; nyss kollad = inget "Dags att kolla"; läsfel sägs', () => {
     const h = montera(createElement(LagetFlik, { d: d({ filteredKalib: [{ filnamn: 'b.hqc', datum: '2026-10-01T00:00:00', weather_at_harvest: null }], matdon: { id: 'x', at: new Date().toISOString(), av: null } }), ark }));
+    // Nyss kollad = inget att göra: raden står inte under Idag utan bland siffrorna.
+    expect(sektion(h, 'Idag')!.querySelector('[data-rad="matdon"]')).toBeNull();
+    oppnaFler(h);
     const s = sektion(h, 'Kontrollerna')!;
     expect(s.querySelector('[data-rad="kyla"]')).toBeNull();
     expect(s.textContent).toContain('Kollade');
     expect(s.textContent).not.toContain('Dags att kolla');
     act(() => rot?.unmount()); host?.remove();
     const h2 = montera(createElement(LagetFlik, { d: d({ matdon: undefined, matdonFel: 'x' }), ark }));
-    expect(sektion(h2, 'Kontrollerna')!.textContent).toContain('Kunde inte läsas');
+    expect(sektion(h2, 'Idag')!.textContent).toContain('Kunde inte läsas');
   });
 });
 
@@ -99,9 +108,14 @@ describe('Läget — svaret, kraven och trädslagen, inget mer', () => {
     expect(krav[1]).toContain('77 %');
   });
 
-  it('tre sektioner — inget "Gör så här", inga Åtgärder, ingen fotnot med kontroller och stockar', () => {
+  it('tre delar och Fler siffror — inget "Gör så här", inga Åtgärder, ingen fotnot med kontroller och stockar', () => {
     const h = montera(createElement(LagetFlik, { d: d(), ark }));
-    expect(Array.from(h.querySelectorAll('section[aria-label]')).map(s => s.getAttribute('aria-label'))).toEqual(['Vidas krav', 'Var sitter felet?', 'Per trädslag', 'Kontrollerna']);
+    const sektioner = () => Array.from(h.querySelectorAll('section[aria-label]')).map(s => s.getAttribute('aria-label'));
+    expect(sektioner()).toEqual(['Idag', 'Vidas krav', 'Var sitter felet?']);
+    expect(h.querySelector('[data-rad="fler"]')!.textContent).toContain('Visa');
+    oppnaFler(h);
+    expect(sektioner()).toEqual(['Idag', 'Vidas krav', 'Var sitter felet?', 'Per trädslag', 'Kontrollerna']);
+    expect(h.querySelector('[data-rad="fler"]')!.textContent).toContain('Dölj');
     for (const borta of ['Gör så här', 'Åtgärder', 'Lägg till åtgärd', 'Justeringsförslag', 'kontroller ·']) expect(h.textContent).not.toContain(borta);
   });
 
@@ -141,6 +155,7 @@ describe('Läget — svaret, kraven och trädslagen, inget mer', () => {
     const h = montera(createElement(LagetFlik, { d: d(), ark }));
     act(() => sektion(h, 'Vidas krav')!.querySelector('button')!.click());
     expect(oppnaHjalp).toHaveBeenCalledTimes(1);
+    oppnaFler(h);
     act(() => sektion(h, 'Per trädslag')!.querySelectorAll('button')[1].click());
     expect(oppnaArt).toHaveBeenCalledWith('tall');
   });
