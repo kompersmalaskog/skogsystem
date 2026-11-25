@@ -58,7 +58,7 @@ function Traff({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: Dia
       </Sektion>
 
       {kl.some(k => k.systMonthly.length > 0) && (
-        <Sektion rubrik={`${MATT.systematisk.fraga} Per grovlek och månad`} not="Systematisk avvikelse (mm). Svajar tecknet = tryck · ligger still = kurva.">
+        <Sektion rubrik={`${MATT.systematisk.fraga} Per grovlek och månad`} not="Hur många mm maskinen mäter fel åt ett håll. Byter talet mellan plus och minus ligger felet i greppet, ligger det still ligger det i kalibreringen.">
           <Fyll><StabilitetTabell klasser={kl} /></Fyll>
         </Sektion>
       )}
@@ -82,10 +82,10 @@ function Sprid({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: Dia
   );
   return (
     <div className="kal-rutnat">
-      <Sektion rubrik={MATT.standardavv.fraga} not={`${MATT.standardavv.term} — hoppar maskinen fram och tillbaka, eller mäter den jämnt?${stdGolv != null ? ` ${diag.profil} vill att spridningen håller sig under ${fmtKrav(stdGolv)} mm.` : ''}`}>
+      <Sektion rubrik={MATT.standardavv.fraga} not={`Hur mycket mätningarna skiljer sig från varandra.${stdGolv != null ? ` ${diag.profil} vill att det håller sig under ${fmtKrav(stdGolv)} mm.` : ''}`}>
         <Fyll>
           <TidsDiagram manader={perioderAv(sprid)} series={sprid} yMax={spridYMax(stdGolv)} markorer={diag.markorer}
-            kravBand={stdGolv != null ? { till: stdGolv, label: `krav ≤${fmtKrav(stdGolv)} mm` } : undefined} riktning="↓ lägre = bättre"
+            kravBand={stdGolv != null ? { till: stdGolv, label: `krav under ${fmtKrav(stdGolv)} mm` } : undefined} riktning="↓ lägre = bättre"
             fmtX={m => fmtPeriod(m, v.lagetSteg)} markorKey={dat => periodKey(dat.slice(0, 7), v.lagetSteg)} />
           <MarkorForklaring diag={diag} />
         </Fyll>

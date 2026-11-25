@@ -157,7 +157,7 @@ function Kontrollerna({ d, ark, klave }: { d: KalibreringData; ark: KalibreringA
       )}
       {s && s.kalla > 0 && (
         <Rad titel="I sträng kyla" under={`Under ${grader(KALL_GRANS_C)} mäter maskinen ofta annorlunda`} pil={false} attr={{ 'data-rad': 'kyla' }} sista={!klave}
-          hoger={<span style={{ color: FARG.orange }}>{`${s.kalla} av ${s.antal}`}</span>} />
+          hoger={<span style={{ color: FARG.text2 }}>{`${s.kalla} av ${s.antal}`}</span>} />
       )}
       {klave && <KlaveRad d={d} ark={ark} sista />}
     </Sektion>
