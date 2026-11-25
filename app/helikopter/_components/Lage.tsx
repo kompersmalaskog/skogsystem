@@ -6,7 +6,9 @@
 import Sektion from '@/components/design/Sektion'
 import { AVSTAND, FARG, KORT, RADIE, TNUM, TYP } from '@/lib/design/tokens'
 import { rollFarg } from '@/lib/sparStil'
-import { fmt } from '../_lib/format'
+import { fmt, relativTid } from '../_lib/format'
+import { KLAR_TYP_NAMN, type KlarTyp } from '../_lib/klar'
+import type { KorNu } from '../_lib/queries'
 import { barSvar, lageRutor, lageSvar, type Ruta, type TidsBar, type TidsRad, type Tidslinje } from '../_lib/lage'
 import type { Tavla as TavlaVy, TavlaSpar } from '../_lib/tavla'
 import type { PlaneraRoll } from './Tavla'
@@ -62,7 +64,7 @@ function TrakRad({ b, t }: { b: TidsBar; t: Tidslinje }) {
   )
 }
 
-function MaskinKort({ r, t }: { r: TidsRad; t: Tidslinje }) {
+function MaskinKort({ r, t, nu }: { r: TidsRad; t: Tidslinje; nu?: KorNu }) {
   const farg = rollFarg(r.roll)
   return (
     <div data-tid-maskin={r.maskin_id} style={{ ...KORT, minWidth: 0 }}>
@@ -70,19 +72,24 @@ function MaskinKort({ r, t }: { r: TidsRad; t: Tidslinje }) {
         <span aria-hidden="true" style={{ width: AVSTAND.s, height: AVSTAND.s, borderRadius: RADIE.cirkel, background: farg, flexShrink: 0 }} />
         {r.namn}<span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 400 }}>{r.roll === 'skordare' ? 'skördare' : 'skotare'}</span>
       </div>
+      {nu && (
+        <div data-kor-nu="" style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.s }}>
+          Senast: {nu.namn ?? 'okänt objekt'}{nu.typ && nu.typ !== 'slutavverkning' && nu.typ !== 'gallring' ? ` (${KLAR_TYP_NAMN[nu.typ as KlarTyp] ?? nu.typ})` : ''} · {relativTid(nu.tid ?? `${nu.datum}T12:00:00`)}
+        </div>
+      )}
       {r.barer.map(b => <TrakRad key={b.id} b={b} t={t} />)}
       {r.not && <div data-tid-not="" style={{ ...TYP.meta, color: FARG.text2, paddingTop: AVSTAND.s, borderTop: `1px solid ${FARG.linje}` }}>{r.not}</div>}
     </div>
   )
 }
 
-function Maskiner({ t }: { t: Tidslinje }) {
-  return <div data-tidslinje="" className="lage-maskiner">{t.rader.map(r => <MaskinKort key={r.maskin_id} r={r} t={t} />)}</div>
+function Maskiner({ t, korNu }: { t: Tidslinje; korNu?: KorNu[] | null }) {
+  return <div data-tidslinje="" className="lage-maskiner">{t.rader.map(r => <MaskinKort key={r.maskin_id} r={r} t={t} nu={korNu?.find(k => k.maskin_id === r.maskin_id)} />)}</div>
 }
 
 /** `tidslinje` = null: månaden pågår inte, eller köunderlaget saknas (då står ingen tom tidslinje — rutorna och svaret räcker). */
-export default function Lage({ tavla, status, onSpar, tidslinje }: {
-  tavla: TavlaVy; status: 'kommande' | 'pagaende' | 'avslutad'; onSpar: (typ: TavlaSpar['typ'], roll: PlaneraRoll) => void; tidslinje?: Tidslinje | null
+export default function Lage({ tavla, status, onSpar, tidslinje, korNu }: {
+  tavla: TavlaVy; status: 'kommande' | 'pagaende' | 'avslutad'; onSpar: (typ: TavlaSpar['typ'], roll: PlaneraRoll) => void; tidslinje?: Tidslinje | null; korNu?: KorNu[] | null
 }) {
   const svar = lageSvar(tavla, status)
   const rutor = lageRutor(tavla)
@@ -103,7 +110,7 @@ export default function Lage({ tavla, status, onSpar, tidslinje }: {
       </Sektion>
       {tidslinje && tidslinje.rader.length > 0 && (
         <Sektion rubrik="Vem kör vad" kort={false}>
-          <Maskiner t={tidslinje} />
+          <Maskiner t={tidslinje} korNu={korNu} />
         </Sektion>
       )}
     </div>

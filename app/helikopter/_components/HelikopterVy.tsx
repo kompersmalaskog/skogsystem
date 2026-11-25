@@ -28,7 +28,7 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, hamtaKorNu, type KorNu, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
@@ -270,6 +270,20 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [koIds, version])
 
+  // Vad varje maskin senast gjorde, rakt ur data (visas på Läget nu). Ett fel säger ingenting — raden uteblir.
+  const [korNu, setKorNu] = useState<KorNu[] | null>(null)
+  useEffect(() => {
+    setKorNu(null)
+    if (status !== 'pagaende') return
+    let avbruten = false
+    const fran = new Date(); fran.setDate(fran.getDate() - 7)
+    hamtaKorNu(ymdLokal(fran)).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] kör nu', r.error); else setKorNu(r.data)
+    })
+    return () => { avbruten = true }
+  }, [status, version])
+
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -460,7 +474,7 @@ export default function HelikopterVy() {
                     </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">
-                    <Lage tavla={tavla} status={status} onSpar={tillPlanera} tidslinje={tidslinje} />
+                    <Lage tavla={tavla} status={status} onSpar={tillPlanera} tidslinje={tidslinje} korNu={korNu} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>

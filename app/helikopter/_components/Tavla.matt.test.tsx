@@ -17,7 +17,8 @@ import { hittaChromium } from '../../../lib/testStod/chromium'
 
 const q = vi.hoisted(() => ({
   hamtaFast: vi.fn(), hamtaManadsdata: vi.fn(), hamtaMaskinLage: vi.fn(), hamtaBolag: vi.fn(), hamtaPrognosUtfall: vi.fn(), hamtaSkogKort: vi.fn(async () => ({ data: new Map(), error: null })), hamtaPrognosFacit: vi.fn(),
-  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaSenasteArbete: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: 'ar=2026&manad=10', idag: '2026-10-17',
+  tilldelaMaskin: vi.fn(), hamtaHistorik: vi.fn(), hamtaKlar: vi.fn(), hamtaSenasteArbete: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })),
+  hamtaKorNu: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgenSkotningTrakter: vi.fn(), hamtaMaskinObjekt: vi.fn(async (): Promise<{ data: unknown[]; error: null }> => ({ data: [], error: null })), hamtaEgetSkordat: vi.fn(async () => ({ data: [], error: null })), sattEgenSkotning: vi.fn(async () => ({ error: null })), skickaVeckoNotis: vi.fn(), params: 'ar=2026&manad=10', idag: '2026-10-17',
 }))
 vi.mock('../_lib/queries', () => q)
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(q.params), useRouter: () => ({ replace: (href: string) => { q.params = href.split('?')[1] ?? '' } }) }))

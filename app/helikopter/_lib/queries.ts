@@ -742,3 +742,48 @@ export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise
     return { data: null, error: felText(e) }
   }
 }
+
+/** Vad varje maskin SENAST gjorde, rakt ur data (inget antaget): trakt, typ (GROT, energiklippning, virke) och när.
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass; den senaste raden per maskin de senaste 7 dagarna. Maskin utan rader är inte med. */
+export type KorNu = { maskin_id: string; namn: string | null; typ: string | null; datum: string; tid: string | null }
+export async function hamtaKorNu(fran: string): Promise<Svar<KorNu[]>> {
+  try {
+    const [p, l] = await Promise.all([
+      supabase.from('fakt_produktion').select('maskin_id, objekt_id, datum, skapad_tid').gte('datum', fran).order('datum', { ascending: false }).limit(1000),
+      supabase.from('helikopter_lass').select('maskin_id, objekt_id, datum, skapad_tid').gte('datum', fran).order('datum', { ascending: false }).limit(1000),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    if ((p.data ?? []).length >= 1000 || (l.data ?? []).length >= 1000) return { data: null, error: 'För många rader för en läsning' }
+    type R = { maskin_id: string | null; objekt_id: string | null; datum: string; skapad_tid: string | null }
+    const senast = new Map<string, R>()
+    for (const r of [...(p.data ?? []), ...(l.data ?? [])] as R[]) {
+      if (!r.maskin_id) continue
+      const g = senast.get(String(r.maskin_id))
+      if (!g || `${r.datum} ${r.skapad_tid ?? ''}` > `${g.datum} ${g.skapad_tid ?? ''}`) senast.set(String(r.maskin_id), r)
+    }
+    const ids = [...new Set([...senast.values()].map(r => r.objekt_id).filter((v): v is string => !!v).map(String))]
+    const namn = new Map<string, { namn: string | null; vo: string | null }>()
+    if (ids.length > 0) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').in('objekt_id', ids)
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) namn.set(String(x.objekt_id), { namn: x.object_name ?? null, vo: x.vo_nummer ? String(x.vo_nummer) : null })
+    }
+    const vos = [...new Set([...namn.values()].map(x => x.vo).filter((v): v is string => !!v))]
+    const typ = new Map<string, string>()
+    if (vos.length > 0) {
+      const o = await supabase.from('objekt').select('vo_nummer, typ').in('vo_nummer', vos)
+      if (o.error) return { data: null, error: felText(o.error) }
+      for (const x of (o.data ?? []) as any[]) if (x.vo_nummer && x.typ) typ.set(String(x.vo_nummer), String(x.typ))
+    }
+    return {
+      data: [...senast.entries()].map(([maskin_id, r]) => {
+        const n = r.objekt_id ? namn.get(String(r.objekt_id)) : undefined
+        return { maskin_id, namn: n?.namn ?? null, typ: n?.vo ? typ.get(n.vo) ?? null : null, datum: r.datum, tid: r.skapad_tid }
+      }),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
