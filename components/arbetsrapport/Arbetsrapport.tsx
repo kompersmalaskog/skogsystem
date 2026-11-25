@@ -8,6 +8,7 @@ import { uppdateraVerifierat, upsertVerifierat, raderaVerifierat, SPARA_FEL, RAD
 import { extraMinPerDag, arbetadTidInklExtra, schemaTimmar } from "@/lib/arbetstid";
 import TimmarGraf, { type GrafDag, type GrafManad } from "./TimmarGraf";
 import { byggVecka } from "@/lib/arbetsrapport/veckanDag";
+import { manadTimmar } from "@/lib/arbetsrapport/manadTimmar";
 import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { ersattningsMilDag } from "@/lib/kmErsattning";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -917,7 +918,7 @@ export default function Arbetsrapport() {
         const m = j?.medarbetare;
         // Fel eller ingen rad → h = null: raden faller tillbaka på "Se lönespecen"
         // i stället för att visa en nolla som inte är sann.
-        setMinTidManad({ laddar: false, h: r.ok && j.ok && m ? (Number(m.timlon_h) || 0) + (Number(m.overtid_h) || 0) : null });
+        setMinTidManad({ laddar: false, h: r.ok && j.ok ? manadTimmar(m) : null });
       })
       .catch(() => { if (!avbruten) setMinTidManad({ laddar: false, h: null }); });
     (async () => {
@@ -5628,13 +5629,19 @@ export default function Arbetsrapport() {
         {hemGeokod && <p style={{ margin:`${AVSTAND.xs}px 0 ${AVSTAND.s}px`, ...TYP.meta, color: hemGeokod.varna ? FARG.orange : FARG.text2 }}>{hemGeokod.text}</p>}
         <p style={{ margin:"0 0 32px",fontSize:13,color:C.label }}>Adressen används bara för att räkna ut avstånd — aldrig delad med andra.</p>
         <Label>Maskin</Label>
-        <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{maskinNamn || 'Ingen maskin än'}</p>
-            <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Väljs automatiskt när du loggar in i maskinen</p>
-          </div>
-          <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
-        </Card>
+        {(() => {
+          // Samma maskin som Dag visar (Martin 2026-11-25: Dag sa "Elefant 26", här stod "Ingen maskin än"
+          // med en grön prick). Förarens kopplade maskin först, annars maskinen på senaste arbetsdagen —
+          // och då säger raden det. Ingen prick: grönt betyder klart, och här finns inget att klarmarkera.
+          const senasteId = historik.find(d => d.maskin_id)?.maskin_id || null;
+          const senaste = !maskinNamn && senasteId ? (maskinNamnMap[senasteId] || null) : null;
+          return (
+            <Card>
+              <p style={{ margin:0,...TYP.listtitel,color:FARG.text }}>{maskinNamn || senaste || 'Ingen maskin än'}</p>
+              <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>{senaste ? 'Senast du körde · väljs automatiskt när du loggar in i maskinen' : 'Väljs automatiskt när du loggar in i maskinen'}</p>
+            </Card>
+          );
+        })()}
 
         {/* Påminnelser */}
         <div style={{ marginTop:32 }}><Label>Påminnelser</Label></div>
