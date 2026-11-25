@@ -1,0 +1,49 @@
+// @vitest-environment jsdom
+// Veckor monteras på riktigt: svaret i en mening, en rad per vecka med orden, och att ett tryck fäller ut maskinerna och orsaken.
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import type { VeckaRad } from '../_lib/queries'
+
+const vecka = (x: Partial<VeckaRad>): VeckaRad => ({ isovecka: 47, iso_ar: 2026, fran: '2026-11-16', till: '2026-11-20', arbetsdagar: 5, arbetsdagar_kvar: 3, plan: 669, skordat: 612, skotat: 540, status: 'pagar', orsak: null,
+  maskiner: [{ maskin_id: 'G', modell: null, namn: 'Giant', roll: 'skordare', volym: 612 }, { maskin_id: 'W', modell: null, namn: 'Wisent', roll: 'skotare', volym: 540 }], ...x })
+
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('typ=slutavverkning&ar=2026&manad=11'), useRouter: () => ({ replace: () => {} }) }))
+vi.mock('../_lib/useFonsterBredd', () => ({ useFonsterBredd: () => 390 }))
+vi.mock('../_lib/queries', () => ({
+  hamtaManuellaMaskiner: vi.fn(async () => new Set<string>()),
+  hamtaVeckor: vi.fn(async () => ({ data: [vecka({ isovecka: 45, status: 'last', fran: '2026-11-03', till: '2026-11-07', plan: 909, skordat: 870, skotat: 780, orsak: 'Regn' }), vecka({})], error: null })),
+}))
+
+import VeckorVy from './VeckorVy'
+
+let root: Root; let el: HTMLDivElement
+beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); root = createRoot(el) })
+afterEach(() => { act(() => root.unmount()); el.remove() })
+const vanta = () => act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+describe('Veckor — Hur gick veckorna?', () => {
+  it('svaret först, nyast vecka överst, orden under varje vecka', async () => {
+    await act(async () => { root.render(<VeckorVy />) }); await vanta()
+    expect(el.textContent).toContain('Hur gick veckorna?')
+    expect(el.querySelector('[data-svar]')!.textContent).toBe('Vecka 47 pågår3 dagar kvar av veckan')
+    const rader = Array.from(el.querySelectorAll('[data-vecka]'))
+    expect(rader.map(r => r.getAttribute('data-vecka'))).toEqual(['47', '45'])
+    expect(rader[0].textContent).toContain('Skördat 612 av 669')
+    expect(rader[0].textContent).toContain('57 kvar')
+    expect(rader[0].textContent).toContain('129 kvar')
+    expect(rader[1].textContent).toContain('3–7 nov')
+    expect(rader[1].textContent).toContain('39 under')
+    expect(rader[1].textContent).toContain('129 under')
+  })
+  it('ett tryck fäller ut maskinerna och orsaken; ett till fäller ihop', async () => {
+    await act(async () => { root.render(<VeckorVy />) }); await vanta()
+    const knapp = () => el.querySelector('[data-vecka="45"] button') as HTMLButtonElement
+    expect(el.textContent).not.toContain('Regn')
+    await act(async () => { knapp().click() })
+    expect(el.querySelector('[data-vecka="45"]')!.textContent).toContain('Regn')
+    expect(el.textContent).toContain('Ändra orsak')
+    await act(async () => { knapp().click() })
+    expect(el.textContent).not.toContain('Regn')
+  })
+})
