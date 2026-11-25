@@ -467,7 +467,7 @@ export default function HelikopterVy() {
                   )}
                   {sida === 'kalender' ? (
                     <div data-sida="kalender">
-                      <Kalender tidslinje={tidslinje} korNu={korNu} ordning={ordningSt} manadNamn={MANAD_NAMN[manad - 1]} ar={ar} />
+                      <Kalender tidslinje={tidslinje} korNu={korNu} onPlanera={kanFlytta ? () => valjSida('planera') : undefined} manadNamn={MANAD_NAMN[manad - 1]} ar={ar} />
                     </div>
                   ) : sida === 'planera' ? (
                     <div data-sida="planera">

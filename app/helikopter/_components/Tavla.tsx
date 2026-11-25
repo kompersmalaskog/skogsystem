@@ -424,7 +424,7 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
 }
 
 /** "Ordningen är ändrad · Spara ordning": EN primär knapp, Ångra som tertiär. Raderna ovan visar redan den nya ordningen. */
-export function OrdningsBar({ st, primar }: { st: OrdningsStyrning; primar: boolean }) {
+function OrdningsBar({ st, primar }: { st: OrdningsStyrning; primar: boolean }) {
   const [lage, setLage] = useState<{ skickar: boolean; fel: string | null }>({ skickar: false, fel: null })
   if (!st.andrad) return null
   async function spara() {
@@ -443,7 +443,7 @@ export function OrdningsBar({ st, primar }: { st: OrdningsStyrning; primar: bool
 }
 
 /** Pilarna för en rad i gruppen: flytta upp/ned bland dem som går att flytta. Förra månadens står kvar. */
-export function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
+function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
   if (!st) return {}
   const k = grupp.indexOf(id)
   if (k < 0) return { upp: null, ner: null }
