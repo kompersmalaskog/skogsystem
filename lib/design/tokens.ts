@@ -335,14 +335,15 @@ export const KNAPP = {
     color: FARG.text,
     ...TYP.listtitel,
   },
-  /** Grå text, 44 px träffyta, ingen ram. Undantagen. */
+  /** Liten blå text, 44 px träffyta, ingen ram. Undantagen ("Hoppa över", "Ändra", "Försök igen").
+   *  Blå som allt annat man kan trycka på (Apples regel: grå text går aldrig att trycka på, Martin 2026-11-25). */
   tertiar: {
     ...knappBas,
     display: "inline-flex",
     minHeight: TRAFFYTA.min,
     padding: 0,
     background: "none",
-    color: FARG.text2,
+    color: FARG.bla,
     ...TYP.meta,
   },
   /** Blå text. Bara "navigerar eller avbryter". */

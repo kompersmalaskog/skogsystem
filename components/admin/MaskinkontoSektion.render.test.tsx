@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Admin › Medarbetare › Maskinkonton: EN brytare per maskin (PATCH) och för de maskiner som har ett konto när det skapades. Ingen knapp för att lägga upp
+ * Maskinkonto (på maskinens sida i Admin › Maskiner) och kod för maskinen (på personens sida i Admin › Medarbetare).
+ * Förut två listor längst ned i Medarbetare (flyttade 2026-11-25). EN brytare per maskin (PATCH) och för de maskiner som har ett konto när det skapades. Ingen knapp för att lägga upp
  * ett konto, inget lösenord, ingen adress — kontot skapas av servern själv när maskindatorn startar. Nollställa en förares kod (bekräftas först) finns
  * kvar. Av = "maskinen fungerar som förut". Servern gör jobbet — här prövas bara att rätt anrop görs och att texten säger rätt sak.
  */
@@ -8,7 +9,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-import MaskinkontoSektion from './MaskinkontoSektion'
+import { MaskinkontoRad, MaskinKodRad } from './MaskinkontoSektion'
 
 const anrop: [string, string, any][] = []
 let maskiner: any[]; let personer: any[]
@@ -38,47 +39,53 @@ beforeEach(() => {
   el = document.createElement('div'); document.body.appendChild(el)
 })
 afterEach(() => { act(() => { rot?.unmount() }); el?.remove(); rot = null; el = null })
-async function montera() { rot = createRoot(el!); await act(async () => { rot!.render(<MaskinkontoSektion />) }); await flush() }
+async function montera(ui: React.ReactElement) { rot = createRoot(el!); await act(async () => { rot!.render(ui) }); await flush() }
 
-describe('Maskinkonton (admin)', () => {
-  it('svaret först: hur många maskiner som har maskinkonto på, och per maskin av/på med ord om kontot', async () => {
-    await montera()
-    expect(document.querySelector('[data-maskinkonton]')?.textContent).toContain('2 maskiner har maskinkonto på.')
-    expect(document.querySelector('[data-maskin="R64428"]')?.textContent).toContain('På · kontot skapas när maskinen startar')
+describe('Maskinkonto på maskinens sida', () => {
+  it('EN brytare för maskinen, med ord om kontot', async () => {
+    await montera(<MaskinkontoRad maskinId="A030353" />)
+    expect(document.querySelectorAll('[role="switch"]')).toHaveLength(1)
     expect(document.querySelector('[data-maskin="A030353"]')?.textContent).toMatch(/På · konto skapat 22 nov 2026/)
-    expect(document.querySelector('[data-maskin="A130743"]')?.textContent).toContain('Av · maskinen fungerar som förut')
+    await montera(<MaskinkontoRad maskinId="R64428" />)
+    expect(document.body.textContent).toContain('På · kontot skapas när maskinen startar')
   })
-  it('brytaren skickar PATCH med rätt maskin och värde — och listan läses om', async () => {
-    await montera()
-    const sw = document.querySelector('[data-maskin="A130743"] [role="switch"]') as HTMLButtonElement
-    await act(async () => { sw.click() }); await flush()
+  it('av = "maskinen fungerar som förut"; brytaren skickar PATCH för just den maskinen', async () => {
+    await montera(<MaskinkontoRad maskinId="A130743" />)
+    expect(document.body.textContent).toContain('Av · maskinen fungerar som förut')
+    await act(async () => { (document.querySelector('[role="switch"]') as HTMLButtonElement).click() }); await flush()
     expect(anrop.find(a => a[1] === 'PATCH')![2]).toEqual({ maskin_id: 'A130743', aktiv: true })
-    expect(anrop.filter(a => a[1] === 'GET').length).toBe(2)
-    expect(document.querySelector('[data-maskinkonton]')?.textContent).toContain('3 maskiner har maskinkonto på.')
   })
-  it('ingen knapp för att lägga upp ett konto eller byta lösenord, ingen e-postadress och inget lösenord någonstans — admin slår bara på och av', async () => {
-    await montera()
-    const text = document.body.textContent ?? ''
-    expect(text).not.toMatch(/Lägg upp|Nytt lösenord|lösenord|@|e-post/i)
+  it('en maskin utan rad (inte skördare/skotare) visar ingenting', async () => {
+    await montera(<MaskinkontoRad maskinId="JD810E" />)
+    expect(document.querySelector('[data-maskinkonto]')).toBeNull()
+  })
+  it('inget lösenord, ingen e-post, ingen knapp för att lägga upp ett konto', async () => {
+    await montera(<MaskinkontoRad maskinId="A030353" />)
+    expect(document.body.textContent ?? '').not.toMatch(/Lägg upp|lösenord|@|e-post/i)
     expect(document.querySelector('input')).toBeNull()
-    expect(Array.from(document.querySelectorAll('button')).map(b => b.textContent).filter(t => /konto|lösen/i.test(t ?? ''))).toEqual([])
-    expect(anrop.some(a => a[1] === 'POST' && a[0] === '/api/maskin/konto')).toBe(false)
   })
-  it('Nollställ kod frågar först, och skickar rätt person; den som saknar kod har ingen knapp', async () => {
-    await montera()
-    expect(document.body.textContent).toContain('Ingen kod än')
-    expect(Array.from(document.querySelectorAll('button')).filter(b => b.textContent === 'Nollställ')).toHaveLength(1)
+  it('läsfel är ett fel med Försök igen — aldrig ingenting', async () => {
+    ;(globalThis as any).fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Kunde inte läsa maskinkontona.' }) }))
+    await montera(<MaskinkontoRad maskinId="A030353" />)
+    expect(document.body.textContent).toContain('Kunde inte läsa maskinkontona.')
+  })
+})
+
+describe('Kod för maskinen på personens sida', () => {
+  it('har kod: Nollställ frågar först och skickar rätt person', async () => {
+    await montera(<MaskinKodRad personId="p1" />)
+    expect(document.querySelector('[data-maskinkod]')?.textContent).toContain('Har valt kod')
     await act(async () => { knapp('Nollställ').click() }); await flush()
-    expect(anrop.some(a => a[0].includes('nollstall'))).toBe(false)           // inget skickat före bekräftelsen
+    expect(anrop.some(a => a[0].includes('nollstall'))).toBe(false)
     expect(document.body.textContent).toContain('Nollställa Oskar Nilssons kod?')
     await act(async () => { Array.from(document.querySelectorAll('button')).filter(b => b.textContent === 'Nollställ').pop()!.click() }); await flush()
     expect(anrop.find(a => a[0].includes('nollstall'))![2]).toEqual({ medarbetare_id: 'p1' })
-    expect(Array.from(document.querySelectorAll('button')).filter(b => b.textContent === 'Nollställ')).toHaveLength(0)
+    expect(document.querySelector('[data-maskinkod]')?.textContent).toContain('Ingen kod än')
   })
-  it('läsfel är ett fel med Försök igen — aldrig en tom lista', async () => {
-    ;(globalThis as any).fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: 'Kunde inte läsa maskinkontona.' }) }))
-    await montera()
-    expect(document.body.textContent).toContain('Kunde inte läsa maskinkontona.')
-    expect(document.querySelector('[data-maskin]')).toBeNull()
+  it('ingen kod: säger var den väljs, ingen knapp', async () => {
+    await montera(<MaskinKodRad personId="p2" />)
+    expect(document.body.textContent).toContain('Ingen kod än')
+    expect(document.body.textContent).toContain('Mer › Kod för maskinen')
+    expect(knapp('Nollställ')).toBeUndefined()
   })
 })

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { AVSTAND, FARG, RADIE, TYP, TNUM } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Lank, Sekundar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
+import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Besked, Fel, Laddar, Tomt, Ikon } from "./ui";
 import { ymdLokal } from "@/lib/datumLokal";
 import { AVTAL_BUCKET, avtalPdfPath, kontrolleraAvtalPdf, oppnaAvtalPdf } from "@/lib/avtalPdf";
 import UtjamningsSektion from "./UtjamningsSektion";
@@ -46,6 +46,8 @@ type Fält = {
 
 type FältGrupp = { rubrik: string; fält: Fält[] };
 
+// OB (kväll, natt, helg, söndag), skifttillägg och bortovaro står i avtalet men betalas inte i appen: enkelskift på alla maskiner,
+// OB bara vid beordrad brandrisk (Lön › Lönearter). Fälten visades förut med kronor och såg ut som något appen betalade (Martin 2026-11-25).
 const GRUPPER: FältGrupp[] = [
   {
     rubrik: "Avtal",
@@ -62,15 +64,6 @@ const GRUPPER: FältGrupp[] = [
       // Kolumnen heter max_overtid_ar_h — förr "max_overtid_ar", som inte finns:
       // fältet sparade till ingenting och appen föll alltid tillbaka på 250.
       { key: "max_overtid_ar_h", label: "Max övertid", suffix: "tim/år", step: "1" },
-    ],
-  },
-  {
-    rubrik: "OB-ersättning",
-    fält: [
-      { key: "ob_kvall_kr", label: "Mån–fre kväll/natt (17–06:30)", suffix: "kr/tim", step: "0.01" },
-      { key: "ob_natt_kr",  label: "Nattarbete (00–05)",             suffix: "kr/tim", step: "0.01" },
-      { key: "ob_helg_kr",   label: "Helg",                           suffix: "kr/tim", step: "0.01" },
-      { key: "ob_sondag_kr", label: "Söndag",                        suffix: "kr/tim", step: "0.01" },
     ],
   },
   {
@@ -94,13 +87,6 @@ const GRUPPER: FältGrupp[] = [
     fält: [
       { key: "traktamente_hel_kr",  label: "Heldag",  suffix: "kr", step: "1" },
       { key: "traktamente_halv_kr", label: "Halvdag", suffix: "kr", step: "1" },
-    ],
-  },
-  {
-    rubrik: "Övriga tillägg",
-    fält: [
-      { key: "skift_tillagg_kr",  label: "Skifttillägg",    suffix: "kr/tim", step: "0.01" },
-      { key: "bortovaro_12h_kr",  label: "Bortovaro >12h",  suffix: "kr/tim", step: "0.01" },
     ],
   },
 ];
@@ -248,7 +234,7 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
       {/* Spara ligger i sidhuvudet (grå tills något är ändrat): inte mitt på sidan med Utjämningsperioder under. */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
         <Sektion topp={0}>Avtal</Sektion>
-        <Lank onClick={spara} disabled={!ändrat || sparar} style={{ marginBottom: AVSTAND.m }}>{sparar ? "Sparar…" : "Spara"}</Lank>
+        <Sekundar smal onClick={spara} disabled={!ändrat || sparar} style={{ marginBottom: AVSTAND.m }}>{sparar ? "Sparar…" : "Spara"}</Sekundar>
       </div>
       {sparFel && <Besked>{sparFel}</Besked>}
       {sparOk && <Besked slag="ok">Sparat ✓</Besked>}
@@ -312,6 +298,7 @@ export default function AvtalFlik({ currentUser }: { currentUser: { id: string; 
                 />
               ))}
             </Lista>
+            {g.rubrik === "Övertid" && <Stod attr={{ "data-ob-regel": "" }}>OB betalas bara vid beordrad brandrisk. Kväll, helg och skift betalas inte.</Stod>}
           </div>
         );
       })}
