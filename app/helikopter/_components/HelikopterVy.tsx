@@ -480,7 +480,7 @@ export default function HelikopterVy() {
                         {utanTypSumma > 0 && <RadLank orange text={`${fmt(utanTypSumma)} m³fub saknar typ`} smakprov="räknas inte" onClick={() => setArk('utan')} />}
                         <RadLank text="Hade vi rätt?" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Hur gick veckorna?" onClick={() => setArk('veckor')} />
-                        <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
+                        <RadLank text="Hur går det per bolag?" onClick={() => setArk('bolagval')} />
                         {status !== 'avslutad' && <RadLank text="Månadsplan" href={planHref(ar, manad)} />}
                         {status === 'avslutad' && <RadLank text="Månadsfacit" href={facitHref(ar, manad)} />}
                         {arAdmin && <RadLank text="Onsdagsnotis" onClick={() => setArk('notis')} />}
@@ -492,7 +492,7 @@ export default function HelikopterVy() {
                   <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
                   {(ark === 'veckor' || ark === 'bolagval') && (
-                    <Sheet open onClose={stang} title={ark === 'veckor' ? 'Hur gick veckorna?' : 'Per bolag'}>
+                    <Sheet open onClose={stang} title={ark === 'veckor' ? 'Hur gick veckorna?' : 'Hur går det per bolag?'}>
                       <RadGrupp bakgrund={FARG.upphojt}>
                         {spar.map(s => ark === 'veckor'
                           ? <RadLank key={s.typ} text={TYP_NAMN[s.typ]} href={`/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`} />
