@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fixtur from './__fixtures__/brokamala_traktdelar_2026-11-25.json';
-import { byggTopologi, justeraDelar, ringar, unikaHorn, unikaKanter, flyttaHorn, laggTillHorn, taBortHorn, forenkla, skjutInSteg, angraSteg, gemensammaHorn, antalHorn, delarMedHorn } from './traktTopologi';
+import { byggTopologi, justeraDelar, dragIhopKanter, ateranslutGrannar, KANT_LANK_M, ringar, unikaHorn, unikaKanter, flyttaHorn, laggTillHorn, taBortHorn, forenkla, skjutInSteg, angraSteg, gemensammaHorn, antalHorn, delarMedHorn } from './traktTopologi';
 import type { Punkt } from './ringEdit';
 
 // Brokamålas tre riktiga traktdelar (prod 2026-11-25, bara SELECT): 9775 och 9372 ligger 170 m från varandra, 9772 sitter ihop med båda.
@@ -258,5 +258,113 @@ describe('justeraDelar — hela "Justera gräns" på Brokamålas tre delar', () 
     // grannarna förenklades (de är inte låsta) men behåller de hörn de delar med den justerade delen
     const g = gemensammaHorn(res.t).filter((x) => x.a === '9772' || x.b === '9772');
     expect(g.length).toBe(2);
+  });
+});
+
+
+// ── Dubbel traktgräns (Martin 2026-11-25, Brokamåla: två gränser längs väg 538) ──────────────────────────────────────────
+
+/** Meter av delens kanter (sampel var meter) som ligger 0,1–4 m från den andras kant = "två linjer" bredvid varandra. */
+function dubbelMeter(a: Punkt[], b: Punkt[]): number {
+  let n = 0;
+  for (let k = 0; k < a.length; k++) {
+    const p = a[k], q = a[(k + 1) % a.length];
+    const L = meter(p, q), steg = Math.max(1, Math.floor(L));
+    for (let s = 0; s <= steg; s++) { const x: Punkt = [p[0] + ((q[0] - p[0]) * s) / steg, p[1] + ((q[1] - p[1]) * s) / steg]; const d = avstTillRing(x, b); if (d > 0.1 && d <= 4) n++; }
+  }
+  return n;
+}
+const dubbelPar = (r: { id: string; ring: Punkt[] }[], a: string, b: string) => dubbelMeter(finns(r, a), finns(r, b)) + dubbelMeter(finns(r, b), finns(r, a));
+const ORIGINAL = (id: string): Punkt[] => (DELAR.find((d: any) => d.id === id).ring as Punkt[]).slice(0, -1);
+
+describe('dubbel traktgräns: delar som sitter ihop dras ihop till EN linje', () => {
+  // Före: Vidas två delar (9775 gallring, 9772) låg 1–4 m isär längs 128 m av gränsen; efter justeringen med bara 1 m-länkning låg de kvar så.
+  const utanDragning = byggTopologi(ringar(forenkla(byggTopologi(DELAR, 1, 0), 2, 4).t).map((r) => ({ id: r.id, ring: r.ring })), 1, 0);
+  const justerad = justeraDelar(DELAR);
+
+  it('Justera gräns: längs gränsen mellan 9775 och 9772 ligger kanterna på samma linje (var 250 m dubbel, nu under 20)', () => {
+    const fore = dubbelPar(ringar(utanDragning), '9775', '9772');
+    const efter = dubbelPar(ringar(justerad.t), '9775', '9772');
+    expect(fore).toBeGreaterThan(200);
+    expect(efter).toBeLessThan(20);
+  });
+
+  it('en granne som redan är justerad ensam i förväg (förenklingen 2 m > länkningen 1 m) hamnar ändå på samma linje', () => {
+    const ensam = ringar(justeraDelar(DELAR.filter((d: any) => d.id === '9772')).t)[0].ring;
+    const res = justeraDelar(DELAR.map((d: any) => (d.id === '9772' ? { id: d.id, ring: ensam, last: true } : d)));
+    expect(dubbelPar(ringar(res.t), '9775', '9772')).toBeLessThan(20);
+    // den redan justerade delen behåller varje hörn exakt
+    const behall = finns(ringar(res.t), '9772');
+    for (const p of ensam) expect(behall.some((q) => q[0] === p[0] && q[1] === p[1])).toBe(true);
+  });
+
+  it('en redan justerad del flyttas aldrig: bara den fria delens hörn dras mot den', () => {
+    const last = ORIGINAL('9772');
+    const res = dragIhopKanter(byggTopologi([{ id: '9775', ring: ORIGINAL('9775') }, { id: '9772', ring: last, last: true }], 1, 0), KANT_LANK_M);
+    const r = ringar(res);
+    for (const p of last) expect(finns(r, '9772').some((q) => q[0] === p[0] && q[1] === p[1])).toBe(true);
+    expect(dubbelPar(r, '9775', '9772')).toBeLessThan(dubbelPar(ringar(byggTopologi([{ id: '9775', ring: ORIGINAL('9775') }, { id: '9772', ring: last, last: true }], 1, 0)), '9775', '9772'));
+  });
+
+  it('en enstaka beröring (ett hörn nära grannens kant) är ingen gemensam sträcka och flyttas inte', () => {
+    // Två rutor, B:s ena hörn 2 m från A:s kant, resten långt bort.
+    const kx = 1 / (111320 * Math.cos((56.3 * Math.PI) / 180)), ky = 1 / 111000;
+    const ruta = (x0: number, y0: number, w: number, h: number): Punkt[] => [[14.46 + x0 * kx, 56.3 + y0 * ky], [14.46 + (x0 + w) * kx, 56.3 + y0 * ky], [14.46 + (x0 + w) * kx, 56.3 + (y0 + h) * ky], [14.46 + x0 * kx, 56.3 + (y0 + h) * ky]];
+    const A = ruta(0, 0, 100, 100);
+    const B: Punkt[] = [[14.46 + 102 * kx, 56.3 + 50 * ky], [14.46 + 200 * kx, 56.3 + 0], [14.46 + 200 * kx, 56.3 + 100 * ky]];
+    const t = dragIhopKanter(byggTopologi([{ id: 'A', ring: A, last: true }, { id: 'B', ring: B }], 1, 0));
+    expect(finns(ringar(t), 'B')[0]).toEqual(B[0]);
+    expect(gemensammaHorn(t)).toEqual([]);
+  });
+
+  it('en sträcka (två hörn i följd, 2,5 m från grannen) dras ihop, grannens hörn på sträckan läggs in och inget annat flyttas', () => {
+    const kx = 1 / (111320 * Math.cos((56.3 * Math.PI) / 180)), ky = 1 / 111000;
+    const p = (x: number, y: number): Punkt => [14.46 + x * kx, 56.3 + y * ky];
+    const A: Punkt[] = [p(0, 0), p(100, 0), p(100, 100), p(0, 100)];                     // låst grann-ruta
+    const B: Punkt[] = [p(102.5, 10), p(102.5, 40), p(102.5, 70), p(200, 70), p(200, 10)];   // fri, 2,5 m utanför A:s högra kant, tre hörn i rad
+    const t = dragIhopKanter(byggTopologi([{ id: 'A', ring: A, last: true }, { id: 'B', ring: B }], 1, 0));
+    const r = ringar(t);
+    for (const q of finns(r, 'B').slice(0, 3)) expect(avstTillRing(q, A)).toBeLessThan(0.01);
+    expect(finns(r, 'B').some((q) => q[0] === p(200, 70)[0] && q[1] === p(200, 70)[1])).toBe(true);   // bortre hörnen orörda
+    expect(finns(r, 'A').length).toBeGreaterThan(4);   // B:s hörn ligger nu också i A:s ring (gemensamma)
+    expect(gemensammaHorn(t)[0].antal).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('Återställ en del till Vidas original: grannen följer med och de ligger fortfarande på samma linje', () => {
+  const j = ringar(justeraDelar(DELAR).t);
+  const kopia9775 = finns(j, '9775');
+  const grannar = [{ id: '9772', ring: finns(j, '9772') }];
+
+  it('utan ändring låg grannen 1–4 m från Vidas 9775 (156 m dubbel); efter återställningen under 20', () => {
+    const fore = dubbelMeter(ORIGINAL('9775'), grannar[0].ring) + dubbelMeter(grannar[0].ring, ORIGINAL('9775'));
+    const ut = ateranslutGrannar(kopia9775, ORIGINAL('9775'), grannar);
+    expect(ut.map((x) => x.id)).toEqual(['9772']);
+    const efter = dubbelMeter(ORIGINAL('9775'), ut[0].ring) + dubbelMeter(ut[0].ring, ORIGINAL('9775'));
+    expect(fore).toBeGreaterThan(200);
+    expect(efter).toBeLessThan(25);
+  });
+
+  it('grannens hörn utanför den delade sträckan rörs inte', () => {
+    const ut = ateranslutGrannar(kopia9775, ORIGINAL('9775'), grannar)[0].ring;
+    const delad = new Set(finns(j, '9775').map((p) => `${p[0]},${p[1]}`));
+    for (const p of grannar[0].ring) if (!delad.has(`${p[0]},${p[1]}`) && avstTillRing(p, kopia9775) > 1) expect(ut.some((q) => q[0] === p[0] && q[1] === p[1])).toBe(true);
+  });
+
+  it('en granne som inte sitter ihop med den återställda delen rörs inte', () => {
+    expect(ateranslutGrannar(kopia9775, ORIGINAL('9775'), [{ id: '9372', ring: finns(j, '9372') }])).toEqual([]);
+  });
+
+  it('en grannes kant som medvetet ligger långt från Vidas original (över 30 m) lämnas som den är', () => {
+    const langt: Punkt[] = kopia9775.map((p) => [p[0] + 0.001, p[1]] as Punkt);   // kopian ligger ~60 m från Vidas original
+    const g = [{ id: 'X', ring: [langt[0], langt[1], langt[2], [langt[2][0] + 0.001, langt[2][1] + 0.001]] as Punkt[] }];   // grannen sitter på kopians kant
+    expect(ateranslutGrannar(langt, ORIGINAL('9775'), g)).toEqual([]);
+    // samma granne med kopian nära Vidas (inom 30 m) flyttas däremot
+    const nara: Punkt[] = kopia9775.map((p) => [p[0] + 0.0001, p[1]] as Punkt);
+    const g2 = [{ id: 'X', ring: [nara[0], nara[1], nara[2], [nara[2][0] + 0.001, nara[2][1] + 0.001]] as Punkt[] }];
+    expect(ateranslutGrannar(nara, ORIGINAL('9775'), g2).length).toBe(1);
+  });
+  it('inga grannar → inget att göra', () => {
+    expect(ateranslutGrannar(kopia9775, ORIGINAL('9775'), [])).toEqual([]);
   });
 });

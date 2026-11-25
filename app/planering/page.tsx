@@ -142,9 +142,10 @@ import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { slutRing, ringMitt, ringAvtryck } from '../../lib/ringEdit'
+import { samlaVagvarningar } from '../../lib/tmaVagar'
 import { byggJusteradeDelar } from '../../lib/justeradGrans'
 import { synkaJusteradGrans, raknaOmEfterGransandring } from '../../lib/justeradGransSynk'
-import { byggTopologi, justeraDelar, ringar as topRingar, unikaHorn, unikaKanter, flyttaHorn as topFlytta, laggTillHorn as topLaggTill, taBortHorn as topTaBort, skjutInSteg, angraSteg, antalHorn, type Topologi } from '../../lib/traktTopologi'
+import { byggTopologi, justeraDelar, ateranslutGrannar, ringar as topRingar, unikaHorn, unikaKanter, flyttaHorn as topFlytta, laggTillHorn as topLaggTill, taBortHorn as topTaBort, skjutInSteg, angraSteg, antalHorn, type Topologi } from '../../lib/traktTopologi'
 import { kopplaHornRedigering } from '../../lib/hornRedigering'
 import { valjKlickKategori, kategoriForLager, bastaKategoriFeatures, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { vinnandeKategoriNara, narmasteTraff, ragangToleransM, stapelOrdning, stapelRang } from '../../lib/klickNara'
@@ -585,6 +586,9 @@ interface TmaRoadHit {
   skyddsklassad: boolean; // Kräver TMA klass 2+ (hög ÅDT-proxy)
   nearbyGeom?: { lat: number; lon: number }[]; // Vägsegment inom 50m
   closestPoint?: { lat: number; lon: number };  // Närmaste punkt på vägen
+  wayId?: number;                                // OSM-väg: så att flera delars träffar på samma väg kan slås ihop (lib/tmaVagar)
+  nearbyIdx?: number[];                          // vilka av vägens noder som ligger inom 50 m från den här delen
+  wayGeom?: { lat: number; lon: number }[];      // vägens hela geometri
 }
 
 interface TmaCheckResult {
@@ -7896,6 +7900,8 @@ export default function PlannerPage() {
 
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
   const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
+  // En väg räknas EN gång per objekt (lib/tmaVagar): EN röd linje och EN ⚠ per väg, hos den del som ligger närmast — inte en per traktdel och inte en per sträcka.
+  const tmaVagar = samlaVagvarningar(tmaWithRoads, (id) => (markers as any[]).some((m: any) => String(m.id) === id));
 
   // === CACHE-FÖRST TMA-VÄGDATA: läs objekt_vagdata (fylld server-side av hämtaren) istället för live-anrop ===
   const [objektVagdata, setObjektVagdata] = useState<{ geometri: any; status: string } | null>(null);
@@ -10975,16 +10981,13 @@ export default function PlannerPage() {
       const roadSrc = map.getSource('tma-roads-source') as any;
       if (roadSrc) {
         const roadFeatures: any[] = [];
-        tmaWithRoads.forEach(([markerId, result]) => {
-          result.roads.forEach((road: any, idx: number) => {
-            // Använd nearbyGeom (vägsegment inom 50m av boundary)
-            if (road.nearbyGeom && road.nearbyGeom.length >= 2) {
-              roadFeatures.push({
-                type: 'Feature',
-                properties: { markerId, roadIndex: idx, category: road.category || 'enskild' },
-                geometry: { type: 'LineString', coordinates: road.nearbyGeom.map((p: any) => [p.lon, p.lat]) },
-              });
-            }
+        tmaVagar.vagar.forEach((v) => {
+          v.linjer.forEach((linje, idx) => {
+            roadFeatures.push({
+              type: 'Feature',
+              properties: { markerId: v.agare, roadIndex: idx, category: 'enskild' },
+              geometry: { type: 'LineString', coordinates: linje.map((p) => [p.lon, p.lat]) },
+            });
           });
         });
         roadSrc.setData({ type: 'FeatureCollection', features: roadFeatures });
@@ -10994,7 +10997,7 @@ export default function PlannerPage() {
       const warnSrc = map.getSource('tma-warning-source') as any;
       if (warnSrc) {
         const warnFeatures: any[] = [];
-        tmaWithRoads.forEach(([markerId, result]) => {
+        tmaVagar.agareAv.forEach((agda, markerId) => {
           // Hitta boundary-markern
           const bm = markers.find(m => String(m.id) === markerId);
           if (!bm || !bm.path || bm.path.length < 2) return;
@@ -11005,11 +11008,8 @@ export default function PlannerPage() {
             return [ll.lon, ll.lat] as [number, number];
           });
 
-          // Samla alla road nearbyGeom-punkter för denna boundary
-          const roadPoints: { lat: number; lon: number }[] = [];
-          result.roads.forEach((road: any) => {
-            if (road.nearbyGeom) roadPoints.push(...road.nearbyGeom);
-          });
+          // Vägpunkter för vägarna den här delen äger (en väg ägs av EN del)
+          const roadPoints: { lat: number; lon: number }[] = agda.flatMap((v) => v.punkter);
           if (roadPoints.length === 0) return;
 
           // Markera boundary-punkter nära vägen (< 80m)
@@ -11123,7 +11123,7 @@ export default function PlannerPage() {
       const MarkerClass = maplibregl.Marker;
       console.log('[TMA ⚠] maplibre-gl loaded, MarkerClass:', !!MarkerClass);
 
-      tmaWithRoads.forEach(([bmId, result]) => {
+      tmaVagar.agareAv.forEach((agda, bmId) => {
         if (cancelled) return;
         const bm = markers.find(m => String(m.id) === bmId);
         if (!bm || !bm.path || bm.path.length < 2) {
@@ -11136,14 +11136,7 @@ export default function PlannerPage() {
           const ll = svgToLatLon(p.x, p.y);
           return [ll.lon, ll.lat] as [number, number];
         });
-        const roadPoints: { lat: number; lon: number }[] = [];
-        result.roads.forEach((road: any) => {
-          if (road.nearbyGeom) roadPoints.push(...road.nearbyGeom);
-        });
-
-        if (roadPoints.length === 0) {
-          return;
-        }
+        const roadPoints: { lat: number; lon: number }[] = agda.flatMap((v) => v.punkter);
 
         // Hitta alla boundary-punkter nära vägen
         const nearCoords: [number, number][] = [];
@@ -11163,8 +11156,8 @@ export default function PlannerPage() {
           const midIdx = Math.floor(nearCoords.length / 2);
           markerLng = nearCoords[midIdx][0];
           markerLat = nearCoords[midIdx][1];
-        } else if (result.roads[0]?.closestPoint) {
-          const cp = result.roads[0].closestPoint;
+        } else if (agda[0]?.narmaste) {
+          const cp = agda[0].narmaste;
           markerLng = cp.lon;
           markerLat = cp.lat;
         } else {
@@ -11590,6 +11583,9 @@ export default function PlannerPage() {
               skyddsklassad: isTmaSkyddsklassad(highway, maxspeed),
               nearbyGeom: nearbyGeom.length >= 2 ? nearbyGeom : undefined,
               closestPoint: closestPt,
+              wayId: way.id,
+              nearbyIdx: [...nearbySet].sort((a, b) => a - b),
+              wayGeom: geom,
             });
           }
         }
@@ -12387,8 +12383,25 @@ export default function PlannerPage() {
   // Radera justerade traktdelar (boundary med fromVidaTd): bara den här, eller ALLA justerade delar på objektet (tillbaka till Vidas egna delar, som visas igen). Yt-data städas per del.
   const raderaJusterade = (id: string | number, alla: boolean) => {
     const ider = new Set<string>(alla ? (markers as any[]).filter((m: any) => m.isLine && m.lineType === 'boundary' && m.fromVidaTd).map((m: any) => String(m.id)) : [String(id)]);
+    // Bara den här delen: grannkopiorna som satt ihop med den längs en sträcka följer med till Vidas original, så grannen och Vidas del fortfarande ligger på SAMMA linje (lib/traktTopologi ateranslutGrannar).
+    const andradeGrannar = new Map<string, any>();
+    if (!alla) {
+      const borta: any = (markers as any[]).find((m: any) => String(m.id) === String(id));
+      const vidaDel = borta?.fromVidaTd ? traktdelDelarRef.current?.find((d) => d.partKey === String(borta.fromVidaTd)) : null;
+      const grannar = (markers as any[]).filter((m: any) => m.isLine && m.lineType === 'boundary' && m.fromVidaTd && String(m.id) !== String(id) && Array.isArray(m.path) && m.path.length >= 3);
+      if (borta && vidaDel && grannar.length > 0 && Array.isArray(borta.path) && borta.path.length >= 3) {
+        const tillRing = (path: any[]) => path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; });
+        const ny = ateranslutGrannar(tillRing(borta.path), vidaDel.ringLngLat as [number, number][], grannar.map((g: any) => ({ id: String(g.id), ring: tillRing(g.path) })));
+        for (const r of ny) {
+          const g = grannar.find((x: any) => String(x.id) === r.id);
+          if (g) andradeGrannar.set(r.id, { ...g, path: slutRing(r.ring).map(([lng, lat]) => latLonToSvg(lat, lng)) });
+        }
+      }
+    }
     saveToHistory([...markers]);
-    setMarkers((prev: any[]) => prev.filter((m: any) => !ider.has(String(m.id))));
+    setMarkers((prev: any[]) => prev.filter((m: any) => !ider.has(String(m.id))).map((m: any) => andradeGrannar.get(String(m.id)) || m));
+    for (const m of andradeGrannar.values()) saveMarkerToDb(m);
+    if (andradeGrannar.size > 0) visaHornKvitto('Grannens kant följer Vidas original', 'ok');
     setMarkerMenuOpen(null);
     for (const m of markers as any[]) if (ider.has(String(m.id))) { deleteMarkerFromDb(m.id); raderaYtaData('omrade:' + m.id); }
     stangTraktKort();
