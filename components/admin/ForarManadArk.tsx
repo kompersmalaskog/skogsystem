@@ -216,8 +216,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
               sista={vy.km.dagarOver.length === 0} />
             {vy.km.dagarOver.length > 0 && (
               <Rad rubrik={`${vy.km.dagarOver.length} ${vy.km.dagarOver.length === 1 ? "dag" : "dagar"} över gränsen`} chevron onClick={() => setVisaMil(v => !v)} sista>
-                {/* Per trakt: trakten och dess mil, sedan dagar i följd med samma km som en rad. Appens km i orange när förarens
-                    egna är minst 10 % fler — bara en markering. */}
+                {/* Per trakt: trakten och dess mil, sedan dagar i följd med samma km som en rad med uträkningen. En orange rad
+                    bara när förarens egna km är minst 10 % fler än appens — bara en markering. */}
                 {visaMil && vy.km.perTrakt.map(t => (
                   <div key={t.trakt} data-mil-trakt={t.trakt} style={{ marginTop: AVSTAND.m }}>
                     <div style={{ display: "flex", gap: AVSTAND.m, alignItems: "baseline" }}>
@@ -225,13 +225,12 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
                       <span style={{ ...TYP.meta, ...fet, whiteSpace: "nowrap" }}>{t.mil}</span>
                     </div>
                     {t.rader.map(r => (
-                      <div key={r.nyckel} data-mil-rad={r.nyckel} style={{ display: "flex", gap: AVSTAND.m, marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          {r.datum}{r.dagar > 1 ? ` · ${r.dagar} dagar` : ""} · {r.km}
-                          {r.appen && <> · <span data-appen-avviker={r.appenAvviker ? "" : undefined} style={{ color: r.appenAvviker ? FARG.orange : FARG.text2 }}>{r.appen}</span></>}
-                          {r.perDag && <> · {r.perDag}</>}
-                        </span>
-                        <span style={{ whiteSpace: "nowrap" }}>{r.mil}</span>
+                      <div key={r.nyckel} data-mil-rad={r.nyckel} style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>
+                        <div style={{ display: "flex", gap: AVSTAND.m }}>
+                          <span style={{ flex: 1, minWidth: 0 }}>{r.datum} · {r.rakning}</span>
+                          <span style={{ whiteSpace: "nowrap" }}>{r.mil}</span>
+                        </div>
+                        {r.avviker && <div data-appen-avviker="" style={{ color: FARG.orange }}>{r.avviker}</div>}
                       </div>
                     ))}
                   </div>

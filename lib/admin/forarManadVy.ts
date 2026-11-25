@@ -26,8 +26,9 @@ export type VyRadDel = { nyckel: string; text: string; varde: string };
 export type VyLonerad = { nyckel: string; rubrik: string; varde: string; detalj: string | null; utanKod: "saknar" | "valfri" | null };
 export type VyExtra = { nyckel: string; datum: string; text: string; tid: string; kommentar: string | null };
 export type VyKm = { totalt: string; over: string | null; mil: string; sa: string; dagarOver: { datum: string; text: string }[]; perTrakt: VyMilTrakt[] };
-/** En rad under en trakt: dagar i följd med samma km. `appenAvviker` = förarens egna km är minst 10 % fler än appens. */
-export type VyMilRad = { nyckel: string; datum: string; dagar: number; km: string; appen: string | null; appenAvviker: boolean; mil: string; perDag: string | null };
+/** En rad under en trakt: dagar i följd med samma km. `rakning` = "218 km – 60 = 16 mil per dag". `avviker` finns bara när
+ *  förarens egna km är minst 10 % fler än appens: "Föraren skrev 218 km · appen räknade 198 km". */
+export type VyMilRad = { nyckel: string; datum: string; dagar: number; rakning: string; avviker: string | null; mil: string };
 export type VyMilTrakt = { trakt: string; mil: string; rader: VyMilRad[] };
 export type VyDag = {
   nyckel: string;
@@ -140,18 +141,21 @@ const intervall = (forsta: string, sista: string) =>
     : forsta.slice(0, 7) === sista.slice(0, 7) ? `${Number(forsta.slice(8, 10))}–${dagText(sista)}` : `${dagText(forsta)}–${dagText(sista)}`;
 
 /**
- * Dagarna över km-gränsen, per trakt: trakten är rubriken med sina mil, och dagar i följd med samma km är EN rad
- * ("13–16 okt · 4 dagar · 218 km egen · 64 mil"). Summan av trakternas mil är summan av dagarnas ersättningsmil.
+* Dagarna över km-gränsen, per trakt: trakten är rubriken med sina mil, och dagar i följd med samma km är EN rad med
+ * uträkningen rakt ut ("13–16 okt · 4 dagar · 218 km – 60 = 16 mil per dag"). Summan av trakternas mil är summan av
+ * dagarnas ersättningsmil (motorns tal; uträkningen visar bara hur det blev så).
  */
-export function milPerTrakt(dagar: any[]): VyMilTrakt[] {
-  type Arb = { rad: VyMilRad & { _sig: string; _sista: string; _mil: number; _milDag: number }; trakt: string };
+export function milPerTrakt(dagar: any[], grans = 60): VyMilTrakt[] {
+  type Arb = { rad: VyMilRad & { _sig: string; _sista: string; _mil: number; _milDag: number; _km: number }; trakt: string };
   const grupper = new Map<string, { mil: number; rader: Arb["rad"][] }>();
   let forra: Arb | null = null;
   for (const d of dagar) {
     const r = d.km_rutt;
     const trakt = !r ? "Trakt okänd" : r.forsta === r.sista ? r.forsta : `${r.forsta} → ${r.sista}`;
     const appenKm = d.km_kalla === "forare" && r?.appen ? Number(r.appen.totalt) : null;
-    const sig = [d.km_totalt, d.km_kalla ?? "", appenKm ?? "", d.ersattningsmil].join("|");
+    const avviker = appenKm != null && appenKm > 0 && Number(d.km_totalt) >= appenKm * (1 + APPEN_AVVIKER_ANDEL)
+      ? `Föraren skrev ${kmText(d.km_totalt)} · appen räknade ${kmText(appenKm)}` : null;
+    const sig = [d.km_totalt, avviker ?? "", d.ersattningsmil].join("|");
     if (!grupper.has(trakt)) grupper.set(trakt, { mil: 0, rader: [] });
     const g = grupper.get(trakt)!;
     g.mil += Number(d.ersattningsmil);
@@ -160,11 +164,8 @@ export function milPerTrakt(dagar: any[]): VyMilTrakt[] {
       continue;
     }
     const rad: Arb["rad"] = {
-      nyckel: d.datum, datum: "", dagar: 1,
-      km: `${kmText(d.km_totalt)} ${kmKallaText(d.km_kalla)}`,
-      appen: appenKm != null ? `appen ${kmText(appenKm)}` : null,
-      appenAvviker: appenKm != null && appenKm > 0 && Number(d.km_totalt) >= appenKm * (1 + APPEN_AVVIKER_ANDEL),
-      mil: "", perDag: null, _sig: sig, _sista: d.datum, _mil: Number(d.ersattningsmil), _milDag: Number(d.ersattningsmil),
+      nyckel: d.datum, datum: "", dagar: 1, rakning: "", avviker,
+      mil: "", _sig: sig, _sista: d.datum, _mil: Number(d.ersattningsmil), _milDag: Number(d.ersattningsmil), _km: Number(d.km_totalt),
     };
     g.rader.push(rad);
     forra = { rad, trakt };
@@ -172,11 +173,11 @@ export function milPerTrakt(dagar: any[]): VyMilTrakt[] {
   return [...grupper.entries()].map(([trakt, g]) => ({
     trakt,
     mil: `${g.mil} mil`,
-    rader: g.rader.map(({ _sig, _sista, _mil, _milDag, ...r }) => ({
+    rader: g.rader.map(({ _sig, _sista, _mil, _milDag, _km, ...r }) => ({
       ...r,
-      datum: intervall(r.nyckel, _sista),
+      datum: `${intervall(r.nyckel, _sista)}${r.dagar > 1 ? ` · ${r.dagar} dagar` : ""}`,
+      rakning: `${kmText(_km)} – ${grans} = ${_milDag} mil${r.dagar > 1 ? " per dag" : ""}`,
       mil: `${_mil} mil`,
-      perDag: r.dagar > 1 ? `${_milDag} mil per dag` : null,
     })),
   }));
 }
@@ -230,8 +231,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     totalt: kmText(kd.totalKm),
     over: kd.overKm > 0 ? `${kmText(kd.overKm)} över ${m.km_grans} km/dag` : null,
     mil: `${Number(m.kor_mil)} mil`,
-    sa: `Ersättning räknas per dag: km över ${m.km_grans} km (fri pendling), avrundat uppåt till påbörjad mil.`,
-    perTrakt: milPerTrakt(dagarRå.filter(d => d.ersattningsmil > 0)),
+    sa: `Körning över ${m.km_grans ?? 60} km per dag ersätts (hem → skogen → hem), avrundat uppåt till hel mil.`,
+    perTrakt: milPerTrakt(dagarRå.filter(d => d.ersattningsmil > 0), Number(m.km_grans ?? 60)),
     dagarOver: dagarRå.filter(d => d.ersattningsmil > 0).map(d => ({
       datum: d.datum,
       // datum · Hem → trakt · km med källa · → mil
