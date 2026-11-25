@@ -3,7 +3,7 @@
 // Appen visar läget; maskinen (Opti) föreslår kalibreringen. Kortet "Gör så här", det stora talet och åtgärderna är borta härifrån (2026-10-25,
 // Martin: "plocka bort det … bygg så man kan kolla på datan, sen säger maskinen vad du ska göra"). Åtgärderna bor i Över tid, under kurvorna.
 // Sist "Kontrollerna" (2026-11-18, Skogforsk): hur många, hur många slumpvalda, hur många i sträng kyla, vädret nu mot vid senaste kontrollen
-// (SMHI, VaderRad) — och när klaven och måttbandet kollades. Överst "Idag · 1 av 2" (lib/kalibrering/idag): två kontroller om dagen.
+// (SMHI, VaderRad) — och när klaven och måttbandet kollades. Överst "Idag · Gjord / Inte än" (lib/kalibrering/idag): en kontrollstam om dagen.
 // Domen bygger alltid på det rullande fönstret (90 dagar), aldrig på en enda dag. Räknandet bor i lib/kalibrering/laget — siffrorna är desamma som förut.
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
@@ -109,8 +109,8 @@ function Kontrollerna({ d, ark }: { d: KalibreringData; ark: KalibreringArk }) {
       {s && s.senaste && (
         <Rad titel="Senaste kontrollen" pil={false} hoger={fmtDagMan(s.senaste)} attr={{ 'data-rad': 'senaste' }} />
       )}
-      <Rad titel="Idag" under="Kontrollera helst två gånger om dagen" pil={false} attr={{ 'data-rad': 'idag' }}
-        hoger={<span style={{ color: idag.sen ? FARG.orange : FARG.text2 }}>{idag.text}</span>}
+      <Rad titel="Idag" under="En kontrollstam om dagen" pil={false} attr={{ 'data-rad': 'idag' }}
+        hoger={<span style={{ color: idag.sen ? FARG.orange : idag.antal > 0 ? FARG.gron : FARG.text2 }}>{idag.text}</span>}
         hogerUnder={idag.under ?? undefined} />
       {s && b.fonster && (
         <Rad titel={`Senaste ${b.fonster.dagar} dagarna`} pil={false} attr={{ 'data-rad': 'antal' }}
