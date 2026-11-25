@@ -418,8 +418,28 @@ describe('lasVidaGrans', () => {
       'obj-1',
     );
     // ringar = traktgränsens yttre ring (PR 8a: lagret "Vidas traktgräns") - FASTIGHETEN räknas inte, som för rutan.
-    expect(r).toEqual({ typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]], ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]], linjer: [] });
+    // ytor = allt UTOM traktgränsen, linjerna och punkterna. Fastigheten följer med; anroparen klassar
+    // den med klassaTraktFeature och ritar den inte. Traktdelen får aldrig hamna här (se testet nedan).
+    expect(r).toEqual({
+      typ: 'ok', gran: [[14.0, 56.0], [14.1, 56.1]],
+      ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.1], [14.0, 56.0]]],
+      linjer: [], punkter: [],
+      ytor: [fc('SV_FASTIGHET', [[[10, 50], [20, 50], [20, 60], [10, 60], [10, 50]]])],
+    });
     expect(t).toEqual(['objekt_geometri']);
+  });
+
+  it('traktdelen hamnar ALDRIG i ytor — den känns igen på _lager, inte på _typ', async () => {
+    // Importen sätter `_typ='okänt'` för referenslagren och samma lager kan bära olika `_typ` i prod
+    // (L_RAA_POLY_101: 85 'fornlämning', 66 'okänt'). En traktdel utan `_typ` låg förut bland ytorna,
+    // och hade kunnat ritas som en hänsyn på skotningsrapportens karta.
+    const utanTyp = fc('L_TRAKTDEL', [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]]]);
+    const medTyp = { ...fc('L_TRAKTDEL', [[[14.2, 56.2], [14.3, 56.2], [14.3, 56.3], [14.2, 56.2]]]), properties: { _lager: 'L_TRAKTDEL', _typ: 'traktgräns' } };
+    const hansyn = { ...fc('L_TILLAGGSYTOR', [[[14.05, 56.05], [14.06, 56.05], [14.06, 56.06], [14.05, 56.05]]]), properties: { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta' } };
+    const punkt = { type: 'Feature', properties: { _lager: 'L_TILLAGGSPUNKTER', _typ: 'punkt' }, geometry: { type: 'Point', coordinates: [14.0, 56.0] } };
+    const r = await lasVidaGrans(klient({ data: [{ geometri: { features: [utanTyp, medTyp, hansyn, punkt] } }], error: null }), 'o');
+    expect(r.typ === 'ok' && r.ytor).toEqual([hansyn]);
+    expect(r.typ === 'ok' && r.punkter).toEqual([punkt]);
   });
 
   it('Vidas linjer (_typ linje: kraftledning, basväg) följer med i linjer — inga ytor', async () => {
@@ -436,7 +456,7 @@ describe('lasVidaGrans', () => {
     expect(r).toEqual({
       typ: 'ok', gran: [[14.0, 56.0], [14.3, 56.3]],
       ringar: [[[14.0, 56.0], [14.1, 56.0], [14.1, 56.1], [14.0, 56.0]], [[14.2, 56.2], [14.3, 56.2], [14.3, 56.3], [14.2, 56.2]]],
-      linjer: [],
+      linjer: [], ytor: [], punkter: [],
     });
   });
 

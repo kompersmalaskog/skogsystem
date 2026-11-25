@@ -299,9 +299,18 @@ export async function lasVidaGrans(klient: SupabaseClient, objektId: string): Pr
   const features = rader.flatMap((r) => (Array.isArray(r?.geometri?.features) ? (r.geometri!.features as unknown[]) : []));
   const gran = traktGrans({ features });
   const typAv = (f: unknown) => String((f as { properties?: { _typ?: unknown } } | null)?.properties?._typ ?? '');
+  const lagerAv = (f: unknown) => String((f as { properties?: { _lager?: unknown } } | null)?.properties?._lager ?? '');
   const linjer = features.filter((f) => typAv(f) === 'linje');
-  // Allt utom traktgränsen och linjerna: hänsynsytor, nyckelbiotoper, fornlämningar, skogsbruksplan, fastighetsgränser.
-  const ytor = features.filter((f) => typAv(f) !== 'linje' && typAv(f) !== 'punkt' && typAv(f) !== 'traktgräns');
   const punkter = features.filter((f) => typAv(f) === 'punkt');
+  // Allt utom traktgränsen och det som redan ges som linje eller punkt: hänsynsytor, nyckelbiotoper,
+  // fornlämningar, skogsbruksplan, fastighetsgränser. Anroparen klassar dem.
+  //
+  // TRAKTGRÄNSEN IDENTIFIERAS PÅ `_lager`, aldrig på `_typ`: importen sätter `_typ='okänt'` för
+  // referenslagren (se lib/traktGeometri), och samma lager kan bära olika `_typ` i prod —
+  // L_RAA_POLY_101 har 85 features med 'fornlämning' och 66 med 'okänt' (läst 2026-11-25). Saknas
+  // `_typ` helt hamnade traktdelen själv bland ytorna. Samma jämförelse som `traktGrans` gör.
+  const ytor = features.filter(
+    (f) => typAv(f) !== 'linje' && typAv(f) !== 'punkt' && lagerAv(f) !== 'L_TRAKTDEL',
+  );
   return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer, ytor, punkter } : { typ: 'saknas' };
 }
