@@ -14,9 +14,11 @@ import { synkVisas } from "@/lib/admin/loneunderlagVy";
 import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gpsStart";
 
 /**
- * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
- * person och dag, grupperade på datum. Martin skannar efter det som ser fel ut:
- * det normala är tyst grått, avvikelsen står i orange i objektets ställe.
+ * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, EN FÖRARE I
+ * TAGET (Martin 2026-11-25: "jag granskar en förare i taget"): en rad per förare
+ * med hur mycket som finns att kolla, ett tryck visar hans dagar att kolla. Det
+ * normala är tyst grått, avvikelsen står i orange. Vyn per datum togs bort samma
+ * dag — den användes inte, och allt den visade finns under föraren.
  *
  * ENDA KÄLLAN är samma dry_run som löneunderlaget (/api/fortnox/salary-export)
  * — vyn kan aldrig säga något annat än lönen. Larmen är de regler som redan
@@ -35,7 +37,7 @@ import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gp
  * G0 — docs/lonesystem/lonekvot.md.
  *
  * SAMMANSTÄLLNINGEN PER FÖRARE (betalt · maskin · lönekvot) står ÖVERST och visas
- * alltid — den räknas över ALLA månadens dagar, inte över filtret "bara avvikelser".
+ * alltid — den räknas över ALLA månadens dagar, inte bara de som har något att kolla.
  * Uppställningen är lib/admin/lonekvot, densamma som Förare · Månad, så samma
  * förare och månad ger samma tal på båda ställena.
  */
@@ -113,7 +115,7 @@ const KOL_BREDD = { betalt: 60, maskin: 60, kvot: 72 } as const;
 const kolumner = (oppnabar: boolean) => `minmax(0, 1fr) ${KOL_BREDD.betalt}px ${KOL_BREDD.maskin}px ${KOL_BREDD.kvot}px${oppnabar ? ` ${IKON.text}px` : ""}`;
 
 export default function DagarUnderflik() {
-  // Översiktens länk "Se dagarna" öppnar rätt period och bara avvikelserna (?dagper=M&dagoff=-1&avv=1).
+  // Översiktens länk "Se dagarna" öppnar rätt period (?dagper=M&dagoff=-1). ?dagperson=<id> öppnar en förare.
   const { nav, gaTill } = useAdminNav();
   const startPeriod: DagarPeriod = nav.params.dagper === "K" || nav.params.dagper === "Å" ? nav.params.dagper : "M";
   const [period, setPeriod] = useState<DagarPeriod>(startPeriod);
@@ -123,12 +125,9 @@ export default function DagarUnderflik() {
   const [data, setData] = useState<{ medarbetare: Medarbetare[] } | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
-  // Förvalt: bara avvikelserna (svaret först). "Visa alla" är ett val man gör; ?avv=0 öppnar med alla.
-  const [baraAvv, setBaraAvv] = useState(nav.params.avv !== "0");
   const [oppen, setOppen] = useState<string | null>(null);
-  // Listan delas upp på DATUM (förvalt) eller PERSON (Martin 2026-11-25). ?dagvy=person öppnar per person.
-  const [grupp, setGrupp] = useState<"datum" | "person">(nav.params.dagvy === "datum" ? "datum" : "person");
-  const [oppenPerson, setOppenPerson] = useState<string | null>(null);
+  // En förare öppen åt gången. Tillbaka från Förare · Månad öppnar samma förare (?dagperson).
+  const [oppenPerson, setOppenPerson] = useState<string | null>(nav.params.dagperson || null);
   const [allaFor, setAllaFor] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
@@ -225,9 +224,6 @@ export default function DagarUnderflik() {
     return ut.sort((a, b) => a.datum.localeCompare(b.datum) || a.namn.localeCompare(b.namn, "sv"));
   }, [data, roda, gpsStarter]);
 
-  const antalForare = new Set(rader.map(r => r.namn)).size;
-  const medAvv = rader.filter(r => r.avv.length > 0);
-  const visade = baraAvv ? medAvv : rader;
   // En post per förare: den med flest dagar att kolla först, sedan namn. Raderna i datumordning.
   const personer = useMemo(() => {
     const m = new Map<string, { id: string; namn: string; rader: Rad[]; attKolla: number }>();
@@ -268,14 +264,14 @@ export default function DagarUnderflik() {
   // Förare · Månad finns för arbetsmånader t.o.m. den pågående (den granskas men skickas inte) och
   // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
   const manadAttOppna = period === "M" && range.start.slice(0, 7) <= idagISO().slice(0, 7);
-  // Dagarnas läge (period, månad, filter) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
+  // Dagarnas läge (period, månad, öppen förare) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
   const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: {
     period: loneperiodFor(range.start.slice(0, 7)), forare: id,
-    dagper: period, dagoff: String(offset), avv: baraAvv ? "1" : "0", dagvy: grupp,
+    dagper: period, dagoff: String(offset), ...(oppenPerson ? { dagperson: oppenPerson } : {}),
   } });
 
-  /** EN dagrad, samma i båda uppdelningarna. Per person heter raden datumet, per datum förarens namn. */
-  const dagRad = (r: Rad, perPerson: boolean) => {
+  /** EN dagrad under föraren: raden heter datumet. */
+  const dagRad = (r: Rad) => {
     const dt = new Date(`${r.datum}T12:00:00`);
     const ärOppen = oppen === r.nyckel;
     const objekt = r.d.objekt.join(", ");
@@ -307,7 +303,7 @@ export default function DagarUnderflik() {
         <button type="button" onClick={() => setOppen(ärOppen ? null : r.nyckel)} aria-expanded={ärOppen}
           style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{perPerson ? `${DAG[dt.getDay()]} ${datumLang(r.datum)}` : r.namn.split(" ")[0]}</span>
+            <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{`${DAG[dt.getDay()]} ${datumLang(r.datum)}`}</span>
             {/* Avvikelserna står EN gång: avkortade på en rad när dagen är stängd, hela (radbrutna) när den är öppen. */}
             <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, ...(ärOppen ? {} : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }) }}>
               {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
@@ -435,25 +431,13 @@ export default function DagarUnderflik() {
             </div>
           )}
 
-          {/* Uppdelning: PERSON (förvalt — man granskar en förare i taget, Martin 2026-11-25) eller DATUM. */}
-          {rader.length > 0 && (
-            <div data-dag-grupp="" style={{ display: "flex", background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, marginBottom: AVSTAND.l }}>
-              {([["person", "Person"], ["datum", "Datum"]] as const).map(([k, l]) => (
-                <button key={k} onClick={() => { setGrupp(k); setOppen(null); }} aria-pressed={grupp === k}
-                  style={{ flex: 1, minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", ...TYP.meta, fontWeight: grupp === k ? VIKT.halvfet : VIKT.normal, background: grupp === k ? FARG.fyllning : "transparent", color: grupp === k ? FARG.text : FARG.text2 }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          )}
-
           {rader.length === 0 && (
             <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {periodLabel}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
           )}
 
           {/* PER PERSON: en rad per förare med hur mycket som finns att kolla. Ett tryck fäller ut BARA hans dagar som
               behöver kollas; resten av hans dagar ligger bakom "Visa alla N dagar". */}
-          {grupp === "person" && personer.length > 0 && (
+          {personer.length > 0 && (
             <>
               <p data-person-svar="" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, ...TNUM, color: personerAttKolla ? FARG.orange : FARG.text2 }}>
                 {personerAttKolla
@@ -481,7 +465,7 @@ export default function DagarUnderflik() {
                       {oppnad && (
                         <div className="tona-in" style={{ paddingBottom: AVSTAND.m }}>
                           {hansRader.length === 0 && <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Alla dagar stämmer.</p>}
-                          {hansRader.map(r => dagRad(r, true))}
+                          {hansRader.map(r => dagRad(r))}
                           {!allaHans && p.rader.length > hansRader.length && (
                             <button onClick={() => setAllaFor(p.id)} data-person-alla="" style={{ ...KNAPP.tertiar, marginTop: AVSTAND.s }}>
                               Visa alla {p.rader.length} dagar
@@ -493,53 +477,6 @@ export default function DagarUnderflik() {
                   );
                 })}
               </div>
-            </>
-          )}
-
-          {/* PER DATUM: som förut. Svaret först: hur många dagar som avviker. "Bara avvikelser" är förvalt; alla dagar ligger bakom "Visa alla". */}
-          {grupp === "datum" && rader.length > 0 && (
-            <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
-                <span style={{ ...TYP.meta, ...TNUM, color: medAvv.length ? FARG.orange : FARG.text2 }}>
-                  {baraAvv
-                    ? `${medAvv.length} ${medAvv.length === 1 ? "dag" : "dagar"} med avvikelse`
-                    : `${antalForare} förare · ${rader.length} ${rader.length === 1 ? "rad" : "rader"} · ${medAvv.length} med avvikelse`}
-                </span>
-                {!baraAvv && (
-                  <button onClick={() => setBaraAvv(true)} aria-pressed={false}
-                    style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px` }}>
-                    Bara avvikelser
-                  </button>
-                )}
-              </div>
-              {visade.length === 0 && (
-                <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga avvikelser i {periodLabel}.</p></div>
-              )}
-              {visade.length > 0 && (
-                <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-                  {visade.map((r, i) => {
-                    const nyttDatum = i === 0 || visade[i - 1].datum !== r.datum;
-                    const dt = new Date(`${r.datum}T12:00:00`);
-                    return (
-                      <React.Fragment key={r.nyckel}>
-                        {nyttDatum && (
-                          <p data-grupp-rubrik="" style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                            {DAG[dt.getDay()]} {datumLang(r.datum)}
-                          </p>
-                        )}
-                        {dagRad(r, false)}
-                      </React.Fragment>
-                    );
-                  })}
-                  <div style={{ height: AVSTAND.s }} />
-                </div>
-              )}
-              {baraAvv && rader.length > visade.length && (
-                <button onClick={() => setBaraAvv(false)} data-visa-alla=""
-                  style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>
-                  Visa alla {rader.length}
-                </button>
-              )}
             </>
           )}
 

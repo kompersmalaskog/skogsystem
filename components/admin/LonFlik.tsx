@@ -322,12 +322,12 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   const tlMon = tidigarelagdMonster(tidigarelagdAlla);
   const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
 
-  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad, bara avvikelserna. */
+  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad. */
   const gaMal = (mal: Mal) => {
     if (mal.typ === "dagar") {
       const nu = new Date();
       const [å, m] = arbetsManad.split("-").map(Number);
-      gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: "1" } });
+      gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())) } });
     }
     else if (mal.typ === "maskin") gaTill({ flik: "maskiner", params: { maskin: mal.id } });
     else if (mal.typ === "person") gaTill({ flik: "medarbetare", params: { person: mal.id } });
@@ -386,7 +386,7 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
         return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
           // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
-          if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1", ...(nav.params.dagvy ? { dagvy: nav.params.dagvy } : {}) } });
+          if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", ...(nav.params.dagperson ? { dagperson: nav.params.dagperson } : {}) } });
           else { sattParam("forare", null); sattParam("dag", null); }
         }} /> : null;
       })()}
