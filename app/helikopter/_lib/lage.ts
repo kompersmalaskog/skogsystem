@@ -92,6 +92,8 @@ export type TidsBar = {
   text: string
   /** Inget är fällt än på trakten (skotare): den väntar på skördaren. */
   vantar?: boolean
+  /** Dagen maskinen är klar på trakten (ISO), bara för trakten den är på nu. */
+  klarDatum?: string | null
 }
 export type TidsRad = {
   maskin_id: string
@@ -166,6 +168,7 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
     // Kör annat i alla spår där maskinen har trakter: kortet visar bara vad den kör, inte en kö som prognosen ändå inte räknar på.
     if (arKorAnnat(tavla, m)) { rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer: [], not: null, korAnnat: true }); continue }
     const barer: TidsBar[] = []
+    const paNu = d.senaste?.find(x => x.maskin_id === m.maskin_id)?.pa
     const efterOkand: string[] = []
     let start = 0
     let okand = false
@@ -181,7 +184,9 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       if (m.roll === 'skordare') {
         if (inteBehovs.has(t.objekt_id)) continue
         const b = behovs.get(t.objekt_id)
-        if (b && b.kvar > 0) faktor = Math.min(1, b.behovs / b.kvar)
+        // Trakten maskinen står på nu körs färdigt: stapeln är hela det som är kvar, inte bara den del beställningen behöver.
+        const darNu = barer.length === 0 && paNu != null && paNu.includes(t.objekt_id)
+        if (b && b.kvar > 0 && !darNu) faktor = Math.min(1, b.behovs / b.kvar)
       }
       if (okand) { efterOkand.push(namn); continue }
       if (r.dagar == null) {
@@ -192,7 +197,7 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       const langd = r.dagar * faktor
       const slutDag = start + langd
       const stil = slutDag <= slut + 1e-9 ? 'klar' : 'efter'
-      barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd, stil, fore: stil === 'efter' && langd > 0 ? Math.max(0, Math.min(1, (slut - start) / langd)) : 0, text: namn, vantar })
+      barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd, stil, fore: stil === 'efter' && langd > 0 ? Math.max(0, Math.min(1, (slut - start) / langd)) : 0, text: namn, vantar, klarDatum: r.till ?? null })
       start = slutDag
     }
     // BARA DATA: bara trakten maskinen faktiskt är på nu (senaste arbetet ligger där) får ett klar-datum. De andra står som nästa / därefter —

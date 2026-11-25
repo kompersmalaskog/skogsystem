@@ -7,7 +7,7 @@ import Sektion from '@/components/design/Sektion'
 import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP, underTopbar } from '@/lib/design/tokens'
 import { rollFarg } from '@/lib/sparStil'
 import { KLAR_TYP_NAMN, type KlarTyp } from '../_lib/klar'
-import { relativTid } from '../_lib/format'
+import { fmtDag, relativTid } from '../_lib/format'
 import type { TidsBar, TidsRad, Tidslinje } from '../_lib/lage'
 import type { KorNu } from '../_lib/queries'
 
@@ -20,9 +20,11 @@ function Stapel({ b, farg, n }: { b: TidsBar; farg: string; n: number }) {
   const bredd = Math.max(0, Math.min(b.langd, n - b.start))
   const bas = { position: 'absolute', top: 0, height: BAR_HOJD, left: `${(b.start / n) * 100}%`, width: `${(bredd / n) * 100}%`, borderRadius: RADIE.knapp, display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.m}px`, boxSizing: 'border-box', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', ...TYP.listtitel } as const
   if (b.stil === 'saknas') return <span data-kal-stapel="saknas" title={b.text} style={{ ...bas, border: `1px dashed ${FARG.orange}`, color: FARG.orange }}>{b.text}</span>
+  // Klar-datumet står i stapeln; sträcker den sig förbi de dagar som ritas fortsätter den med en pil.
+  const text = `${b.text}${b.klarDatum ? ` · klar ${fmtDag(b.klarDatum)}` : ''}${b.start + b.langd > n ? ' →' : ''}`
   const fore = b.langd > 0 ? Math.min(1, (b.fore * b.langd) / Math.max(bredd, 1e-9)) : 0
   const bg = b.stil === 'efter' ? `linear-gradient(90deg, ${farg} ${fore * 100}%, ${FARG.orange} ${fore * 100}%)` : farg
-  return <span data-kal-stapel={b.stil} title={b.text} style={{ ...bas, background: bg, color: FARG.bg }}>{b.text}</span>
+  return <span data-kal-stapel={b.stil} title={text} style={{ ...bas, background: bg, color: FARG.bg }}>{text}</span>
 }
 
 function MaskinRad({ r, t, nu }: { r: TidsRad; t: Tidslinje; nu?: KorNu }) {
