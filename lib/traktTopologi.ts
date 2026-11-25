@@ -17,6 +17,11 @@ export interface IndataDel { id: string; ring: Punkt[]; last?: boolean }
 
 /** Hörn och kanter inom så här många meter räknas som samma. */
 export const TOPOLOGI_TOL_M = 1;
+/**
+ * Delar som SITTER IHOP längs en sträcka (minst två hörn i följd) men ligger några meter isär dras ihop till en linje. Vidas egna delar har 0–3,2 m mellan kanterna längs en gemensam gräns, och
+ * förenklingen (2 m) kan flytta en kant mer än länkningen (1 m) hittar — då fick Brokamåla två traktgränser och två vägvarningar längs väg 538 (2026-11-25).
+ */
+export const KANT_LANK_M = 4;
 
 type Meter = [number, number];
 function meterSystem(punkter: Punkt[]) {
@@ -34,7 +39,7 @@ function oppna(ring: Punkt[]): Punkt[] {
 const kopia = (t: Topologi): Topologi => ({ horn: { ...t.horn }, delar: t.delar.map((d) => ({ ...d, ring: d.ring.slice() })), nasta: t.nasta });
 
 /** Läser in delar (öppna eller slutna ringar, [lng, lat]) och kopplar ihop gemensamma hörn och kanter. */
-export function byggTopologi(delar: IndataDel[], tolM: number = TOPOLOGI_TOL_M): Topologi {
+export function byggTopologi(delar: IndataDel[], tolM: number = TOPOLOGI_TOL_M, snapM: number = 0): Topologi {
   const rin = delar.map((d) => ({ id: d.id, last: !!d.last, ring: oppna(d.ring) }));
   const alla = rin.flatMap((d) => d.ring);
   const sys = meterSystem(alla);
@@ -82,7 +87,91 @@ export function byggTopologi(delar: IndataDel[], tolM: number = TOPOLOGI_TOL_M):
   let t: Topologi = { horn, delar: rin.map((d, di) => ({ id: d.id, ring: ringId[di], ...(d.last ? { last: true } : {}) })), nasta };
   // 2) Hörn som ligger på en annan dels kant läggs in i den delen.
   t = kopplaHornPaKanter(t, tolM, sys);
+  // 3) Delar som delar en sträcka men ligger några meter isär dras ihop (bara när anroparen ber om det: "Justera gräns").
+  if (snapM > tolM) {
+    const dragen = dragIhopKanter(t, snapM, tolM, sys);
+    if (dragen !== t) t = kopplaHornPaKanter(dragen, tolM, sys);
+  }
   return t;
+}
+
+type Proj = { k: number; t: number; d: number; p: Meter; hornId: number | null };
+
+/** Närmaste punkt på ringen (alla kanter) för en punkt i meter; hörnet om projektionen hamnar i en kantände. */
+function narmastePaRing(p: Meter, ring: number[], mp: (id: number) => Meter): Proj | null {
+  const n = ring.length;
+  let bast: Proj | null = null;
+  for (let k = 0; k < n; k++) {
+    const a = mp(ring[k]), b = mp(ring[(k + 1) % n]);
+    const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    const tt = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2));
+    const q: Meter = [a[0] + tt * dx, a[1] + tt * dy];
+    const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+    if (!bast || d < bast.d) bast = { k, t: tt, d, p: q, hornId: tt <= 0 ? ring[k] : tt >= 1 ? ring[(k + 1) % n] : null };
+  }
+  return bast;
+}
+
+/**
+ * Dra ihop delar som delar en sträcka. För varje par där minst en del är fri (inte `last`): den fria delens hörn som ligger inom `snapM` från den andra delens kant OCH ingår i en sträcka om minst två
+ * hörn i följd (grannen räknas om den redan delas eller också är nära) flyttas till kanten och blir ett gemensamt hörn (läggs in i den andras kant, eller slås ihop med dess hörn). Redan justerade delar
+ * rörs aldrig, hörn som redan delas med en tredje del rörs inte, och en enstaka beröring (ett hörn) är ingen gemensam sträcka. Två fria delar: den med lägst index flyttas mot den andra.
+ */
+export function dragIhopKanter(t: Topologi, snapM: number = KANT_LANK_M, tolM: number = TOPOLOGI_TOL_M, sysIn?: ReturnType<typeof meterSystem>): Topologi {
+  const ut = kopia(t);
+  const sys = sysIn || meterSystem(Object.values(ut.horn));
+  const mp = (id: number) => sys.till(ut.horn[id]);
+  const antalDelar = (id: number) => ut.delar.filter((d) => d.ring.includes(id)).length;
+  let andrat = false;
+  for (let ai = 0; ai < ut.delar.length; ai++) for (let bi = ai + 1; bi < ut.delar.length; bi++) {
+    const A = ut.delar[ai], B = ut.delar[bi];
+    if (A.last && B.last) continue;
+    const mover = !A.last ? ai : bi, mal = mover === ai ? bi : ai;
+    const M = ut.delar[mover].ring, n = M.length;
+    const malSet = new Set(ut.delar[mal].ring);
+    const info = M.map((id) => {
+      if (malSet.has(id)) return { delad: true, nara: true, proj: null as Proj | null, rorlig: false };
+      const rorlig = antalDelar(id) === 1;
+      const proj = rorlig ? narmastePaRing(mp(id), ut.delar[mal].ring, mp) : null;
+      return { delad: false, nara: !!proj && proj.d <= snapM, proj, rorlig };
+    });
+    const flytt: { i: number; proj: Proj }[] = [];
+    for (let i = 0; i < n; i++) {
+      const x = info[i];
+      if (x.delad || !x.nara || !x.proj || !x.rorlig) continue;
+      const fore = info[(i + n - 1) % n], efter = info[(i + 1) % n];
+      if (fore.nara || efter.nara) flytt.push({ i, proj: x.proj });   // en sträcka: minst en granne i ringen är också nära (eller delad)
+    }
+    if (flytt.length === 0) continue;
+    const ok = flytt;
+    const malRing = ut.delar[mal].ring.slice();
+    const insPerKant = new Map<number, { t: number; id: number }[]>();
+    const ersatt = new Map<number, number>();   // movers hörn-id → malets hörn (slås ihop)
+    for (const { i, proj } of ok) {
+      const id = M[i];
+      if (proj.hornId != null && !M.includes(proj.hornId)) { ersatt.set(id, proj.hornId); continue; }
+      if (proj.hornId != null) continue;   // målhörnet finns redan i moverns ring: flytta inte (skulle ge ett hörn två gånger)
+      ut.horn[id] = sys.fran(proj.p);
+      const l = insPerKant.get(proj.k) || []; l.push({ t: proj.t, id }); insPerKant.set(proj.k, l);
+    }
+    if (insPerKant.size === 0 && ersatt.size === 0) continue;
+    const nyMal: number[] = [];
+    for (let k = 0; k < malRing.length; k++) {
+      nyMal.push(malRing[k]);
+      const l = insPerKant.get(k);
+      if (l) l.sort((x, y) => x.t - y.t).forEach((x) => nyMal.push(x.id));
+    }
+    ut.delar[mal] = { ...ut.delar[mal], ring: nyMal };
+    if (ersatt.size) ut.delar[mover] = { ...ut.delar[mover], ring: ut.delar[mover].ring.map((h) => ersatt.get(h) ?? h) };
+    andrat = true;
+    // Steg 2: den flyttade delens kant går nu längs målets — målets egna hörn mellan de flyttade läggs in i den flyttade delen (utan att flyttas), så kanterna följer samma polylinje.
+    laggInMalHorn(ut, mover, mal, snapM, mp);
+  }
+  if (!andrat) return t;
+  // Städa hörn som inte längre används.
+  const anv = new Set<number>(); for (const d of ut.delar) for (const h of d.ring) anv.add(h);
+  for (const h of Object.keys(ut.horn).map(Number)) if (!anv.has(h)) delete ut.horn[h];
+  return ut;
 }
 
 function kopplaHornPaKanter(t: Topologi, tolM: number, sys: ReturnType<typeof meterSystem>): Topologi {
@@ -120,6 +209,37 @@ function kopplaHornPaKanter(t: Topologi, tolM: number, sys: ReturnType<typeof me
     ut.delar[di] = { ...del, ring: ny };
   });
   return ut;
+}
+
+/**
+ * Lägger målets egna hörn (utan att flytta dem) in i den flyttade delens ring när de ligger inom `snapM` från dess kant och ingår i en sträcka (grannen i målets ring är också nära eller delad) —
+ * så att den flyttade delens kant följer exakt samma polylinje som målets i stället för en rak linje mellan de flyttade hörnen.
+ */
+function laggInMalHorn(ut: Topologi, mover: number, mal: number, snapM: number, mp: (id: number) => Meter, bara?: (a: number, b: number) => boolean): void {
+  const R = ut.delar[mover].ring, rSet = new Set(R);
+  const malR = ut.delar[mal].ring;
+  const inf = malR.map((id) => {
+    if (rSet.has(id)) return { delad: true, nara: true, proj: null as Proj | null };
+    const proj = narmastePaRing(mp(id), R, mp);
+    return { delad: false, nara: !!proj && proj.d <= snapM, proj };
+  });
+  const ins = new Map<number, { t: number; id: number }[]>();
+  const m = malR.length;
+  for (let i = 0; i < m; i++) {
+    const x = inf[i];
+    if (x.delad || !x.nara || !x.proj || x.proj.hornId != null) continue;
+    if (!(inf[(i + m - 1) % m].nara || inf[(i + 1) % m].nara)) continue;
+    if (bara && !bara(R[x.proj.k], R[(x.proj.k + 1) % R.length])) continue;
+    const l = ins.get(x.proj.k) || []; l.push({ t: x.proj.t, id: malR[i] }); ins.set(x.proj.k, l);
+  }
+  if (!ins.size) return;
+  const ny: number[] = [];
+  for (let k = 0; k < R.length; k++) {
+    ny.push(R[k]);
+    const l = ins.get(k);
+    if (l) l.sort((a, b) => a.t - b.t).forEach((x) => ny.push(x.id));
+  }
+  ut.delar[mover] = { ...ut.delar[mover], ring: ny };
 }
 
 /** Delarnas ringar som koordinater (öppna, [lng, lat]). */
@@ -286,10 +406,92 @@ export function forenkla(t: Topologi, toleransM: number = 2, minHorn: number = 4
  * fore/efter = unika hörn före (efter första kopplingen) och efter förenklingen.
  */
 export function justeraDelar(delar: IndataDel[], toleransM: number = 2, minHorn: number = 4, tolM: number = TOPOLOGI_TOL_M): Forenkling {
-  const f = forenkla(byggTopologi(delar, tolM), toleransM, minHorn);
+  const f = forenkla(byggTopologi(delar, tolM, KANT_LANK_M), toleransM, minHorn);
   const last = new Map(delar.map((d) => [d.id, !!d.last]));
-  const t = byggTopologi(ringar(f.t).map((r) => ({ id: r.id, ring: r.ring, last: last.get(r.id) })), tolM);
+  const t = byggTopologi(ringar(f.t).map((r) => ({ id: r.id, ring: r.ring, last: last.get(r.id) })), tolM, KANT_LANK_M);
   return { t, fore: f.fore, efter: antalHorn(t) };
+}
+
+// ── Återställ en del till Vidas original ────────────────────────────────────────────────────────────────────────────────
+
+/** Ett hörn i en granne räknas som sittande på den borttagna kopians kant när det ligger så här nära. */
+export const ATERSTALL_DEL_M = 0.75;
+/** Längre än så här flyttas aldrig en grannes hörn mot Vidas original (då är kanten medvetet någon annanstans). */
+export const ATERSTALL_MAX_M = 30;
+
+/**
+ * Delen `kopiaRing` (en justerad kopia) återställs till Vidas original `vidaRing`. Grannkopiorna som sitter ihop med den längs en sträcka (minst två hörn i följd på kopians kant) dras
+ * då med: sträckans hörn flyttas till Vidas kant och Vidas egna hörn längs sträckan läggs in, så att grannen och Vidas original fortfarande ligger på SAMMA linje (annars blir det två
+ * linjer, den ena grannens redigerade och den andra Vidas). Hörn som delas av två grannar flyttas i båda. Returnerar bara grannar som ändrats (öppna ringar, [lng, lat]).
+ */
+export function ateranslutGrannar(kopiaRing: Punkt[], vidaRing: Punkt[], grannar: { id: string; ring: Punkt[] }[], delM: number = ATERSTALL_DEL_M, snapM: number = KANT_LANK_M): { id: string; ring: Punkt[] }[] {
+  const kopiaO = oppna(kopiaRing), vidaO = oppna(vidaRing);
+  if (grannar.length === 0 || kopiaO.length < 3 || vidaO.length < 3) return [];
+  const t = byggTopologi(grannar.map((g) => ({ id: g.id, ring: g.ring, last: true })));
+  const sys = meterSystem([...kopiaO, ...vidaO, ...Object.values(t.horn)]);
+  const ext = new Map<number, Meter>();           // tillfälliga negativa id:n för kopians och Vidas hörn
+  const kopiaIds = kopiaO.map((p, i) => { ext.set(-(i + 1), sys.till(p)); return -(i + 1); });
+  const vidaIds = vidaO.map((p, i) => { ext.set(-(1000 + i + 1), sys.till(p)); return -(1000 + i + 1); });
+  const mp = (id: number): Meter => (id < 0 ? ext.get(id)! : sys.till(t.horn[id]));
+  // 1) Vilka hörn sitter på kopians kant, i en sträcka om minst två hörn i följd?
+  const pa = new Set<number>();
+  for (const idStr of Object.keys(t.horn)) { const id = Number(idStr); const pr = narmastePaRing(mp(id), kopiaIds, mp); if (pr && pr.d <= delM) pa.add(id); }
+  const rorda = new Set<number>();
+  for (const d of t.delar) { const n = d.ring.length; for (let i = 0; i < n; i++) if (pa.has(d.ring[i]) && (pa.has(d.ring[(i + n - 1) % n]) || pa.has(d.ring[(i + 1) % n]))) rorda.add(d.ring[i]); }
+  if (rorda.size === 0) return [];
+  // 2) Flytta dem till Vidas kant (ett delat hörn är EN post och följer alla delar).
+  const flyttade = new Set<number>();
+  for (const id of rorda) {
+    const pr = narmastePaRing(mp(id), vidaIds, mp);
+    if (!pr || pr.d > ATERSTALL_MAX_M) continue;
+    t.horn[id] = sys.fran(pr.p);
+    flyttade.add(id);
+  }
+  // 3) Vidas egna hörn längs sträckan läggs in på grannens kant (en gång per Vida-hörn, samma id i varje ring som har kanten).
+  const kanter: { a: number; b: number }[] = [];
+  const sett = new Set<string>();
+  for (const d of t.delar) { const n = d.ring.length; for (let i = 0; i < n; i++) { const a = d.ring[i], b = d.ring[(i + 1) % n]; if (!flyttade.has(a) || !flyttade.has(b)) continue; const k = a < b ? `${a}-${b}` : `${b}-${a}`; if (!sett.has(k)) { sett.add(k); kanter.push({ a, b }); } } }
+  const nyaPerKant = new Map<string, { t: number; id: number }[]>();
+  let nasta = t.nasta;
+  const nyttId = new Map<number, number>();
+  for (const v of vidaIds) {
+    const p = mp(v);
+    let bast: { key: string; t: number; d: number } | null = null;
+    for (const k of kanter) {
+      const a = mp(k.a), b = mp(k.b), dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+      if (l2 === 0) continue;
+      const tt = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2;
+      if (tt <= 0.001 || tt >= 0.999) continue;
+      const d = Math.hypot(p[0] - (a[0] + tt * dx), p[1] - (a[1] + tt * dy));
+      if (d <= snapM && (!bast || d < bast.d)) bast = { key: k.a < k.b ? `${k.a}-${k.b}` : `${k.b}-${k.a}`, t: k.a < k.b ? tt : 1 - tt, d };   // t längs kantens kanoniska riktning (minsta id först)
+    }
+    if (!bast) continue;
+    // Ligger Vida-hörnet redan på en flyttad hörn-plats (inom 0,3 m) behövs ingen ny post.
+    if (flyttade.size && [...flyttade].some((h) => Math.hypot(mp(h)[0] - p[0], mp(h)[1] - p[1]) < 0.3)) continue;
+    const id = nasta++; nyttId.set(v, id); t.horn[id] = sys.fran(p);
+    const l = nyaPerKant.get(bast.key) || []; l.push({ t: bast.t, id }); nyaPerKant.set(bast.key, l);
+  }
+  t.nasta = nasta;
+  // 4) Bygg om ringarna med de nya hörnen insatta i stigande ordning längs kanten (kantens riktning avgör t).
+  const utRing = (d: TopDel): number[] => {
+    const n = d.ring.length, ny: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = d.ring[i], b = d.ring[(i + 1) % n];
+      ny.push(a);
+      const lista = nyaPerKant.get(a < b ? `${a}-${b}` : `${b}-${a}`);
+      if (lista) { const sorterad = lista.slice().sort((x, y) => x.t - y.t); (a < b ? sorterad : sorterad.reverse()).forEach((x) => ny.push(x.id)); }
+    }
+    return ny;
+  };
+  const ut: { id: string; ring: Punkt[] }[] = [];
+  for (const d of t.delar) {
+    const ny = utRing(d);
+    const koord = ny.map((h) => [t.horn[h][0], t.horn[h][1]] as Punkt);
+    const nyaId = new Set(nyttId.values());
+    const forandrad = ny.some((h) => flyttade.has(h) || nyaId.has(h));
+    if (forandrad) ut.push({ id: d.id, ring: koord });
+  }
+  return ut;
 }
 
 // ── Ångra ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
