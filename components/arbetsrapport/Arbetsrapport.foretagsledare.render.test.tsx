@@ -116,3 +116,62 @@ describe("vilofrågan och företagsledare", () => {
     expect(k).toContain("(arForetagsledare ? [] : (periodVilobrott || []))");
   });
 });
+
+// Min tid: Vila-fliken och Övertid-taket hör till arbetstidslagen — inte till en företagsledare (2026-11-25).
+describe("Min tid och företagsledare", () => {
+  const knappar = () => Array.from(behallare!.querySelectorAll("button")).map(b => (b.textContent || "").trim());
+  const tryck = async (text: string) => {
+    const b = Array.from(behallare!.querySelectorAll<HTMLElement>("nav > *")).find(x => (x.textContent || "").trim().endsWith(text));
+    expect(b, text).toBeTruthy();
+    await act(async () => { b!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    for (let i = 0; i < 4; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+  };
+  it("en förare har Vila-fliken och ser Övertid-taket", async () => {
+    await montera();
+    await tryck("Min tid");
+    expect(knappar()).toContain("Vila");
+    expect(behallare!.textContent).toMatch(/Övertid \d{4}/);
+  });
+  it("en företagsledare har ingen Vila-flik och inget Övertid-tak", async () => {
+    FORARE.foretagsledare = true;
+    await montera();
+    await tryck("Min tid");
+    expect(knappar()).toContain("Översikt");
+    expect(knappar()).not.toContain("Vila");
+    expect(behallare!.textContent).not.toMatch(/Övertid \d{4}/);
+  });
+  it("källvakt: ingen prediktiv 'Kort dygnsvila' för en företagsledare", () => {
+    const k = fs.readFileSync(path.resolve(__dirname, "Arbetsrapport.tsx"), "utf8");
+    expect(k).toContain("if (trosklar && !arForetagsledare) {");
+  });
+});
+
+// Förarens egna gränser (50/månad, 250/år, 48 i snitt) ur /api/lon/arbetstid?mig=1 — samma tal som Admin › Arbetstid.
+describe("Min tid: arbetstidens gränser för föraren", () => {
+  const GRANSER = [
+    { id: "allman_overtid_ar", niva: "lugn", varde: 108.9, grans: 250, mening: "108,9 av 250 tim övertid i år" },
+    { id: "extra_overtid_ar", niva: "lugn", varde: 0, grans: 150, mening: "Ingen extra övertid" },
+    { id: "overtid_manad", niva: "gul", varde: 46, grans: 50, mening: "46 av 50 tim övertid i november t.o.m. igår — närmar sig gränsen" },
+    { id: "snitt_48", niva: "lugn", varde: 44.2, grans: 48, mening: "44,2 tim/vecka i snitt" },
+  ];
+  it("visar månad, år och snitt — extra övertid bara när den finns — och varningen när den är gul", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, status: 200, text: async () => "",
+      json: async () => (String(url).includes("/api/lon/arbetstid?mig=1") ? { ok: true, forare: [{ granser: GRANSER }] } : {}) })));
+    await montera();
+    const flik = Array.from(behallare!.querySelectorAll<HTMLElement>("nav > *")).find(x => (x.textContent || "").trim().endsWith("Min tid"));
+    await act(async () => { flik!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    for (let i = 0; i < 6; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    const kort = behallare!.querySelector("[data-arbetstid-granser]");
+    expect(kort).toBeTruthy();
+    const ids = Array.from(kort!.querySelectorAll("[data-grans]")).map(e => e.getAttribute("data-grans"));
+    expect(ids).toEqual(["overtid_manad", "allman_overtid_ar", "snitt_48"]);
+    expect(kort!.textContent).toContain("närmar sig gränsen");
+    expect(kort!.textContent).toContain("44,2 tim/v");
+    expect(behallare!.textContent).not.toMatch(/Övertid \d{4}.*av 250 tim.*Räknat per månad/);
+    // Tryck på en rad fäller ut vad lagen säger
+    expect(kort!.querySelector("[data-grans-varfor]")).toBeNull();
+    const rad = kort!.querySelector<HTMLElement>("[data-grans=snitt_48] [data-grans-tryck]")!;
+    await act(async () => { rad.click(); });
+    expect(kort!.querySelector("[data-grans-varfor]")?.textContent).toMatch(/10 b §.*48 timmar per vecka i snitt/);
+  });
+});

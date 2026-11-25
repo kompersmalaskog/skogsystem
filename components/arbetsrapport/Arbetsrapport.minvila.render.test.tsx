@@ -220,11 +220,11 @@ async function tillVila() {
   await act(async () => { vila!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   await vänta(8, 40);
 }
-/** Kortet för en viloperiod: förälder till raden "Slutade kl HH:MM". */
+/** Kortet för ett brott under "Under kravet" (Vila är en månad i taget sedan 2026-11-25). Slutklockslaget står på kortet. */
 function vilaKort(slutKl: string): HTMLElement {
-  const rad = Array.from(behallare!.querySelectorAll<HTMLElement>("p")).find(e => (e.textContent || "") === `Slutade kl ${slutKl}`);
-  if (!rad?.parentElement) throw new Error("hittar inte viloperiod-kort för " + slutKl);
-  return rad.parentElement;
+  const kort = Array.from(behallare!.querySelectorAll<HTMLElement>("[data-vila-brott]")).find(e => (e.textContent || "").includes(`Slutade ${slutKl}`));
+  if (!kort) throw new Error("hittar inte brottskortet för " + slutKl);
+  return kort;
 }
 const harFarg = (el: HTMLElement, farg: string) => [el, ...Array.from(el.querySelectorAll<HTMLElement>("*"))].some(e => e.style.color === farg);
 
@@ -277,18 +277,25 @@ describe("Min tid → Vila: rött bara för obesvarade", () => {
     // (Ett OBESVARAT veckovilabrott utan stöd i passen städas bort vid öppning, #704 — därför bara det besvarade här.)
     vilaData([besvarat(brott({ typ: "veckovila", datum: "2026-10-01", vila_h: 20, krav_h: 36, beskrivning: "Mellan 1 oktober och 3 oktober hade du som mest 20 h sammanhängande vila." }))]);
     await tillVila();
-    await klick("Visa alla");
-    const rad = Array.from(behallare!.querySelectorAll<HTMLElement>("p")).find(e => (e.textContent || "").includes("20 h sammanhängande"))!.parentElement as HTMLElement;
-    expect(rad.textContent).toMatch(/Veckovila: 20h/);
+    const rad = Array.from(behallare!.querySelectorAll<HTMLElement>("[data-vila-brott]")).find(e => (e.textContent || "").includes("20 h sammanhängande"))!;
+    expect(rad.textContent).toMatch(/Veckovila/);
+    expect(rad.textContent).toMatch(/20h/);
     expect(rad.textContent).toMatch(/Besvarat: planerat undantag enligt avtal/);
     expect(harFarg(rad, ROD)).toBe(false);
   });
 
-  it("veckovila-raden i listan: 'alla besvarade' är grå utan rött varningstecken", async () => {
-    vilaData([besvarat(brott({ typ: "veckovila", datum: "2026-10-01", vila_h: 20, krav_h: 36, beskrivning: "x" }))]);
+  it("obesvarat brott har 'Svara' (öppnar dagen), besvarat har det inte", async () => {
+    vilaData([dyg1(), besvarat(dyg4())]);
     await tillVila();
-    const sektion = Array.from(behallare!.querySelectorAll<HTMLElement>("section")).filter(e => (e.textContent || "").includes("brott mot veckovila")).pop()!;
-    expect(sektion.textContent).toMatch(/besvarat/i);
-    expect(harFarg(sektion, ROD)).toBe(false);
+    expect(vilaKort("22:00").querySelector("[data-vila-svara]")).toBeTruthy();
+    expect(vilaKort("20:00").querySelector("[data-vila-svara]")).toBeFalsy();
+  });
+
+  it("utan brott i månaden: ett grönt svar, inga brottskort", async () => {
+    vilaData([]);
+    await tillVila();
+    expect(behallare!.querySelector("[data-vila-ok]")?.textContent).toMatch(/Vilan räckte hela oktober/);
+    expect(behallare!.querySelectorAll("[data-vila-brott]").length).toBe(0);
+    expect(behallare!.querySelectorAll("[data-vila-natt]").length).toBeGreaterThan(0);
   });
 });

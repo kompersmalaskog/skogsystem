@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const g = globalThis as any;
 vi.mock("@/lib/auth/server", () => ({
   kravRoll: async () => (g.__nekad ? { ok: false, res: new Response(JSON.stringify({ ok: false }), { status: 403 }) } : { ok: true, session: {} }),
+  kravInloggad: async () => (g.__utloggad ? { ok: false, res: new Response(JSON.stringify({ ok: false }), { status: 401 }) } : { ok: true, session: { medarbetareId: g.__mig ?? null } }),
   ADMIN_ROLLER: ["admin"],
 }));
 vi.mock("@/lib/lonesystem/server", () => {
@@ -45,7 +46,7 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const vardagar = (fran: string, till: string) => { const ut: string[] = []; for (let d = lok(fran); iso(d) <= till; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) ut.push(iso(d)); return ut; };
 
 beforeEach(() => {
-  g.__nekad = false; g.__fel = {}; g.__anrop = []; g.__saknarForetagsledare = false;
+  g.__nekad = false; g.__utloggad = false; g.__mig = undefined; g.__fel = {}; g.__anrop = []; g.__saknarForetagsledare = false;
   g.__db = {
     medarbetare: [{ id: "s", namn: "Stefan Karlsson" }],
     arbetsdag: vardagar("2026-08-24", "2026-10-13").map(d => dag("s", d)),
@@ -227,5 +228,33 @@ describe("GET /api/lon/arbetstid: övertiden räknas per kalendermånad som lön
   it("anställningsdatum läses ur medarbetare och sänker ordinarie: anställd 15 sep → augusti 48 + september (176 − 96) = 128", async () => {
     g.__db.medarbetare = [{ id: "s", namn: "Stefan Karlsson", anstallningsdatum: "2026-09-15" }];
     expect(await arsOvertid()).toBe(128);
+  });
+});
+
+// Min tid (?mig=1): föraren ser SINA gränser — aldrig någon annans, och en företagsledare inga alls.
+describe("GET /api/lon/arbetstid?mig=1", () => {
+  const anropaMig = () => GET({ nextUrl: new URL("https://app.example/api/lon/arbetstid?mig=1") } as any);
+  it("en förare (inte admin) får sin egen rad, inte kollegans", async () => {
+    g.__nekad = true;                     // inte admin
+    g.__mig = "s";
+    g.__db.medarbetare.push({ id: "o", namn: "Oskar Nilsson" });
+    g.__db.arbetsdag.push(...vardagar("2026-09-01", "2026-10-13").map(d => dag("o", d, 10)));
+    const j = await (await anropaMig()).json();
+    expect(j.ok).toBe(true);
+    expect(j.forare.map((f: any) => f.medarbetare_id)).toEqual(["s"]);
+    expect(j.forare[0].granser.map((x: any) => x.id)).toContain("overtid_manad");
+  });
+  it("utloggad: 401", async () => {
+    g.__utloggad = true;
+    expect((await anropaMig()).status).toBe(401);
+  });
+  it("inloggad utan medarbetare: 404", async () => {
+    expect((await anropaMig()).status).toBe(404);
+  });
+  it("företagsledare: inga gränser", async () => {
+    g.__mig = "s";
+    g.__db.medarbetare[0].foretagsledare = true;
+    const j = await (await anropaMig()).json();
+    expect(j).toMatchObject({ ok: true, forare: [], foretagsledare: true });
   });
 });
