@@ -358,7 +358,15 @@ export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<strin
   const sista = klar?.sista_arbetsdag ?? ''
   const koer = new Map<string, KoRad[]>()
   // Skördarna först: skotaren kan bara köra det som är fällt. Det som skördaren hinner fälla före månadens slut räknas med (samma kö, samma takt).
-  for (const m of klar?.maskiner ?? []) if (m.roll === 'skordare') koer.set(m.maskin_id, ko(m, trakter.filter(t => t.maskin_id === m.maskin_id), sista, d.egna))
+  // Trakten maskinen arbetar på just nu står alltid först i dess kö (den körs färdigt), oavsett ordningen i övrigt — annars står "Kör nu" som "därefter".
+  const arbetar = new Set((d.senaste ?? []).flatMap(x => x.pa.map(id => `${x.maskin_id}|${id}`)))
+  const pagarNu = (t: KlarTrakt) => t.maskin_id != null && arbetar.has(`${t.maskin_id}|${t.objekt_id}`)
+  const forst = (t: KlarTrakt): KlarTrakt => (pagarNu(t) ? { ...t, sortn: t.sortn - 1_000_000 } : t)
+  for (const m of klar?.maskiner ?? []) {
+    if (m.roll !== 'skordare') continue
+    const egna = trakter.filter(t => t.maskin_id === m.maskin_id)
+    koer.set(m.maskin_id, ko(m, egna.map(forst), sista, d.egna).map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
+  }
   const skordNu = new Map<string, number>()
   const skordTill = new Map<string, number>()
   for (const t of trakter) if (t.roll === 'skordare') skordNu.set(t.objekt_id, t.utfort_volym)
@@ -377,7 +385,7 @@ export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<strin
     if (m.roll === 'skordare') continue
     const egna = skotbar.filter(t => t.maskin_id === m.maskin_id)
     // En trakt där inget är fällt än väntar: maskinen tar de andra först (sortn rörs inte, bara körordningen).
-    const rader = ko(m, egna.map(t => (vantar.has(t.objekt_id) ? { ...t, sortn: t.sortn + 1_000_000 } : t)), sista, d.egna)
+    const rader = ko(m, egna.map(t => (pagarNu(t) ? forst(t) : vantar.has(t.objekt_id) ? { ...t, sortn: t.sortn + 1_000_000 } : t)), sista, d.egna)
     koer.set(m.maskin_id, rader.map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
   }
   return { trakter: skotbar, koer, sista }

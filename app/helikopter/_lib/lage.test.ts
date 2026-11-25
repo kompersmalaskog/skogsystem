@@ -147,6 +147,17 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
     expect(okant.rader.flatMap(r => r.barer).every(x => x.stil === 'saknas' || x.stil === 'nasta' || x.stil === 'darefter')).toBe(true)
   })
 
+  it('trakten maskinen skotar på nu står först i kön och får klar-datum — också när ordningen lägger en annan före', () => {
+    // "Först" ligger först i ordningen (sortn 0.5), men EK26 arbetar på Britteberg: den är "Kör nu", inte "därefter".
+    const med = [...trakter, trakt('Först', 'skotare', 'EK26', { sortn: 0.5, volym: 100, rest_volym: 100, timmar: 5, prognos_h: 5 }), trakt('Först', 'skordare', 'Scorpion', { volym: 100, utfort_volym: 100, timmar: 0 })]
+    const d2 = indata({ klar: klar(maskiner, med), senaste: [{ maskin_id: 'EK26', pa: ['Britteberg'] }] })
+    const barer = byggTidslinje(d2, byggTavla(d2))!.rader.find(r => r.maskin_id === 'EK26')!.barer
+    expect(barer[0].namn.startsWith('Britteberg')).toBe(true)
+    expect(barer[0].stil === 'klar' || barer[0].stil === 'efter').toBe(true)
+    expect(barer[0].klarDatum).not.toBeNull()
+    expect(barer.slice(1).every(b => b.stil === 'nasta' || b.stil === 'darefter' || b.stil === 'saknas')).toBe(true)
+  })
+
   it('ingen tidslinje i en månad som inte pågår eller utan köunderlag', () => {
     expect(byggTidslinje(indata({ status: 'avslutad' }), byggTavla(indata()))).toBeNull()
     expect(byggTidslinje(indata({ klar: null }), byggTavla(indata()))).toBeNull()
