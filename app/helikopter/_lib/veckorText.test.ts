@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { veckoDatum, veckoRader, veckoSvar } from './veckorText'
-import type { VeckaRad } from './queries'
+import { manadsRad, veckoDatum, veckoRader, veckoSvar } from './veckorText'
+import { fmt } from './format'
+import type { BolagRad, VeckaRad } from './queries'
 
 const v = (x: Partial<VeckaRad>): VeckaRad => ({ isovecka: 47, iso_ar: 2026, fran: '2026-11-16', till: '2026-11-20', arbetsdagar: 5, arbetsdagar_kvar: 3, plan: 669, skordat: 612, skotat: 540, status: 'pagar', orsak: null, maskiner: [], ...x })
 
@@ -13,7 +14,8 @@ describe('Veckor — orden', () => {
   it('låst: Klart vid plan eller över, annars "under"', () => {
     const r = veckoRader(v({ status: 'last', plan: 909, skordat: 980, skotat: 780 }))
     expect(r.skordat.ord).toBe('Klart')
-    expect(r.skotat).toMatchObject({ ord: '129 under', klart: false })
+    expect(r.skotat).toMatchObject({ ord: '', klart: false })   // jämnt flöde: avslutad vecka säger inget om vad som "saknas"
+    expect(r.skordat).toMatchObject({ ord: 'Klart', klart: true })
     expect(veckoRader(v({ status: 'last', plan: 909, skordat: 909 })).skordat.klart).toBe(true)   // exakt plan = nått
   })
   it('kommande: bara planen, inget ord; utan plan bara volymen — aldrig ett påhittat ord', () => {
@@ -53,5 +55,29 @@ describe('alla bolag', () => {
     expect(veckoRader(v({ skordat: 192.2, skotat: 192.2, skordat_ovrigt: 46.6, skotat_ovrigt: 52.3 })).alla).toBe('Alla bolag: skördat 239 · skotat 244')
     expect(veckoRader(v({ skordat_ovrigt: 0, skotat_ovrigt: 0 })).alla).toBeNull()
     expect(veckoRader(v({})).alla).toBeNull()
+  })
+})
+
+describe('månadens läge', () => {
+  const b = (x: Partial<BolagRad>): BolagRad => ({ typ: 'gallring', bolag: 'Vida', lovat: 1000, skordat: 848, skotat: 810.2, takt_skordat: 64.8, takt_skotat: 64.8, takt_dagar: 5, ...x })
+  it('pågående månad: bolaget, skotat av beställt och vart det landar', () => {
+    const r = manadsRad([b({})], 4, 'pagaende')!
+    expect(r.rad).toBe(`Vida · ${fmt(810)} av ${fmt(1000)} skotat`)
+    expect(r.ord).toBe(`Ser ut att bli ${fmt(1069)} · räcker`)
+    expect(r.ton).toBe('bra')
+  })
+  it('fattas när takten inte räcker, och orange ton', () => {
+    const r = manadsRad([b({ skotat: 600, takt_skotat: 20 })], 4, 'pagaende')!
+    expect(r.ord).toBe(`Ser ut att bli ${fmt(680)} · fattas ${fmt(320)}`)
+    expect(r.ton).toBe('brist')
+  })
+  it('bolag utan beställning (Privat) räknas inte, och utan något bolag med beställning ingen rad', () => {
+    expect(manadsRad([b({}), b({ bolag: 'Privat', lovat: 0, skotat: 114 })], 4, 'pagaende')!.rad).toContain('Vida · ')
+    expect(manadsRad([b({ lovat: 0 })], 4, 'pagaende')).toBeNull()
+  })
+  it('kommande månad: ingen rad. Avslutad: utfallet', () => {
+    expect(manadsRad([b({})], 0, 'kommande')).toBeNull()
+    expect(manadsRad([b({ skotat: 930 })], 0, 'avslutad')!.ord).toBe(`Fattade ${fmt(70)}`)
+    expect(manadsRad([b({ skotat: 1060 })], 0, 'avslutad')!.ord).toBe(`Klart · ${fmt(60)} över`)
   })
 })

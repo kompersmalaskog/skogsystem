@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('
 vi.mock('../_lib/useFonsterBredd', () => ({ useFonsterBredd: () => 390 }))
 vi.mock('../_lib/queries', () => ({
   hamtaManuellaMaskiner: vi.fn(async () => new Set<string>()),
+  hamtaBolag: vi.fn(async () => ({ data: [{ typ: 'slutavverkning', bolag: 'Vida', lovat: 5000, skordat: 5012, skotat: 3403, takt_skordat: 300, takt_skotat: 310.8, takt_dagar: 5 }, { typ: 'slutavverkning', bolag: 'Privat', lovat: 0, skordat: 10, skotat: 5, takt_skordat: 0, takt_skotat: 0, takt_dagar: 5 }], error: null })),
   hamtaVeckor: vi.fn(async () => ({ data: [vecka({ isovecka: 45, status: 'last', fran: '2026-11-03', till: '2026-11-07', plan: 909, skordat: 870, skotat: 780, orsak: 'Regn' }), vecka({})], error: null })),
 }))
 
@@ -33,8 +34,8 @@ describe('Veckor — Hur gick veckorna?', () => {
     expect(rader[0].textContent).toContain('57 kvar')
     expect(rader[0].textContent).toContain('129 kvar')
     expect(rader[1].textContent).toContain('3–7 nov')
-    expect(rader[1].textContent).toContain('39 under')
-    expect(rader[1].textContent).toContain('129 under')
+    expect(rader[1].textContent).not.toContain('under')   // jämnt flöde: avslutad vecka säger inget om vad som saknas
+    expect(rader[1].textContent).toContain('Skotat 780 av 909')
   })
   it('ett tryck fäller ut maskinerna och orsaken; ett till fäller ihop', async () => {
     await act(async () => { root.render(<VeckorVy />) }); await vanta()
@@ -65,5 +66,11 @@ describe('Veckor — Hur gick veckorna?', () => {
     await act(async () => { root.render(<VeckorVy />) }); await vanta()
     expect(el.querySelector('[data-vecka="46"] [data-alla]')!.textContent).toBe('Alla bolag: skördat 239 · skotat 244')
     ;(q.hamtaVeckor as any).mockImplementation(orig)
+  })
+  it('månadens läge står en gång överst med bolaget, utan Privat', async () => {
+    await act(async () => { root.render(<VeckorVy />) }); await vanta()
+    const m = el.querySelector('[data-manad]')!
+    expect(m.textContent).toMatch(/^Vida · 3.403 av 5.000 skotat/)
+    expect(m.textContent).not.toContain('Privat')
   })
 })

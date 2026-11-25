@@ -13,12 +13,12 @@ import { AVSTAND, FARG, IKON, KORT, RAD, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_R
 import Rad from '@/components/design/Rad'
 import Svarsrad from '@/components/design/Svarsrad'
 import { ymdLokal } from '@/lib/datumLokal'
-import { TYPER, TYP_NAMN } from '../_lib/berakningar'
+import { TYPER, TYP_NAMN, manadStatus } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
-import { hamtaManuellaMaskiner, hamtaVeckor, type Typ, type VeckaRad } from '../_lib/queries'
+import { hamtaBolag, hamtaManuellaMaskiner, hamtaVeckor, type BolagRad, type Typ, type VeckaRad } from '../_lib/queries'
 import { SPAR_MAX_PX, VECKOR_TVA_SPAR_MIN_PX } from '../_lib/layout'
 import { useFonsterBredd } from '../_lib/useFonsterBredd'
-import { veckoDatum, veckoRader, veckoSvar } from '../_lib/veckorText'
+import { manadsRad, veckoDatum, veckoRader, veckoSvar, type ManadsRad } from '../_lib/veckorText'
 import { Fel, Laddar, Tomt } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
@@ -61,6 +61,15 @@ export default function VeckorVy() {
   const [manuella, setManuella] = useState<Set<string>>(() => new Set())
   useEffect(() => { let avbruten = false; hamtaManuellaMaskiner().then(m => { if (!avbruten) setManuella(m) }); return () => { avbruten = true } }, [])
 
+  // Månadens läge per bolag (samma källa som Hur går det per bolag?). Ett tillägg: går det inte att läsa står en rad om det, resten av vyn lever.
+  const [bolag, setBolag] = useState<BolagRad[] | 'fel' | null>(null)
+  useEffect(() => {
+    let avbruten = false
+    setBolag(null)
+    hamtaBolag(ar, manad, idag).then(r => { if (!avbruten) setBolag(r.error != null || r.data == null ? 'fel' : r.data) })
+    return () => { avbruten = true }
+  }, [ar, manad, idag, version])
+
   useEffect(() => {
     let avbruten = false
     setData(null); setFel(null)
@@ -98,8 +107,17 @@ export default function VeckorVy() {
 
   const orsakVecka = orsakFor && data ? data[orsakFor].find(v => v.isovecka === vald[orsakFor]) ?? null : null
 
+  const status = manadStatus(ar, manad, idag)
+  const manadFor = (t: Typ): ManadsRad | 'fel' | null => {
+    if (bolag == null) return null
+    if (bolag === 'fel') return status === 'kommande' ? null : 'fel'
+    const kvar = data![t].reduce((a, v) => a + v.arbetsdagar_kvar, 0)
+    return manadsRad(bolag.filter(b => b.typ === t), kvar, status)
+  }
+
   const sparBlock = (t: Typ) => (
     <SparBlock
+      manad={manadFor(t)}
       veckor={data![t]}
       vald={vald[t]}
       onVald={v => setVald(prev => ({ ...prev, [t]: prev[t] === v ? null : v }))}
@@ -173,7 +191,8 @@ export default function VeckorVy() {
 }
 
 /** Ett spår: svaret i en mening, sedan en rad per vecka (nyast först). Tryck på en vecka fäller ut maskinerna och orsaken. */
-function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
+function SparBlock({ manad, veckor, vald, onVald, manuella, onAndraOrsak }: {
+  manad: ManadsRad | 'fel' | null
   veckor: VeckaRad[]
   vald: number | null
   onVald: (isovecka: number) => void
@@ -186,6 +205,16 @@ function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
   return (
     <>
       {svar && <div data-svar="1"><Svarsrad rubrik={svar.rubrik} rad={svar.under} fri /></div>}
+      {manad && (
+        <div data-manad="1" style={{ padding: `0 ${AVSTAND.xs}px ${AVSTAND.m}px`, ...TYP.meta, color: FARG.text2, ...TNUM }}>
+          {manad === 'fel' ? <div>Månadens läge kunde inte läsas</div> : (
+            <>
+              <div>{manad.rad}</div>
+              <div style={{ marginTop: AVSTAND.xs, ...(manad.ton === 'brist' ? { color: FARG.orange, fontWeight: 600 } : null) }}>{manad.ord}</div>
+            </>
+          )}
+        </div>
+      )}
       <section style={{ ...KORT, marginBottom: AVSTAND.rad }}>
         {lista.map((v, i) => {
           const r = veckoRader(v)
