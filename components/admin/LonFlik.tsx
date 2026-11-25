@@ -5,7 +5,7 @@ import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA, VIKT } from "@/lib/design/tokens";
 import { Kort, Ikon, Lista, Rad, Lank, Laddar } from "./ui";
 import { ForarListRad, AttKolla } from "./ForarKortDelar";
-import { useAdminNav } from "./nav";
+import { LON_MER, useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { enhetForMangd, fmtMangd } from "@/lib/lonesystem/loneart";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
@@ -52,7 +52,7 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
 // Två flikar är det man gör varje månad. Resten ställer man in sällan (eller slår upp) och ligger som rader
 // under "Mer" längst ner — samma adresser som förut (?underflik=lonearter …), så länkar och notiser hittar dit (Martin 2026-10-25).
 const FLIKRAD: Underflik[] = ["underlag", "dagar"];
-const MER: Underflik[] = ["arsovertid", "vila", "lonearter", "system", "atk"];
+const MER: Underflik[] = [...LON_MER];
 const MER_UNDERTEXT: Partial<Record<Underflik, string>> = {
   arsovertid: "Hur nära 250 timmar varje förare är i år",
   vila: "Alla förares vilobrott",
@@ -106,7 +106,7 @@ function TillbakaTillLon({ etikett, onTillbaka }: { etikett: string; onTillbaka:
       <button type="button" onClick={onTillbaka} style={{ ...KNAPP.tertiar, display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, padding: 0, minHeight: TRAFFYTA.min }}>
         <Ikon namn="chevron_left" farg={FARG.bla} /> Lön
       </button>
-      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.rubrik, color: FARG.text }}>{etikett}</p>
+      <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel, color: FARG.text }}>{etikett}</h1>
     </div>
   );
 }

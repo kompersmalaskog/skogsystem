@@ -4818,11 +4818,19 @@ describe("Granskningen: Lön → Lönearter", () => {
 });
 
 describe("Granskningen: ATK-val och Vilobrott", () => {
-  it("ATK: 'Saknar val (2)' är rubriken — raderna är bara namn, inget 'Ej valt' upprepat", async () => {
-    await monter("flik=lon&underflik=atk");
-    expect(text()).toContain("Saknar val (2)");
-    expect(text()).not.toContain("Ej valt");
-    expect(text()).toContain("Förarna väljer pengar, ledig tid eller pension.");
+  it("ATK: svaret överst, 'Lön' står en gång, raderna säger 'Valde inte', året är en tyst rad", async () => {
+    await monter(`flik=lon&underflik=atk&period=${new Date().getFullYear() - 1}`);
+    const svar = cont.querySelector("[data-svar]")!.textContent!;
+    expect(svar).toMatch(/Ingen gjorde ATK-val|valde inte/);
+    expect(svar).toContain("Valet stängde 15 maj");
+    expect(Array.from(cont.querySelectorAll("h1")).map(h => h.textContent)).toEqual(["ATK-val"]); // inte "Lön" + "ATK-val"
+    expect(cont.querySelector("[data-tillbaka-lon]")!.textContent).toContain("Lön");
+    expect(cont.querySelector("[data-atk-ar]")).not.toBeNull();
+    const rader = cont.querySelectorAll('[data-atk-rad="inte"]');
+    expect(rader.length).toBeGreaterThan(0);
+    expect(rader[0].textContent).toContain("Valde inte");
+    expect(text()).not.toContain("Saknar val");
+    expect(cont.querySelector("[data-atk-paminn]")).toBeNull();   // valet är stängt: ingen påminnelse
   });
   it("Vilobrott: metodtexten ligger bakom 'Så räknas det', inte före svaret", async () => {
     await monter("flik=lon&underflik=vila");

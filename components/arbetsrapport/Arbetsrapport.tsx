@@ -720,6 +720,8 @@ export default function Arbetsrapport() {
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search);
+      // ATK-påminnelsen (lib/admin/atkNotis): /arbetsrapport?steg=saldon öppnar Min tid › Saldon, där valet görs.
+      if (p.get("steg") === "saldon") { setMinTidFlik('saldon'); setSteg('mintid'); return; }
       if (p.get("steg") !== "lon") return;
       const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(p.get("manad") || "");
       const nu = new Date();
