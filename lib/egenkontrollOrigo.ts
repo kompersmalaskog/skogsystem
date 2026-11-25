@@ -55,7 +55,10 @@ export type VidaGrans =
   | { typ: 'fel'; meddelande?: string }
   // ringar: traktgränsens yttre ringar ([lng,lat][]), för lagret "Vidas traktgräns" i lagermenyn (PR 8a). Origobeslutet läser bara `gran`.
   // linjer: Vidas linjer (_typ 'linje': kraftledning, basväg) som GeoJSON-features, för Objektöversiktens karta.
-  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][]; linjer?: unknown[] };
+  // ytor/punkter: Vidas ÖVRIGA features — hänsynsytor, nyckelbiotoper, fornlämningar (ytor) och tilläggspunkter (avlägg, larmkoordinat).
+  //   Läsningen av objekt_geometri är gjord ändå (6,8 MB för hela tabellen), så en anropare som behöver dem ska slippa läsa om.
+  //   De klassas av anroparen med `klassaTraktFeature` (lib/traktGeometri) — den här filen känner inga kategorier.
+  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][]; linjer?: unknown[]; ytor?: unknown[]; punkter?: unknown[] };
 
 export type OrigoSkal =
   | 'saknar_position'   // varken kartbild_bounds eller lat/lng
@@ -295,6 +298,10 @@ export async function lasVidaGrans(klient: SupabaseClient, objektId: string): Pr
   const rader = (data ?? []) as { geometri?: { features?: unknown[] } | null }[];
   const features = rader.flatMap((r) => (Array.isArray(r?.geometri?.features) ? (r.geometri!.features as unknown[]) : []));
   const gran = traktGrans({ features });
-  const linjer = features.filter((f) => (f as { properties?: { _typ?: unknown } } | null)?.properties?._typ === 'linje');
-  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer } : { typ: 'saknas' };
+  const typAv = (f: unknown) => String((f as { properties?: { _typ?: unknown } } | null)?.properties?._typ ?? '');
+  const linjer = features.filter((f) => typAv(f) === 'linje');
+  // Allt utom traktgränsen och linjerna: hänsynsytor, nyckelbiotoper, fornlämningar, skogsbruksplan, fastighetsgränser.
+  const ytor = features.filter((f) => typAv(f) !== 'linje' && typAv(f) !== 'punkt' && typAv(f) !== 'traktgräns');
+  const punkter = features.filter((f) => typAv(f) === 'punkt');
+  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer, ytor, punkter } : { typ: 'saknas' };
 }

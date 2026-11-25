@@ -15,10 +15,11 @@ import { placeraEtiketter, type EtikettPost, type Rektangel } from './egenkontro
 import { bryt } from './omTraktenEtikettBild';
 import { FORM_PATH, GLYF_LINJE_BREDD, GLYF_PLACERING, FORM_KANT_BREDD, SYMBOL_VIEWBOX, symbolDef } from './symboler';
 import {
-  HYTTSPAR_FARG, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
-  type KartMarkering,
+  HYTTSPAR_FARG, MARK_STIL, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
+  type KartMarkering, type MarkSlag,
 } from './egenkontrollRapportKarta';
 import { DIKE } from './kartstil';
+import { hogRadiePt, storstaHog } from './faktura/rapportHogar';
 
 type PdfLib = typeof import('pdf-lib');
 
@@ -30,6 +31,19 @@ export type KartLager = {
   /** Noteringarna (PR 9a): ord pa kartan. Linjer/punkter over planens vagar och hyttsparet, etiketterna overst. */
   noteringar?: KartNotering[];
   pinnar: { nr: number; rubrik: string; plats: LatLng }[];
+  /**
+   * PRODUKTIONSHÖGARNA i stället för stammolnet (skotningsrapporten, Martin
+   * 2026-11-25: "inga röda högar dom ska vara som appen"). Finns de ritas de
+   * i appens tradslagsfarger med storlek efter volym, och `stammar` ritas
+   * inte. Egenkontrollen skickar dem aldrig och far sitt stammoln som forut.
+   */
+  hogar?: { lat: number; lng: number; volym: number; farg: string; farg2: string | null }[];
+  /**
+   * MARKEN ur SLU:s markfuktighet och Skogsstyrelsens lutning — varfor
+   * korningen blev som den blev. Rutor i lat/lng, ritade underst (under
+   * traktgransen), aldrig som en gissning: saknas datan finns inga rutor.
+   */
+  mark?: { slag: MarkSlag; ruta: LatLng[] }[];
 };
 
 export type Ruta = { x: number; top: number; b: number; h: number };
@@ -53,7 +67,8 @@ export function kartExtent(l: KartLager, opts: { allt?: boolean } = {}): LatLng[
     ...(l.noteringar ?? []).filter(arMedIRapport).flatMap((n) => n.punkter),
     ...(l.markeringar ?? []).flatMap((m) => (m.slag === 'symbol' ? [m.plats] : m.punkter)),
   ];
-  const karna = [...l.granser.flat(), ...l.stammar];
+  // Högarna är stammolnet i annan form — samma kärna, aldrig båda.
+  const karna = [...l.granser.flat(), ...l.stammar, ...(l.hogar ?? [])];
   if (karna.length === 0) return ovrigt;
   return opts.allt ? [...karna, ...ovrigt] : karna;
 }
@@ -127,37 +142,93 @@ export function ritaKarta(
 
   const bana = (pts: LatLng[], slut: boolean) => pts.map((p, i) => { const a = ap(p); return `${i === 0 ? 'M' : 'L'} ${a.x.toFixed(2)} ${a.y.toFixed(2)}`; }).join(' ') + (slut ? ' Z' : '');
 
-  // 2. Hansynsytor/zoner forst (under linjerna), sedan linjer.
-  for (const m of l.markeringar ?? []) {
-    if (m.slag !== 'zon' || m.punkter.length < 3) continue;
+  // 0. MARKEN underst: blött och brant ur SLU/Skogsstyrelsen, i appens egna
+  //    färger OCH mönster — blått vågrätt som myren, rött snett för brant —
+  //    under allt annat: de förklarar körningen, de ska inte tävla med den.
+  //
+  //    ALLA ytor av samma slag ritas i EN omgång: svag fyllning som en bana med
+  //    flera delbanor (opaciteten läggs då på en gång — ritas de var för sig
+  //    blir varje överlapp mellan två grannrutor en mörkare söm), och därefter
+  //    strecken klippta mot samma ringar, så mönstret ligger i ETT rutnät över
+  //    hela trakten i stället för att börja om i varje 10 m-ruta.
+  for (const slag of (['fuktigt', 'blott', 'brant', 'mycket_brant'] as const)) {
+    const ytor = (l.mark ?? []).filter((m) => m.slag === slag && m.ruta.length >= 3);
+    if (ytor.length === 0) continue;
+    const st = MARK_STIL[slag];
+    sida.drawSvgPath(ytor.map((m) => bana(m.ruta, true)).join(' '), { ...SVG, color: hex(lib, st.farg), opacity: st.fyllning });
+    ritaStreckmonster(lib, sida, ytor.map((m) => m.ruta.map(ap)), st.farg,
+      { lutning: st.lutning, avstand: st.avstand, tjocklek: st.tjocklek, opacitet: 0.85 });
+  }
+
+  // 1. Hänsynsytor/zoner: fyllning och snedstreck underst. KANTEN ritas en
+  //    andra gång efter virket (steg 4b) — en hänsynsyta är ofta liten, och
+  //    med högar runt om och i kanten försvann den helt i den renderade
+  //    PDF:en. Kanten är det som visar att vi INTE kört där; den får aldrig
+  //    döljas av virket.
+  type Zon = Extract<KartMarkering, { slag: 'zon' }>;
+  const zoner = (l.markeringar ?? []).filter((m): m is Zon => m.slag === 'zon' && m.punkter.length >= 3);
+  for (const m of zoner) {
     const st = markeringsStil('zon', m.typ); if (!st) continue;
-    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.08 : 0.16, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 0.9, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, color: hex(lib, st.farg), opacity: st.snedstreck ? 0.14 : 0.2 });
     if (st.snedstreck) ritaSnedstreck(lib, sida, m.punkter.map(ap), st.farg);
   }
 
-  // 1. Traktgrans (streckad) - ritas ovanpa ytorna men under stammarna, sa den syns men aldrig doljer monstret.
+  // 2. KORSPAREN under virket — SAMMA ORDNING SOM APPEN (lib/lagerOrdning:
+  //    hyttspar ligger under traktgrans, vagar och symboler). Ritades forut
+  //    ovanpå stammarna/högarna, och på en trakt där skotaren kört fram och
+  //    tillbaka lagger sig da hundratals tunna linjer bredvid varandra till
+  //    ett brett band som äter upp kartan (uppmätt på Bondeskog: spåret dolde
+  //    både högarna och den blöta marken). Opaciteten är lägre än i appen av
+  //    samma skäl: det är många linjer ovanpå varandra, inte en — och det är
+  //    en fördel, för där skotaren kört många gånger lägger sig linjerna till
+  //    ett tydligare band. Tätheten säger alltså hur mycket som körts där.
+  for (const h of l.hyttspar ?? []) {
+    for (const linje of h.linjer) {
+      if (linje.length < 2) continue;
+      sida.drawSvgPath(bana(linje, false), { ...SVG, borderColor: hex(lib, HYTTSPAR_FARG[h.roll]), borderWidth: 0.7, borderOpacity: 0.3, ...(h.roll === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });
+    }
+  }
+
+  // 3. Traktgrans (streckad) — ovanpa ytorna och sparen men under virket.
   for (const ring of l.granser) {
     if (ring.length < 2) continue;
     sida.drawSvgPath(bana(ring, true), { ...SVG, borderColor: hex(lib, TRAKTGRANS_FARG), borderWidth: 1.2, borderDashArray: [5, 3] });
   }
 
-  // 2. STAMMOLNET: en fylld cirkel per stam. Aldrig utglesat.
-  const r = opts.stammarBlek ? 0.7 : 0.85;
-  const stamFarg = opts.stammarBlek ? grå(205) : hex(lib, STAMMOLN_FARG);
-  for (const s of l.stammar) {
-    const a = ap(s);
-    sida.drawSvgPath(`M ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x - r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} Z`, { ...SVG, color: stamFarg });
-  }
-
-  // 3. Hyttsparet (tunt, i rollens farg - skordare heldragen, skotare streckad: farg ar aldrig ensam).
-  for (const h of l.hyttspar ?? []) {
-    for (const linje of h.linjer) {
-      if (linje.length < 2) continue;
-      sida.drawSvgPath(bana(linje, false), { ...SVG, borderColor: hex(lib, HYTTSPAR_FARG[h.roll]), borderWidth: 0.7, borderOpacity: 0.9, ...(h.roll === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });
+  // 2. VIRKET. Antingen hogarna (skotningsrapporten) eller stammolnet
+  //    (egenkontrollen) — aldrig båda: det är samma virke i två former.
+  const cirkel = (a: { x: number; y: number }, r: number) =>
+    `M ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x - r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} Z`;
+  if (l.hogar && l.hogar.length > 0) {
+    // Appens högar: trädslagets hela färg, storlek efter volym, en halv skiva
+    // i det andra trädslagets färg när högen är blandad (lib/tradslag).
+    const storsta = storstaHog(l.hogar);
+    for (const h of l.hogar) {
+      const a = ap(h), r2 = hogRadiePt(h.volym, storsta);
+      sida.drawSvgPath(cirkel(a, r2), { ...SVG, color: hex(lib, h.farg), borderColor: grå(40), borderWidth: 0.25 });
+      if (h.farg2) {
+        // Högra halvan i det andra trädslagets färg — samma halv–halv som på kartan i hytten.
+        sida.drawSvgPath(
+          `M ${a.x.toFixed(2)} ${(a.y - r2).toFixed(2)} A ${r2} ${r2} 0 0 1 ${a.x.toFixed(2)} ${(a.y + r2).toFixed(2)} Z`,
+          { ...SVG, color: hex(lib, h.farg2) },
+        );
+      }
     }
+  } else {
+    // STAMMOLNET: en fylld cirkel per stam. Aldrig utglesat.
+    const r = opts.stammarBlek ? 0.7 : 0.85;
+    const stamFarg = opts.stammarBlek ? grå(205) : hex(lib, STAMMOLN_FARG);
+    for (const s of l.stammar) sida.drawSvgPath(cirkel(ap(s), r), { ...SVG, color: stamFarg });
   }
 
-  // 4. Planeringens linjer och symboler.
+  // 4b. ZONKANTEN överst bland ytorna: hänsynen ska synas även när högarna
+  //     ligger tatt intill (se steg 1).
+  for (const m of zoner) {
+    const st = markeringsStil('zon', m.typ); if (!st) continue;
+    sida.drawSvgPath(bana(m.punkter, true), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 1, ...(st.streck ? { borderDashArray: st.streck } : {}) });
+  }
+
+  // 5. Planeringens linjer och symboler.
   for (const m of l.markeringar ?? []) {
     if (m.slag !== 'linje' || m.punkter.length < 2) continue;
     const st = markeringsStil('linje', m.typ); if (!st) continue;
@@ -437,16 +508,50 @@ function ritaDike(lib: PdfLib, sida: PDFPage, SVG: { x: number; y: number }, ban
 
 /** Snedstreckning (45°) i gruppens färg inuti en yta — ytor man inte får köra in i. Klipps mot ytans ring; `ring` är toppbaserade sidkoordinater. */
 export function ritaSnedstreck(lib: PdfLib, sida: PDFPage, ring: { x: number; y: number }[], farg: string, avstand = 4.5, tjocklek = 0.9): void {
-  if (ring.length < 3) return;
-  const xs = ring.map((p) => p.x), ys = ring.map((p) => p.y);
+  ritaStreckmonster(lib, sida, [ring], farg, { lutning: 'sned', avstand, tjocklek });
+}
+
+/**
+ * Streckmönster klippt mot en eller flera ringar — APPENS EGET SPRÅK på papper.
+ *
+ * I hytten är blöt mark BLÅ VÅGRÄTA STRECK (som myren på en orienteringskarta,
+ * glesa = fuktigt, täta = blött) och brant RÖDA SNEDSTRECK (glesa = lite brant,
+ * täta = mycket brant). På papper ritades de först som dämpade ytor — men
+ * skotarens spår är turkost och blött är blått: på den renderade kartan gick
+ * "här är blött" inte att skilja från "här kör skotaren". MÖNSTRET skiljer dem
+ * åt i FORM, inte bara i färg, och det är samma mönster föraren ser i hytten.
+ *
+ * Alla ringar av samma slag klipps i EN omgång, så strecken ligger i samma
+ * rutnät över hela trakten i stället för att börja om i varje ruta.
+ */
+export function ritaStreckmonster(
+  lib: PdfLib, sida: PDFPage, ringar: { x: number; y: number }[][], farg: string,
+  o: { lutning: 'sned' | 'vagrat'; avstand: number; tjocklek: number; opacitet?: number },
+): void {
+  const giltiga = ringar.filter((r) => r.length >= 3);
+  if (giltiga.length === 0) return;
+  const pts = giltiga.flat();
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const ops = [lib.pushGraphicsState(), lib.moveTo(ring[0].x, SIDHOJD - ring[0].y)];
-  for (const p of ring.slice(1)) ops.push(lib.lineTo(p.x, SIDHOJD - p.y));
-  ops.push(lib.closePath(), lib.clip(), lib.endPath());
+
+  const ops = [lib.pushGraphicsState()];
+  for (const ring of giltiga) {
+    ops.push(lib.moveTo(ring[0].x, SIDHOJD - ring[0].y));
+    for (const p of ring.slice(1)) ops.push(lib.lineTo(p.x, SIDHOJD - p.y));
+    ops.push(lib.closePath());
+  }
+  ops.push(lib.clip(), lib.endPath());
   sida.pushOperators(...ops);
-  const c = hex(lib, farg);
-  for (let k = x0 - (y1 - y0); k <= x1; k += avstand) {
-    sida.drawLine({ start: { x: k, y: SIDHOJD - y1 }, end: { x: k + (y1 - y0), y: SIDHOJD - y0 }, thickness: tjocklek, color: c, opacity: 0.9 });
+
+  const c = hex(lib, farg), op = o.opacitet ?? 0.9;
+  if (o.lutning === 'vagrat') {
+    for (let y = y0; y <= y1; y += o.avstand) {
+      sida.drawLine({ start: { x: x0, y: SIDHOJD - y }, end: { x: x1, y: SIDHOJD - y }, thickness: o.tjocklek, color: c, opacity: op });
+    }
+  } else {
+    for (let k = x0 - (y1 - y0); k <= x1; k += o.avstand) {
+      sida.drawLine({ start: { x: k, y: SIDHOJD - y1 }, end: { x: k + (y1 - y0), y: SIDHOJD - y0 }, thickness: o.tjocklek, color: c, opacity: op });
+    }
   }
   sida.pushOperators(lib.popGraphicsState());
 }

@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import PdfForhandsvisning from '@/app/helikopter/_components/PdfForhandsvisning';
 import { avstandMeter } from '@/lib/faktura/granskningVy';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
+import { markSlagen } from '@/lib/faktura/rapportMark';
 import type { RapportUnderlag } from '@/lib/faktura/lasSkotningsrapport';
 import { AVSTAND, FARG, KNAPP, KORT, TYP } from '@/lib/design/tokens';
 
@@ -107,6 +108,13 @@ export default function SkotningsrapportArk({ d, onStang }: { d: Trakt; onStang:
             // ritas, så tabellen mäter från det inköparen ser på kartan.
             virke: underlag.virke,
             avlagg: underlag.karta.avlagg.map(a => ({ ...a.plats, namn: a.namn })),
+            // Teckenförklaringen får bara nämna det som ritas — hänsynen och
+            // marken kommer därför ur kartans egen läsning, inte ur en lista.
+            kartinnehall: {
+              zoner: (underlag.karta.markeringar ?? [])
+                .filter(m => m.slag === 'zon').map(m => m.typ),
+              mark: markSlagen(underlag.karta.mark ?? []),
+            },
             pris: {
               grundavstandM: g.avstand.grundavstandM,
               krPer100m: g.avstand.krPer100m,

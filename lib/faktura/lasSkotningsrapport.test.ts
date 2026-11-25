@@ -7,6 +7,8 @@
 // att kartan är halv är värre än båda.
 import { describe, it, expect, vi } from 'vitest';
 import { lasSkotningsrapport } from './lasSkotningsrapport';
+import { HOG_TRADSLAG_FARG, KARTA_BLANDAT } from '@/lib/tradslag';
+import { BRANT_GRANS, FUKT } from '@/lib/ritadKarta/mark';
 
 /** Vidas tilläggspunkter för Skälviken, som de står i prod 2026-11-25. */
 const TILLAGGSPUNKTER = [
@@ -20,19 +22,62 @@ const TILLAGGSPUNKTER = [
   },
 ];
 
-const gransOk = {
-  typ: 'ok' as const,
-  gran: {} as never,
-  ringar: [[[15.37466, 56.28604], [15.3751, 56.28592], [15.37562, 56.28592]]],
-  linjer: TILLAGGSPUNKTER,
+/** En ring kring en punkt, ca `m` meter bred — nog för en yta med tre hörn. */
+const ringRunt = (lat: number, lng: number, m = 40): [number, number][] => {
+  const dLat = m / 111320, dLng = m / (111320 * Math.cos((lat * Math.PI) / 180));
+  return [[lng - dLng, lat - dLat], [lng + dLng, lat - dLat], [lng + dLng, lat + dLat], [lng - dLng, lat + dLat]];
 };
 
-vi.mock('@/lib/egenkontrollOrigo', () => ({
+/**
+ * Vidas ytor: en hänsynsyta PÅ trakten, en fornlämning en halv kilometer bort.
+ *
+ * Den andra är Bondeskog i prod 2026-11-25 — tre fornlämningar söder och väster
+ * OM trakten. De förklarar ingenting om skotningen och drar ut kartans ram.
+ */
+const VIDA_YTOR = [
+  {
+    properties: { _lager: 'L_TILLAGGSYTOR', LOPNR: '3', TYP: '24', FLBESKR: 'Kant mot vatten O' },
+    geometry: { type: 'Polygon', coordinates: [ringRunt(56.28598, 15.3752)] },
+  },
+  {
+    properties: { _lager: 'L_RAA_POLY_101', lamningsnu: 'L1234', lamningsty: 'Fossil åker' },
+    geometry: { type: 'Polygon', coordinates: [ringRunt(56.2805, 15.3752)] },
+  },
+];
+
+/** Traktgränsen: en ruta 150 × 150 m kring objektets punkt. */
+const RINGAR: [number, number][][] = [[
+  [15.37399, 56.28647], [15.37642, 56.28647], [15.37642, 56.28513], [15.37399, 56.28513],
+]];
+
+const gransOk = {
+  typ: 'ok' as const,
+  // `gran` är Vidas ruta, [[minLng, minLat], [maxLng, maxLat]] — det
+  // origobeslutet mäter planerarens markeringar mot.
+  gran: [[15.37399, 56.28513], [15.37642, 56.28647]] as [[number, number], [number, number]],
+  ringar: RINGAR,
+  // Avläggen ligger i `punkter` (`_typ: 'punkt'`), inte i `linjer` — det var
+  // felet som gjorde att rapporten aldrig ritade ett avlägg.
+  punkter: TILLAGGSPUNKTER,
+  ytor: VIDA_YTOR,
+};
+
+// BARA läsningen av Vidas geometri mockas. Origobeslutet (`beslutaOrigo`,
+// `markeringsPunkter`, `markeringsGranser`) är den RIKTIGA koden — det är det
+// som avgör om planerarens hänsyn får ritas, och en mock där hade gjort
+// kvittot till en formalitet.
+vi.mock('@/lib/egenkontrollOrigo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/egenkontrollOrigo')>()),
   lasVidaGrans: (...a: unknown[]) => gransMock(...a),
 }));
 const gransMock = vi.fn();
 
-/** Minsta möjliga kedjebara Supabase-fake, som registrerar vad som frågas. */
+/**
+ * Minsta möjliga kedjebara Supabase-fake, som registrerar vad som frågas.
+ *
+ * `maybeSingle` ger raden själv (inte en lista), som PostgREST — en fake som
+ * svarar med en lista där hade dolt att `objektSvar.data.lat` aldrig fanns.
+ */
 function fake(svar: Record<string, { data?: unknown; error?: unknown }>) {
   const fragor: { tabell: string; kolumner: string }[] = [];
   const kedja = (tabell: string) => {
@@ -42,6 +87,10 @@ function fake(svar: Record<string, { data?: unknown; error?: unknown }>) {
       self[m] = () => self;
     }
     self.select = (kolumner: string) => { fragor.push({ tabell, kolumner }); return self; };
+    self.maybeSingle = () => Promise.resolve(
+      resultat.error ? resultat
+        : { data: Array.isArray(resultat.data) ? (resultat.data[0] ?? null) : (resultat.data ?? null), error: null },
+    );
     self.then = (res: (v: unknown) => unknown) => Promise.resolve(resultat).then(res);
     return self;
   };
@@ -62,11 +111,25 @@ const LASS = [
   { datum: '2026-11-25', maskin_id: 'A130743', status: 'bekraftat', bekraftad_av: 'auto' },
 ];
 
-const allt = () => fake({
-  detalj_stam: { data: [{ latitude: 56.2857, longitude: 15.3742 }, { latitude: null, longitude: null }], error: null },
+/**
+ * Skördarens stammar: fyra granar tätt ihop (= en hög) och en rad utan
+ * position. Volymen och trädslaget bär högens storlek och färg.
+ */
+const STAMMAR = [
+  ...Array.from({ length: 4 }, (_, i) => ({
+    id: i + 1, latitude: 56.28580 + i * 0.00001, longitude: 15.37500, total_volym: 0.6, tradslag_id: '1',
+  })),
+  { id: 9, latitude: null, longitude: null, total_volym: 0.5, tradslag_id: '1' },
+];
+
+const allt = (extra: Record<string, { data?: unknown; error?: unknown }> = {}) => fake({
+  detalj_stam: { data: STAMMAR, error: null },
+  dim_tradslag: { data: [{ tradslag_id: '1', namn: 'GRAN' }], error: null },
   hyttspar: { data: HYTTSPAR, error: null },
   skotar_lass: { data: LASS, error: null },
   dim_maskin: { data: [{ maskin_id: 'A130743', visningsnamn: 'Elefant 26' }], error: null },
+  objekt: { data: { lat: 56.2858, lng: 15.3752, kartbild_bounds: null }, error: null },
+  ...extra,
 });
 
 describe('kolumnerna som PROD har', () => {
@@ -115,7 +178,37 @@ describe('vad som kommer ut', () => {
     gransMock.mockResolvedValue(gransOk);
     const { sb } = allt();
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
-    expect(r.karta.stammar).toHaveLength(1);
+    // Fyra granar med position, en rad utan: bara de fyra räknas.
+    expect(r.virke).toHaveLength(4);
+    expect(r.karta.hogar.length).toBeGreaterThan(0);
+    for (const h of r.karta.hogar) {
+      expect(Math.abs(h.lat)).toBeGreaterThan(1);
+      expect(Math.abs(h.lng)).toBeGreaterThan(1);
+    }
+  });
+
+  // Martin 2026-11-25: "inga röda högar dom ska vara som appen titta dom".
+  // Egenkontrollens stammoln (en liten röd prick per stam) är kvar i
+  // egenkontrollens rapport; här ritas APPENS högar, och det här testet håller
+  // dem åtskilda: `karta.stammar` ska vara tom, `karta.hogar` ska bära virket.
+  it('virket blir HÖGAR, inte ett rött stammoln', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt();
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect(r.karta.stammar).toEqual([]);
+    expect(r.karta.hogar).toHaveLength(1);
+    // Appens granfärg, ur `hogTradslagFarger` — aldrig egenkontrollens röda.
+    expect(r.karta.hogar[0].farg).toBe(HOG_TRADSLAG_FARG.GRAN);
+    expect(r.karta.hogar[0].volym).toBeCloseTo(2.4, 5);
+  });
+
+  it('trädslagens namn kan falla — högarna ritas ändå, i blandfärgen', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt({ dim_tradslag: { data: null, error: { message: 'x' } } });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect(r.karta.hogar).toHaveLength(1);
+    expect(r.karta.hogar[0].farg).toBe(KARTA_BLANDAT);
+    expect(r.fel.join(' ')).toContain('Trädslagens namn');
   });
 
   // HITTAT I PROD 2026-11-25, inte av ett test: `hyttspar` för Skälviken
@@ -169,6 +262,149 @@ describe('vad som kommer ut', () => {
   });
 });
 
+// Martin 2026-11-25: "hänsyner ska vara med och om det är blött eller brant så
+// dom förstå varför vi måste kört som vi gjort med virket". Kartan ska bära
+// SKÄLEN till att vägen blev lång, inte bara längden.
+describe('varför vägen blev så lång', () => {
+  it('Vidas hänsynsyta ritas — och en fornlämning en halv km bort gör det inte', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt();
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    const zoner = r.karta.markeringar?.filter(m => m.slag === 'zon') ?? [];
+    expect(zoner.map(z => z.typ)).toEqual(['protected']);
+    // Bondeskog i prod: tre fornlämningar söder och väster OM trakten. De
+    // förklarar ingenting om skotningen och drar ut kartans ram.
+    expect(zoner.map(z => z.typ)).not.toContain('fornlamning');
+  });
+
+  it('en fornlämning PÅ trakten ritas — måttet är läget, inte sorten', async () => {
+    gransMock.mockResolvedValue({
+      ...gransOk,
+      ytor: [{
+        properties: { _lager: 'L_RAA_POLY_101', lamningsnu: 'L1', lamningsty: 'Fossil åker' },
+        geometry: { type: 'Polygon', coordinates: [ringRunt(56.28585, 15.3754, 20)] },
+      }],
+    });
+    const { sb } = allt();
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect((r.karta.markeringar ?? []).map(m => m.typ)).toEqual(['fornlamning']);
+  });
+
+  it('planerarens egen hänsynsyta ritas när origot går att styrka', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    // En zon ritad i planeringen: x/y mot objektets origo (zoom 16 på objektets
+    // punkt, eftersom kartbild_bounds är null). Mitt i trakten → kvittot håller.
+    const { sb } = allt({
+      planering_markeringar: {
+        data: [{ data: { isZone: true, zoneType: 'wet', path: [{ x: 0, y: 0 }, { x: 14, y: 0 }, { x: 14, y: 14 }, { x: 0, y: 14 }] } }],
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect((r.karta.markeringar ?? []).map(m => m.typ)).toContain('wet');
+    expect(r.fel).toEqual([]);
+  });
+
+  // BONDESKOG I PROD 2026-11-25. Punktkontrollen föll ("0 av 180 punkter inom
+  // Vidas traktgräns") fast markeringarna låg rätt: två GPS-spårade basvägar
+  // ut till allmän väg bar ~175 punkter och vägde mer än alla symboler
+  // tillsammans. Då räknas varje MARKERING en gång i stället — en felplacerad
+  // trakt flyttar alla markeringar åt samma håll och fångas fortfarande.
+  it('en GPS-spårad basväg ut ur trakten får inte göra hänsynen blind', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const vag = Array.from({ length: 200 }, (_, i) => ({ x: 400 + i, y: 0 }));
+    const { sb } = allt({
+      planering_markeringar: {
+        data: [
+          { data: { isZone: true, zoneType: 'protected', path: [{ x: 0, y: 0 }, { x: 14, y: 0 }, { x: 14, y: 14 }, { x: 0, y: 14 }] } },
+          { data: { lineType: 'mainRoad', path: [{ x: 0, y: 2 }, ...vag] } },
+        ],
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect((r.karta.markeringar ?? []).map(m => m.typ)).toContain('protected');
+    expect(r.fel).toEqual([]);
+  });
+
+  // Kartan är halva A4-bredden och läses på en sekund. Den bär bara det som
+  // förklarar skotningen; "Fäll inte ut här" och gallringszonen hindrar ingen
+  // skotare och gör kartan rörig.
+  it('bara ytor som hindrar skotningen ritas — inte varje yta planeraren ritat', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const ruta = (dx: number) => [{ x: dx, y: 0 }, { x: dx + 14, y: 0 }, { x: dx + 14, y: 14 }, { x: dx, y: 14 }];
+    const { sb } = allt({
+      planering_markeringar: {
+        data: [
+          { data: { isZone: true, zoneType: 'protected', path: ruta(0) } },
+          { data: { isZone: true, zoneType: 'ungskog', path: ruta(20) } },
+          { data: { isZone: true, zoneType: 'gallring', path: ruta(40) } },
+        ],
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    const egna = (r.karta.markeringar ?? []).map(m => m.typ);
+    expect(egna).toContain('protected');
+    expect(egna).not.toContain('ungskog');
+    expect(egna).not.toContain('gallring');
+  });
+
+  it('går origot inte att styrka ritas INGEN hänsyn — och det sägs', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    // Samma zon, men långt utanför Vidas ruta: ett förskjutet origo.
+    const { sb } = allt({
+      planering_markeringar: {
+        data: [{ data: { isZone: true, zoneType: 'wet', path: [{ x: 90000, y: 90000 }, { x: 90100, y: 90000 }, { x: 90100, y: 90100 }] } }],
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect((r.karta.markeringar ?? []).some(m => m.typ === 'wet')).toBe(false);
+    expect(r.fel.join(' ')).toContain('går inte att kontrollera');
+  });
+
+  it('blött och brant kommer ur timjobbets skogsdata — ingen tjänst frågas här', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    // 9×9 rutor om 10 m: blött i mitten, brant i en annan fläck.
+    const inne: number[] = [], lutning: number[] = [], fukt: number[] = [];
+    for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) {
+      inne.push(1);
+      lutning.push(y >= 6 ? BRANT_GRANS.mycket : 0);
+      fukt.push(x >= 3 && x <= 5 && y >= 1 && y <= 3 ? FUKT.blot : FUKT.ingen);
+    }
+    const b64 = (v: number[]) => Buffer.from(Uint8Array.from(v)).toString('base64');
+    const { sb, fragor } = allt({
+      objekt_skogsdata: {
+        data: { rutnat: [{ minX: 500000, maxY: 6300000, bredd: 9, hojd: 9, rutaM: 10, inne: b64(inne), lutning: b64(lutning), fukt: b64(fukt) }] },
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    const slag = new Set((r.karta.mark ?? []).map(m => m.slag));
+    expect(slag.has('blott')).toBe(true);
+    expect(slag.has('mycket_brant')).toBe(true);
+    // Läsningen går mot den sparade tabellen, aldrig mot Skogsstyrelsen.
+    expect(fragor.find(f => f.tabell === 'objekt_skogsdata')!.kolumner).toBe('rutnat');
+  });
+
+  it('ingen skogsdata är ingen felrad — marken ritas bara inte', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt({ objekt_skogsdata: { data: null, error: null } });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect(r.karta.mark ?? []).toEqual([]);
+    expect(r.fel).toEqual([]);
+  });
+
+  it('skogsdatan kan falla för sig — och DET sägs, för marken är halva svaret', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt({ objekt_skogsdata: { data: null, error: { message: 'x' } } });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    expect(r.fel.join(' ')).toContain('Blöt och brant mark');
+    expect(r.karta.hogar).toHaveLength(1);
+  });
+});
+
 describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
   it('traktgränsen kan inte läsas', async () => {
     gransMock.mockResolvedValue({ typ: 'fel', meddelande: 'nät' });
@@ -177,7 +413,7 @@ describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
     expect(r.karta.granser).toEqual([]);
     expect(r.fel.join(' ')).toContain('Traktgränsen kunde inte läsas');
     // Resten kom ändå.
-    expect(r.karta.stammar).toHaveLength(1);
+    expect(r.karta.hogar).toHaveLength(1);
   });
 
   it('Vida har ingen traktgräns — det är något annat än ett läsfel', async () => {
@@ -220,7 +456,7 @@ describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
     const { sb } = allt();
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
     expect(r.fel.join(' ')).toContain('Traktgränsen kunde inte läsas');
-    expect(r.karta.stammar).toHaveLength(1);
+    expect(r.karta.hogar).toHaveLength(1);
   });
 
   it('allt gick: ingen felrad alls', async () => {

@@ -3,8 +3,20 @@
 // TALEN LÄSES INTE HÄR. Avståndet, de fyra måtten och kronorna kommer ur
 // fakturans eget underlag (`Granskningsunderlag.avstand`), så rapporten kan
 // aldrig säga ett annat tal än fakturan. Här hämtas bara det kartan behöver —
-// traktgränsen, var virket stod, var skotaren körde och avläggen — plus vilka
-// dagar och vilken maskin det var.
+// traktgränsen, var virket stod, var skotaren körde, avläggen, hänsynen och
+// marken — plus vilka dagar och vilken maskin det var.
+//
+// KARTAN SKA VISA VARFÖR (Martin 2026-11-25): "inga röda högar dom ska vara som
+// appen titta dom och hänsyner ska vara med och om det är blött eller brant så
+// dom förstå varför vi måste kört som vi gjort med virket". Inköparen läser ett
+// avstånd och ett tillägg; utan hänsynen han inte får köra i, och utan den blöta
+// svackan och den branta backen han måste runt, är talet bara ett tal.
+//
+// VAD SOM RITAS OCH VAD SOM INTE GÖR DET. Kartan är liten (halva A4-bredden)
+// och ska läsas på en sekund, så den bär bara det som förklarar skotningen:
+// högarna, traktgränsen, körspåret, avläggen, hänsyn/fornlämning/nyckelbiotop
+// och blött/brant. Planerarens symboler (evighetsträd, högstubbar) och vägar
+// ritas INTE — de hindrar ingen skotning och gör kartan rörig.
 //
 // KASTAR ALDRIG. Varje del kan falla för sig: utan traktgräns ritas ingen
 // gräns, utan spår ingen linje, och rapporten säger vad som saknades. En
@@ -13,16 +25,32 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hamtaAlla } from '@/lib/supabaseAlla';
-import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
+import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter } from '@/lib/egenkontrollOrigo';
+import { kontextFeature } from '@/lib/egenkontrollkarta';
+import { origoPerMarkering } from '@/lib/skotarlank/server';
 import { korsparLinjer } from '@/lib/korspar';
-import { klippSparMotTrakt, type RapportKarta } from './skotningsrapportPdf';
+import { klassaTraktFeature } from '@/lib/traktGeometri';
+import { narTrakten, traktModell, type TraktModell } from '@/lib/traktNara';
+import type { KartMarkering } from '@/lib/egenkontrollRapportKarta';
+import { klippSparMotTrakt, type MarkSlag, type RapportKarta } from './skotningsrapportPdf';
+import { rapportHogar } from './rapportHogar';
+import { rapportMark, type SparatMarkRutnat } from './rapportMark';
 import type { Stam } from './virkesfordelning';
 
 export type RapportUnderlag = {
-  karta: RapportKarta;
+  /**
+   * Kartan. `hogar` och `mark` är valfria i `RapportKarta` (egenkontrollens
+   * rapport har dem inte), men läsningen sätter dem ALLTID — tom lista när
+   * det inte finns något. Därför är de inte valfria här: annars skulle varje
+   * läsare behöva `?? []` för något som alltid finns.
+   */
+  karta: RapportKarta & {
+    hogar: NonNullable<RapportKarta['hogar']>;
+    mark: NonNullable<RapportKarta['mark']>;
+  };
   /**
    * Skördarens stammar med volym — underlaget för "Var låg virket?".
-   * Samma läsning som kartans prickar, bara med `total_volym` med.
+   * Samma läsning som kartans högar, bara utan trädslaget.
    */
   virke: Stam[];
   /** Första och sista lossningsdagen ur lassen. null = inga lass. */
@@ -46,11 +74,18 @@ const punkt = (lat: unknown, lng: unknown): LatLng | null => {
   return Number.isFinite(a) && Number.isFinite(b) && (a !== 0 || b !== 0) ? { lat: a, lng: b } : null;
 };
 
-/** Vidas avlägg ur geometrin: tilläggspunkter som INTE är larmkoordinaten. */
-function avlaggUrGeometri(linjer: unknown[]): RapportKarta['avlagg'] {
+/**
+ * Vidas avlägg: tilläggspunkter som INTE är larmkoordinaten.
+ *
+ * FELET SOM RÄTTADES 2026-11-25: de lästes förut ur `VidaGrans.linjer`, som
+ * filtrerar `_typ === 'linje'` — och en tilläggspunkt har `_typ: 'punkt'`.
+ * Rapporten har alltså aldrig ritat ett enda avlägg, och det syntes inte i
+ * något test (fixturerna bar avläggen direkt). Nu läses de ur `punkter`.
+ */
+function avlaggUrPunkter(punkter: unknown[]): RapportKarta['avlagg'] {
   const ut: RapportKarta['avlagg'] = [];
-  for (const f of linjer) {
-    const p = (f as { properties?: Record<string, unknown>; geometry?: { type?: string; coordinates?: unknown } } | null);
+  for (const f of punkter) {
+    const p = (f as { properties?: Record<string, unknown>; geometry?: { coordinates?: unknown } } | null);
     const prop = p?.properties ?? {};
     if (prop._lager !== 'L_TILLAGGSPUNKTER') continue;
     if (String(prop.FLBESKR ?? '').toLowerCase().includes('larmkoordinat')) continue;
@@ -65,11 +100,65 @@ function avlaggUrGeometri(linjer: unknown[]): RapportKarta['avlagg'] {
 }
 
 /**
+ * Vidas ytor som hindrar skotningen → zoner med appens egna stilar.
+ *
+ * Kategorin kommer ur `klassaTraktFeature` — EN källa med kartan i hytten, så
+ * en hänsynsyta ritas grön och snedstreckad på papperet precis som på skärmen.
+ * TYP 71 ("Övrigt") klassas redan av den som `ovrigt` och är ingen hänsyn
+ * (lib/vidaYtaTyp) — den ritas inte här. Skogsbruksplan och fastighetsgränser
+ * är inga hinder och ritas inte heller.
+ */
+const VIDA_ZON: Partial<Record<string, string>> = {
+  hansyn: 'protected',
+  nyckelbiotop: 'protected',
+  lamning: 'fornlamning',
+};
+
+function vidaZoner(ytor: unknown[], trakt: TraktModell | null): KartMarkering[] {
+  const ut: KartMarkering[] = [];
+  for (const f of ytor) {
+    const g = (f as { properties?: Record<string, unknown>; geometry?: { type?: string; coordinates?: unknown } } | null);
+    const typ = VIDA_ZON[klassaTraktFeature(g?.properties).kategori];
+    if (!typ) continue;
+    // BARA DET SOM BERÖR TRAKTEN. Vidas leverans bär allt i närheten: Bondeskog
+    // har tre fornlämningar som ligger söder och väster OM trakten (mätt i prod
+    // 2026-11-25). De förklarar ingenting om skotningen, och ritade drar de ut
+    // kartans ram så att trakten blir en klump i hörnet — samma fälla som
+    // hemresan i körspåret. Måttet är appens eget (lib/traktNara, 50 m, samma
+    // som Fokus på trakten); utan traktgräns finns inget att mäta mot och allt
+    // ritas som förut.
+    if (trakt && !narTrakten(g?.geometry, trakt)) continue;
+    const geom = g?.geometry;
+    // Polygon → en ring; MultiPolygon → en zon per del (en hänsyn kan vara flera bitar).
+    const ringar: unknown[] =
+      geom?.type === 'Polygon' ? [(geom.coordinates as unknown[])?.[0]]
+      : geom?.type === 'MultiPolygon' ? ((geom.coordinates as unknown[][]) ?? []).map((d) => d?.[0])
+      : [];
+    for (const r of ringar) {
+      if (!Array.isArray(r)) continue;
+      const pkt = r
+        .map((c: unknown) => (Array.isArray(c) && c.length >= 2 ? punkt(c[1], c[0]) : null))
+        .filter((p): p is LatLng => !!p);
+      if (pkt.length >= 3) ut.push({ slag: 'zon', typ, punkter: pkt });
+    }
+  }
+  return ut;
+}
+
+/**
+ * Planerarens egna zoner som hindrar skotningen.
+ *
+ * Bara dessa typer: hänsyn och kultur (får inte köras i) och blött/brant (som
+ * förklarar en längre väg). Gallringszoner, ungskog och övriga ytor ritas inte.
+ */
+const EGNA_ZONER = new Set(['protected', 'fornlamning', 'culture', 'wet', 'steep', 'noentry']);
+
+/**
  * Allt rapporten behöver utöver fakturans tal.
  *
- * `objektUuid` är objekt-tabellens id (traktgräns och hyttspår nycklas på
- * det); `nummer` är traktens alla nummer (stammarna ligger under vilket som
- * helst av dem — samma fälla som produktionshögarna).
+ * `objektUuid` är objekt-tabellens id (traktgräns, hyttspår, markeringar och
+ * skogsdata nycklas på det); `nummer` är traktens alla nummer (stammarna
+ * ligger under vilket som helst av dem — samma fälla som produktionshögarna).
  */
 export async function lasSkotningsrapport(
   sb: SupabaseClient,
@@ -78,52 +167,78 @@ export async function lasSkotningsrapport(
   const fel: string[] = [];
   const ids = a.nummer.length > 0 ? a.nummer : ['__inget__'];
 
-  const [gransSvar, stamSvar, sparSvar, lassSvar] = await Promise.all([
+  const [gransSvar, stamSvar, tsSvar, sparSvar, lassSvar, markSvar, objektSvar, skogSvar] = await Promise.all([
     lasVidaGrans(sb, a.objektUuid).catch((e: unknown) => ({ typ: 'fel' as const, meddelande: String(e) })),
     // Kolumnerna heter `latitude`/`longitude` i detalj_stam (inte lat/lng).
     // `total_volym` bär m³fub per stam och summerar till traktens skördade
-    // volym — det är underlaget för "Var låg virket?".
+    // volym — det är underlaget för "Var låg virket?". `tradslag_id` ger
+    // högarnas färg (appens palett).
     // Pagineras: PostgREST kapar tyst vid 1 000, och Skälviken har 2 842.
-    hamtaAlla<{ latitude: number | null; longitude: number | null; total_volym: number | null }>(
-      () => sb.from('detalj_stam').select('id, latitude, longitude, total_volym')
+    hamtaAlla<{ latitude: number | null; longitude: number | null; total_volym: number | null; tradslag_id: string | null }>(
+      () => sb.from('detalj_stam').select('id, latitude, longitude, total_volym, tradslag_id')
         .in('objekt_id', ids).not('latitude', 'is', null),
       'id',
     ),
+    sb.from('dim_tradslag').select('tradslag_id, namn'),
     sb.from('hyttspar').select('points').eq('objekt_id', a.objektUuid).eq('roll', 'skotare'),
     sb.from('skotar_lass')
       .select('datum, maskin_id, status, bekraftad_av')
       .in('vo_nummer', ids)
       .neq('status', 'struket'),
+    sb.from('planering_markeringar').select('data').eq('objekt_id', a.objektUuid),
+    sb.from('objekt').select('lat, lng, kartbild_bounds').eq('id', a.objektUuid).maybeSingle(),
+    // Marken: timjobbets redan hämtade lutning och markfuktighet (lib/skogsdata).
+    // Rapporten frågar ingen extern tjänst när den skapas.
+    sb.from('objekt_skogsdata').select('rutnat').eq('objekt_id', a.objektUuid).maybeSingle(),
   ]);
 
-  // Traktgränsen. `VidaGrans` har också ett 'laddar'-läge — det ska aldrig nå
-  // hit (läsningen är avvaktad), men typen tvingar oss att hantera det, och
-  // då faller det stängt: ingen gräns, och det sägs.
+  // Traktgränsen, Vidas ytor och avläggen. `VidaGrans` har också ett
+  // 'laddar'-läge — det ska aldrig nå hit (läsningen är avvaktad), men typen
+  // tvingar oss att hantera det, och då faller det stängt: ingen gräns, och
+  // det sägs.
   let granser: LatLng[][] = [];
   let avlagg: RapportKarta['avlagg'] = [];
+  const markeringar: KartMarkering[] = [];
   if (gransSvar.typ === 'ok') {
     granser = (gransSvar.ringar ?? []).map((r: [number, number][]) =>
       r.map(([lng, lat]: [number, number]) => ({ lat, lng })));
-    avlagg = avlaggUrGeometri(gransSvar.linjer ?? []);
+    avlagg = avlaggUrPunkter(gransSvar.punkter ?? []);
+    // Traktmodellen byggs ur traktgränsens egna ringar (`traktgransRingar`
+    // läser L_TRAKTDEL), så måttet är exakt den gräns kartan ritar.
+    const trakt = traktModell({
+      features: (gransSvar.ringar ?? []).map((r: [number, number][]) =>
+        ({ properties: { _lager: 'L_TRAKTDEL' }, geometry: { type: 'Polygon', coordinates: [r] } })),
+    });
+    markeringar.push(...vidaZoner(gransSvar.ytor ?? [], trakt));
   } else if (gransSvar.typ === 'saknas') {
     fel.push('Vida har ingen traktgräns för trakten.');
   } else {
     fel.push('Traktgränsen kunde inte läsas.');
   }
 
-  // Stammarna — var virket stod. Samma rader bär kartans prickar och
-  // fördelningens volym; en stam utan volym ritas men räknas inte.
-  let stammar: LatLng[] = [];
-  let virke: Stam[] = [];
+  // Trädslagens namn — högarnas färg kommer ur dem (appens `hogTradslagFarger`).
+  // Går de inte att läsa ritas högarna i blandfärgen; de försvinner aldrig.
+  const tsNamn = new Map<string, string>();
+  if (tsSvar.error) fel.push('Trädslagens namn kunde inte läsas, så högarna saknar färg.');
+  else for (const r of (tsSvar.data ?? []) as { tradslag_id: string; namn: string | null }[]) {
+    if (r.namn) tsNamn.set(String(r.tradslag_id), r.namn);
+  }
+
+  // Stammarna — var virket stod. Samma rader bär kartans högar och
+  // fördelningens volym; en stam utan volym räknas inte som en hög.
+  let hogar: RapportKarta['hogar'] = [];
+  const virke: Stam[] = [];
   if (stamSvar.error) fel.push('Stammarnas lägen kunde inte läsas.');
   else {
+    const forHog: { lat: number; lng: number; total_volym: number | null; tradslag: string }[] = [];
     for (const s of stamSvar.data ?? []) {
       const p = punkt(s.latitude, s.longitude);
       if (!p) continue;
-      stammar.push(p);
+      forHog.push({ ...p, total_volym: s.total_volym, tradslag: tsNamn.get(String(s.tradslag_id)) ?? '' });
       const v = Number(s.total_volym);
       if (Number.isFinite(v) && v > 0) virke.push({ ...p, volym: v });
     }
+    hogar = rapportHogar(forHog);
   }
 
   // Skotarens körspår. RITNINGEN går genom `korsparLinjer` — samma rensning
@@ -137,6 +252,64 @@ export async function lasSkotningsrapport(
       .flatMap(r => korsparLinjer(Array.isArray(r.points) ? (r.points as never) : []))
       .map(l => l.map(([lng, lat]) => ({ lat, lng })))
       .filter(l => l.length > 1);
+  }
+
+  // Planerarens zoner. De ligger i x/y mot ett origo, och origot avgörs med
+  // SAMMA regel som egenkontrollens karta och objektöversikten — stämmer det
+  // inte ritas inga, och det sägs. Hellre ingen hänsyn på kartan än en hänsyn
+  // flera mil fel.
+  if (markSvar.error || objektSvar.error) fel.push('Planerarens hänsyn kunde inte läsas.');
+  else {
+    const rader = (markSvar.data ?? []) as { data: unknown }[];
+    if (rader.length > 0) {
+      const beslut = beslutaOrigo({
+        objekt: objektSvar.data as { lat?: number | null; lng?: number | null; kartbild_bounds?: unknown } | null,
+        punkter: markeringsPunkter(rader),
+        granser: markeringsGranser(rader),
+        vida: gransSvar as never,
+      });
+      // Faller punktkontrollen räknas varje MARKERING en gång i stället
+      // (`origoPerMarkering`, samma undantag som skotarlänken). Bondeskog är
+      // själva fallet: två GPS-spårade basvägar ut till allmän väg bär ~175
+      // punkter och vägde mer än alla symboler tillsammans, så kvittot sa nej
+      // fast markeringarna låg rätt. En felplacerad trakt flyttar alla
+      // markeringar åt samma håll och fångas fortfarande.
+      const origo = beslut.ok ? beslut.origo
+        : beslut.skal === 'stammer_inte' && markeringsGranser(rader).length === 0
+          ? origoPerMarkering(
+              objektSvar.data as { lat: number | null; lng: number | null; kartbild_bounds: unknown },
+              rader, gransSvar as never)
+          : null;
+      if (!origo) {
+        fel.push('Planerarens hänsyn ritas inte: kartans läge går inte att kontrollera mot Vidas traktgräns.');
+      } else {
+        for (const rad of rader) {
+          const f = kontextFeature(rad.data, origo);
+          if (!f || f.properties.kind !== 'zon') continue;
+          const typ = String(f.properties.typ ?? '');
+          if (!EGNA_ZONER.has(typ)) continue;
+          const ring = f.geometry.type === 'Polygon' ? (f.geometry.coordinates[0] as [number, number][])
+            : f.geometry.type === 'LineString' ? (f.geometry.coordinates as [number, number][]) : [];
+          if (ring.length >= 3) markeringar.push({ slag: 'zon', typ, punkter: ring.map(([lng, lat]) => ({ lat, lng })) });
+        }
+      }
+    }
+  }
+
+  // Blött och brant ur timjobbets skogsdata. Ett läsfel är en rad i `fel` —
+  // marken försvinner aldrig tyst, för den är halva svaret på varför vägen
+  // blev så lång.
+  let mark: { slag: MarkSlag; ruta: LatLng[] }[] = [];
+  if (skogSvar.error) fel.push('Blöt och brant mark kunde inte läsas.');
+  else {
+    const rutnat = (skogSvar.data as { rutnat?: unknown } | null)?.rutnat;
+    if (Array.isArray(rutnat)) {
+      try {
+        mark = rapportMark(rutnat as SparatMarkRutnat[]);
+      } catch {
+        fel.push('Blöt och brant mark kunde inte räknas ut.');
+      }
+    }
   }
 
   // Perioden, dagarna och skotarna ur lassen som räknas.
@@ -167,8 +340,8 @@ export async function lasSkotningsrapport(
     }
   }
 
-  // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
+  // Spåret klipps mot trakten SIST, när gränsen, högarna och avläggen är
   // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
-  const karta = klippSparMotTrakt({ granser, stammar, korspar, avlagg });
+  const karta = klippSparMotTrakt({ granser, stammar: [], hogar, korspar, avlagg, markeringar, mark });
   return { karta, virke, period, dagar, skotare, fel };
 }

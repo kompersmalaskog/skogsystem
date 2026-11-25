@@ -5,7 +5,7 @@
 // papperet ("1 746 m fub"). Ritaren delar därför texten och ritar siffran
 // mindre och lyft. Testerna vaktar kontraktet den delningen vilar på.
 import { describe, it, expect } from 'vitest';
-import { delaUpphojt, harUpphojt, UPP_LYFT, UPP_SKALA } from './upphojtPdf';
+import { breddUtanKerning, delaUpphojt, harUpphojt, UPP_LYFT, UPP_SKALA } from './upphojtPdf';
 
 describe('delningen', () => {
   it('m³fub blir tre delar, och trean är märkt upphöjd', () => {
@@ -58,5 +58,38 @@ describe('måtten', () => {
     expect(UPP_SKALA).toBeLessThan(0.8);
     expect(UPP_LYFT).toBeGreaterThan(0.15);
     expect(UPP_LYFT).toBeLessThan(0.5);
+  });
+});
+
+describe('breddUtanKerning — mät som du ritar', () => {
+  it('pdf-lib MÄTER med kerning men RITAR utan: skillnaden är verklig', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const f = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica);
+
+    // "Va" har ett kerningpar i Helvetica: mätningen drar ihop, ritningen inte.
+    const mattMedKerning = f.widthOfTextAtSize('Va', 9);
+    const ritad = breddUtanKerning(f, 'Va', 9);
+    expect(ritad).toBeGreaterThan(mattMedKerning);
+
+    // Raden ur Bondeskogs skotningsrapport 2026-11-25. Felet var 3,105 pt —
+    // ett helt mellanslag — och trean i "354 m³fub" hamnade mitt i m:et.
+    const rad = 'Varje lass är mätt med GPS i skotarhytten. Snittet är viktat på '
+      + 'volym: 21 av 28 lass har mätt körspår, 354 m';
+    expect(breddUtanKerning(f, rad, 9) - f.widthOfTextAtSize(rad, 9)).toBeCloseTo(3.105, 2);
+  });
+
+  it('en sträng utan kerningpar mäts lika på båda sätten', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const f = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica);
+    for (const s of ['354', '579 m', '']) {
+      expect(breddUtanKerning(f, s, 9)).toBeCloseTo(f.widthOfTextAtSize(s, 9), 6);
+    }
+  });
+
+  it('bredden växer med storleken och är noll för tom text', async () => {
+    const { PDFDocument, StandardFonts } = await import('pdf-lib');
+    const f = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica);
+    expect(breddUtanKerning(f, '', 9)).toBe(0);
+    expect(breddUtanKerning(f, 'm³fub', 18)).toBeCloseTo(breddUtanKerning(f, 'm³fub', 9) * 2, 6);
   });
 });

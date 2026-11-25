@@ -29,8 +29,10 @@
 // `sanera` (skriver dem som 2/3), aldrig rakt till `drawText`.
 
 import { sanera } from '@/lib/markagarrapport/pdf';
-import { delaUpphojt, UPP_LYFT, UPP_SKALA } from '@/lib/upphojtPdf';
+import { breddUtanKerning, delaUpphojt, UPP_LYFT, UPP_SKALA } from '@/lib/upphojtPdf';
 import { ritaKarta, type KartLager } from '@/lib/egenkontrollRapportKartaPdf';
+import type { KartMarkering, MarkSlag } from '@/lib/egenkontrollRapportKarta';
+import type { RapportHog } from './rapportHogar';
 import type { SkotningsrapportSida, Rad, VirkeRad } from './skotningsrapport';
 
 /** Allt kartan behöver, i lat/lng. Tomma listor ger ingen karta. */
@@ -48,7 +50,24 @@ export type RapportKarta = {
   korspar: { lat: number; lng: number }[][];
   /** Avläggen, numrerade som på kartan i appen. */
   avlagg: { nr: number; namn: string; plats: { lat: number; lng: number } }[];
+  /**
+   * Produktionshögarna (lib/faktura/rapportHogar) — ritas i stället för
+   * stammolnet. Martin 2026-11-25: "inga röda högar dom ska vara som appen".
+   */
+  hogar?: RapportHog[];
+  /**
+   * Hänsynen och det som styrde körningen: Vidas hänsynsytor, nyckelbiotoper
+   * och fornlämningar, planerarens egna ytor (hänsyn, blött, brant) och
+   * symboler. Samma typer och färger som i appen (`markeringsStil`).
+   */
+  markeringar?: KartMarkering[];
+  /** Blött och brant ur SLU/Skogsstyrelsen. Tom lista = datan saknas, aldrig en gissning. */
+  mark?: { slag: MarkSlag; ruta: { lat: number; lng: number }[] }[];
 };
+
+// MarkSlag och markens stil bor i lib/egenkontrollRapportKarta (EN tabell som både
+// teckenförklaringen och ritaren läser). Re-exporteras här för anroparna.
+export type { MarkSlag };
 
 /**
  * Hur långt utanför trakten en spårpunkt får ligga och fortfarande höra till
@@ -72,9 +91,15 @@ export const SPAR_MARGINAL_M = 200;
  * Saknas allt att klippa mot lämnas spåret som det är — hellre ett stort spår
  * än ett bortklippt.
  */
-export function klippSparMotTrakt(k: RapportKarta): RapportKarta {
+// Generisk i kartans typ: läsaren vet att den ALLTID sätter `hogar` och
+// `mark` (de är valfria i `RapportKarta` för egenkontrollens skull), och den
+// kunskapen ska inte tappas här. En returtyp `RapportKarta` hade gjort dem
+// "möjligen undefined" hos varje läsare och spridit `?? []` genom koden.
+export function klippSparMotTrakt<T extends RapportKarta>(k: T): T {
+  // Högarna räknas med: de ritas i stammolnets ställe, så en trakt utan
+  // Vida-gräns skulle annars få en ram bara av avläggen.
   const inom: { lat: number; lng: number }[] = [
-    ...k.granser.flat(), ...k.stammar, ...k.avlagg.map(a => a.plats),
+    ...k.granser.flat(), ...k.stammar, ...(k.hogar ?? []), ...k.avlagg.map(a => a.plats),
   ];
   if (inom.length === 0 || k.korspar.length === 0) return k;
 
@@ -110,9 +135,13 @@ export function harKarta(k: RapportKarta): boolean {
 function tillLager(k: RapportKarta): KartLager {
   return {
     granser: k.granser.filter(r => r.length > 1),
-    stammar: k.stammar,
+    // Högarna ERSÄTTER stammolnet när de finns: samma virke i två former, och
+    // bägge ritade blir ett rött moln under färgade prickar.
+    stammar: k.hogar && k.hogar.length > 0 ? [] : k.stammar,
+    hogar: k.hogar,
     hyttspar: k.korspar.length > 0 ? [{ roll: 'skotare', linjer: k.korspar.filter(l => l.length > 1) }] : undefined,
-    markeringar: [],
+    markeringar: k.markeringar ?? [],
+    mark: k.mark,
     pinnar: k.avlagg.map(a => ({ nr: a.nr, rubrik: a.namn, plats: a.plats })),
   };
 }
@@ -177,9 +206,13 @@ export async function skapaSkotningsrapportPdf(
   // över baslinjen, eftersom pdf-lib inte ritar tecknen med Helvetica (de blir
   // tomrum på papperet). Mätningen måste följa samma regel, annars hamnar
   // högerställd text och radbrytningar fel.
+  //
+  // Bredden mats med `breddUtanKerning` — pdf-lib MATER med kerning men RITAR
+  // utan, och varje del efter den forsta laggs pa den matta bredden. Se
+  // lib/upphojtPdf.
   const bredd = (s: string, st: number, f: Font) =>
     delaUpphojt(s).reduce((b, d) =>
-      b + f.widthOfTextAtSize(sanera(d.text), d.upp ? st * UPP_SKALA : st), 0);
+      b + breddUtanKerning(f, sanera(d.text), d.upp ? st * UPP_SKALA : st), 0);
 
   const text = (s: string, x: number, yy: number, st: number, f: Font, farg: Farg) => {
     let dx = x;
@@ -189,7 +222,7 @@ export async function skapaSkotningsrapportPdf(
         x: dx, y: A4.h - yy - st * 0.76 + (d.upp ? st * UPP_LYFT : 0),
         size: stl, font: f, color: farg,
       });
-      dx += f.widthOfTextAtSize(sanera(d.text), stl);
+      dx += breddUtanKerning(f, sanera(d.text), stl);
     }
   };
   const hogerText = (s: string, hx: number, yy: number, st: number, f: Font, farg: Farg) =>

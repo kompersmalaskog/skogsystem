@@ -29,6 +29,7 @@
 // säga ett annat tal än det vi fakturerar.
 
 import { langtDatum } from '@/lib/arbetsmiljo/dokument';
+import { MARK_STIL, markeringsStil, type MarkSlag } from '@/lib/egenkontrollRapportKarta';
 import { SKAL_TEXT, type CykelSammanstallning } from './lassCykel';
 import { virkesfordelning, type Stam, type Virkesfordelning } from './virkesfordelning';
 
@@ -68,6 +69,11 @@ export type SkotningsrapportIndata = {
   virke?: Stam[];
   /** Avläggen, för att mäta virkets avstånd. */
   avlagg?: { lat: number; lng: number; namn?: string }[];
+  /**
+   * Vad kartan faktiskt bär — teckenförklaringen får bara nämna det som ritas.
+   * `zoner` är zontyper (protected, wet, …), `mark` blött/brant-slagen.
+   */
+  kartinnehall?: { zoner: string[]; mark: MarkSlag[] };
   pris: {
     /** Meter som ingår utan tillägg. null = ingen sats gäller. */
     grundavstandM: number | null;
@@ -395,10 +401,63 @@ export function periodText(p: { fran: string; till: string } | null): string | n
   return p.fran === p.till ? langtDatum(p.fran) : `${langtDatum(p.fran)} – ${langtDatum(p.till)}`;
 }
 
-/** Teckenförklaringen under kartan, i ord. Färg är aldrig ensam bärare. */
+/**
+ * Teckenförklaringen under kartan, i ord. FÄRG ÄR ALDRIG ENSAM BÄRARE — och
+ * rapporten skrivs ofta ut i svartvitt.
+ *
+ * Grundraden: det som alltid finns på kartan.
+ */
 export const KARTA_FORKLARING =
-  'Traktgränsen streckad, virket som prickar, skotarens körspår som linje och '
-  + 'avläggen som ringar. Norr är uppåt.';
+  'Traktgränsen streckad, virket som högar färgade efter trädslag, skotarens '
+  + 'körspår som linje och avläggen som ringar. Norr är uppåt.';
+
+/**
+ * Teckenförklaringen för DEN HÄR kartan: grundraden plus en mening om hänsynen
+ * och en om marken — men bara när de faktiskt är ritade. Appens regel från
+ * "Vad betyder kartan": bara det som finns på trakten. En förklaring till
+ * något som inte står på papperet läses som att vi glömt det.
+ *
+ * Orden kommer ur SAMMA tabeller som ritningen (`markeringsStil`, `MARK_STIL`),
+ * så förklaringen aldrig kan säga något annat än det som syns.
+ */
+export function kartforklaring(k?: SkotningsrapportIndata['kartinnehall']): string {
+  const ut = [KARTA_FORKLARING];
+
+  const zoner = [...new Set(k?.zoner ?? [])]
+    .map((typ) => markeringsStil('zon', typ)?.etikett)
+    .filter((e): e is string => !!e);
+  if (zoner.length > 0) {
+    // Hänsynen är det inköparen ska se att vi INTE kört i. Snedstreckningen
+    // behöver ingen förklaring — den syns; ett ord till gör bara raden längre.
+    ut.push(`Ytor vi inte kört i: ${listaOrd(zoner)}.`);
+  }
+
+  // MARKEN: säg VAD som är tonat och VARIFRÅN talet kommer — aldrig vad
+  // skotaren gjorde åt det. Att skotaren "körde runt" det blöta är en slutsats
+  // vi inte mätt; kartan visar marken och körspåret på samma bild, och den
+  // slutsatsen drar inköparen själv. Det är hela skälet att marken är med.
+  const mark = (k?.mark ?? []).map((s) => MARK_STIL[s]).filter((s) => !!s);
+  if (mark.length > 0) {
+    // Säg vilket MÖNSTER som är vilket — det är så kartan läses i svartvitt,
+    // och blå streck ska inte förväxlas med det turkosa körspåret.
+    const del = (['blott', 'brant'] as const)
+      .filter((o) => mark.some((s) => s.ord === o))
+      .map((o) => `${listaOrd(mark.filter((s) => s.ord === o).map((s) => s.etikett))} i ${o === 'blott' ? 'blå vågräta streck' : 'röda snedstreck'}`);
+    ut.push(`${versal(del.join(' och '))}, ur Skogsstyrelsens och SLU:s kartor.`);
+  }
+
+  return ut.join(' ');
+}
+
+/** "a, b och c" — aldrig "a, b, c" i en mening till kund. */
+function listaOrd(d: string[]): string {
+  const a = d.map((s) => s.toLowerCase());
+  if (a.length === 1) return a[0];
+  return `${a.slice(0, -1).join(', ')} och ${a[a.length - 1]}`;
+}
+
+/** Stor bokstav först — `listaOrd` gemenar, och listan kan börja en mening. */
+function versal(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 /** "Var låg virket?" ur stammarna och avläggen. null när den inte går att räkna. */
 export function virkeDel(d: SkotningsrapportIndata): SkotningsrapportSida['virke'] {
@@ -427,7 +486,7 @@ export function skotningsrapport(d: SkotningsrapportIndata): SkotningsrapportSid
     traktFakta: traktFakta(d),
     kort: kortRad(d),
     kalla: kallaMening(d),
-    kartforklaring: KARTA_FORKLARING,
+    kartforklaring: kartforklaring(d.kartinnehall),
     virke,
     skotningen: skotningenRader(d),
     skotningenPeriod: periodMening(d),

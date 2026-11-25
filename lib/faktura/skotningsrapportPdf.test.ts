@@ -93,6 +93,22 @@ function ord(bytes: Uint8Array, s: string): { x: number; y: number; x2: number }
   return { x: Number(m[1]), y: Number(m[2]), x2: Number(m[3]) };
 }
 
+/**
+ * Alla förekomster av ett ord, i ordning. Behövs när samma ord står flera
+ * gånger på en rad och det är FÖRHÅLLANDET mellan dem som ska bevisas.
+ */
+function allaOrd(bytes: Uint8Array, s: string): { x: number; y: number; x2: number }[] {
+  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-bbox-alla-'));
+  const fil = join(dir, 'r.pdf');
+  writeFileSync(fil, bytes);
+  const xml = execFileSync('pdftotext', ['-bbox', fil, '-']).toString();
+  const re = new RegExp(
+    `<word xMin="([\\d.]+)" yMin="([\\d.]+)" xMax="([\\d.]+)" yMax="[\\d.]+">${s}</word>`, 'g');
+  const ut: { x: number; y: number; x2: number }[] = [];
+  for (const m of xml.matchAll(re)) ut.push({ x: Number(m[1]), y: Number(m[2]), x2: Number(m[3]) });
+  return ut;
+}
+
 /** Sidorna som bilder. Returnerar antalet. */
 function antalSidor(bytes: Uint8Array): number {
   const dir = mkdtempSync(join(tmpdir(), 'skotrapport-'));
@@ -115,6 +131,8 @@ const TAB_KOL = { x0: 0.62, x1: 0.95 };
  */
 function ritat(
   pdf: Uint8Array, r: Ruta, sida = 1, troskel = 235,
+  /** Egen färgregel i stället för "mörkare än tröskeln" — för att mäta EN färg. */
+  farg?: (r: number, g: number, b: number) => boolean,
 ): { ritade: number; andel: number } {
   const dir = mkdtempSync(join(tmpdir(), 'skotrapport-ppm-'));
   const fil = join(dir, 'r.pdf');
@@ -132,7 +150,10 @@ function ritat(
     for (let x = xf; x < xt; x++) {
       const i = start + (y * b + x) * 3;
       totalt++;
-      if (buf[i] < troskel || buf[i + 1] < troskel || buf[i + 2] < troskel) ritade++;
+      const tr = farg
+        ? farg(buf[i], buf[i + 1], buf[i + 2])
+        : buf[i] < troskel || buf[i + 1] < troskel || buf[i + 2] < troskel;
+      if (tr) ritade++;
     }
   }
   return { ritade, andel: ritade / Math.max(1, totalt) };
@@ -303,6 +324,105 @@ describe('PDF:en', () => {
     // men den FINNS.
     const ruta = { x0: 0.66, x1: 0.96, y0: 0.19, y1: 0.23 };
     expect(ritat(bytes, ruta, 1, 200).ritade).toBeGreaterThan(800);
+  }, 30000);
+
+// KERNINGBUGGEN, uppmätt på Bondeskog 2026-11-25. pdf-lib MÄTER text med
+  // kerning men RITAR utan, och raden med m³fub ritas i tre drawText
+  // (text · upphöjd siffra · text). Lades nästa bit på den MÄTTA bredden
+  // hamnade trean 3,1 pt för tidigt — mitt i m:et — och bara på de LÅNGA
+  // delarna, så ett m³fub på samma rad kunde se rätt ut medan det andra inte
+  // gjorde det. Det syns inte i texten: pdftotext läser "m3fub" i båda fallen.
+  it('UPPHÖJDA SIFFRAN SITTER EFTER m:et, också sist på en lång rad', async () => {
+    const bytes = await bygg();
+    const m = allaOrd(bytes, 'm');
+    const treor = allaOrd(bytes, '3');
+    expect(m.length).toBeGreaterThan(0);
+    expect(treor.length).toBeGreaterThan(0);
+
+    // Varje upphöjd trea (de ligger ovanför radens baslinje) ska börja vid
+    // eller efter det m som står närmast till vänster på samma rad.
+    let provade = 0;
+    for (const tre of treor) {
+      const fore = m
+        .filter(o => Math.abs(o.y - tre.y) < 3 && o.x < tre.x2)
+        .sort((a, b) => b.x - a.x)[0];
+      if (!fore) continue;
+      provade++;
+      // Tolerans 0,1 pt för avrundning i pdftotext.
+      expect(tre.x).toBeGreaterThanOrEqual(fore.x2 - 0.1);
+    }
+    expect(provade).toBeGreaterThan(2);
+  }, 30000);
+
+/**
+   * MARTINS FYRA KRAV 2026-11-25: "inga röda högar dom ska vara som appen
+   * titta dom och hänsyner ska vara med och om det är blött eller brant så dom
+   * förstå varför vi måste kört som vi gjort med virket".
+   *
+   * Mäts i PIXLAR på den renderade kartan, inte i vymodellen: det är färgen på
+   * papperet som är kravet.
+   */
+  it('HÖGARNA ÄR APPENS FÄRGER — ingen röd prick på kartan', async () => {
+    // Ett rutnät högar över trakten, som på en riktig trakt (Bondeskog: 113).
+    const hogar = Array.from({ length: 40 }, (_, i) => ({
+      lat: 56.2870 + (i % 8) * 0.00022,
+      lng: 15.3748 + Math.floor(i / 8) * 0.00040,
+      volym: 4 + (i % 5) * 3,
+      farg: i % 3 === 0 ? '#FF9F0A' : '#1d9e75',
+      farg2: i % 4 === 0 ? '#1d9e75' : null,
+    }));
+    const bytes = await bygg(SKALVIKEN, { ...KARTA, hogar });
+    // Kartrutan: inga pixlar i egenkontrollens stamrött (#d32f2f).
+    const rott = ritat(bytes, { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 }, 1, 150,
+      (r, g, b) => r > 150 && g < 90 && b < 90);
+    expect(rott.ritade).toBe(0);
+    // ... men grönt och orange finns: högarna ritades.
+    const gront = ritat(bytes, { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 }, 1, 150,
+      (r, g, b) => g > 110 && g > r + 25 && b < g);
+    expect(gront.ritade).toBeGreaterThan(50);
+  }, 30000);
+
+  it('HÄNSYNEN RITAS, och dess kant syns även med högar intill', async () => {
+    const g = fixtur.granser as number[][][];
+    // En liten yta inne i trakten, byggd ur traktgränsens första hörn.
+    const [lng0, lat0] = g[0][0];
+    const zon = [
+      { lat: lat0 - 0.0004, lng: lng0 + 0.0004 },
+      { lat: lat0 - 0.0004, lng: lng0 + 0.0011 },
+      { lat: lat0 - 0.0010, lng: lng0 + 0.0011 },
+      { lat: lat0 - 0.0010, lng: lng0 + 0.0004 },
+    ];
+    const utan = await bygg(SKALVIKEN, KARTA);
+    const med = await bygg(SKALVIKEN, { ...KARTA, markeringar: [{ slag: 'zon', typ: 'protected', punkter: zon }] });
+    const ruta = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
+    const grön = (b: Uint8Array) => ritat(b, ruta, 1, 150, (r, gg, bb) => gg > 110 && gg > r + 30 && gg > bb + 30).ritade;
+    expect(grön(med)).toBeGreaterThan(grön(utan) + 100);
+  }, 60000);
+
+  it('BLÖTT OCH BRANT ritas i olika mönster — och sägs i teckenförklaringen', async () => {
+    const g = fixtur.granser as number[][][];
+    const [lng0, lat0] = g[0][0];
+    const ruta2 = (dlat: number, dlng: number) => [
+      { lat: lat0 - dlat, lng: lng0 + dlng },
+      { lat: lat0 - dlat, lng: lng0 + dlng + 0.0010 },
+      { lat: lat0 - dlat - 0.0006, lng: lng0 + dlng + 0.0010 },
+      { lat: lat0 - dlat - 0.0006, lng: lng0 + dlng },
+    ];
+    const bytes = await bygg(
+      { ...SKALVIKEN, kartinnehall: { zoner: [], mark: ['blott', 'brant'] } },
+      { ...KARTA, mark: [
+        { slag: 'blott', ruta: ruta2(0.0004, 0.0004) },
+        { slag: 'brant', ruta: ruta2(0.0014, 0.0004) },
+      ] },
+    );
+    const omr = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
+    const blatt = ritat(bytes, omr, 1, 150, (r, g, b) => b > 120 && b > r + 30 && b > g + 10).ritade;
+    const rott = ritat(bytes, omr, 1, 150, (r, g, b) => r > 140 && r > g + 40 && r > b + 40).ritade;
+    expect(blatt).toBeGreaterThan(50);
+    expect(rott).toBeGreaterThan(50);
+    const t = await pdfText(bytes);
+    expect(t).toContain('blå vågräta streck');
+    expect(t).toContain('röda snedstreck');
   }, 30000);
 
   it('UTAN KARTA säger rutan varför — ingen tom grå platta', async () => {

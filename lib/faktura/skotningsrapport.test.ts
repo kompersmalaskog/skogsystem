@@ -12,7 +12,7 @@
 // vändpunkten, 250 vid avlägget; 12 kr/m³fub på 1 746,35 m³fub = 20 956 kr.
 import { describe, it, expect } from 'vitest';
 import {
-  KARTA_FORKLARING, kallaMening, kortRad, luckaRad, mattRader, periodText,
+  KARTA_FORKLARING, kartforklaring, kallaMening, kortRad, luckaRad, mattRader, periodText,
   periodMening, saMattStycken, skotningenRader, skotningsrapport, traktFakta, virkeDel,
   type SkotningsrapportIndata,
 } from './skotningsrapport';
@@ -389,6 +389,54 @@ describe('hela sidan', () => {
   it('teckenförklaringen står i ord — färg är aldrig ensam bärare', () => {
     expect(KARTA_FORKLARING).toContain('streckad');
     expect(KARTA_FORKLARING).toContain('Norr är uppåt');
+  });
+});
+
+/**
+ * Hänsynen och marken (Martin 2026-11-25: "hänsyner ska vara med och om det är
+ * blött eller brant så dom förstå varför vi måste kört som vi gjort").
+ *
+ * Teckenförklaringen får bara nämna det som FAKTISKT ritas — appens regel från
+ * "Vad betyder kartan". En förklaring till något som inte står på papperet
+ * läses som att vi glömt det.
+ */
+describe('kartforklaring — bara det som ritas', () => {
+  it('utan hänsyn och mark är det bara grundraden', () => {
+    expect(kartforklaring()).toBe(KARTA_FORKLARING);
+    expect(kartforklaring({ zoner: [], mark: [] })).toBe(KARTA_FORKLARING);
+  });
+
+  it('hänsynen nämns med sitt namn, en gång, utan att snedstreckningen förklaras', () => {
+    const s = kartforklaring({ zoner: ['protected', 'protected'], mark: [] });
+    expect(s).toContain('Ytor vi inte kört i: hänsyn.');
+    expect(s.match(/hänsyn/g)).toHaveLength(1);
+  });
+
+  it('flera sorters ytor blir "a, b och c" — aldrig en kommalista', () => {
+    const s = kartforklaring({ zoner: ['protected', 'fornlamning', 'wet'], mark: [] });
+    expect(s).toMatch(/Ytor vi inte kört i: .+, .+ och .+\./);
+  });
+
+  it('MÖNSTRET står i orden: blått vågrätt, rött snedstreckat', () => {
+    const blott = kartforklaring({ zoner: [], mark: ['fuktigt', 'blott'] });
+    expect(blott).toContain('Fuktig mark och blöt mark i blå vågräta streck');
+    expect(blott).toContain('Skogsstyrelsens och SLU:s kartor');
+    const brant = kartforklaring({ zoner: [], mark: ['brant'] });
+    expect(brant).toContain('Brant i röda snedstreck');
+    const bada = kartforklaring({ zoner: [], mark: ['blott', 'mycket_brant'] });
+    expect(bada).toContain('blå vågräta streck');
+    expect(bada).toContain('röda snedstreck');
+  });
+
+  it('meningen börjar med stor bokstav — listan gemenar, men inte först', () => {
+    const s = kartforklaring({ zoner: [], mark: ['blott'] });
+    const efterGrund = s.slice(KARTA_FORKLARING.length).trim();
+    expect(efterGrund[0]).toBe(efterGrund[0].toUpperCase());
+  });
+
+  it('SÄGER ALDRIG vad skotaren gjorde åt marken — det har vi inte mätt', () => {
+    const s = kartforklaring({ zoner: ['protected'], mark: ['blott', 'brant'] });
+    expect(s).not.toMatch(/körde (skotaren )?runt|undvek|valde/i);
   });
 });
 

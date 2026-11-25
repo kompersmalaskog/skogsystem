@@ -49,3 +49,35 @@ export function delaUpphojt(s: string): Upphojtdel[] {
 export function harUpphojt(s: string): boolean {
   return /[²³]/.test(s);
 }
+
+/**
+ * Bredden av en sträng SÅ SOM pdf-lib RITAR DEN — summan av glyfbredderna,
+ * utan kerning.
+ *
+ * `font.widthOfTextAtSize` räknar IN kerningparen ur fontens AFM-tabell, men
+ * `page.drawText` ritar strängen som ett enda textobjekt UTAN kerning. De två
+ * säger alltså inte samma sak, och felet växer med radens längd.
+ *
+ * Det märks inte på en vanlig rad (den ritas i ett svep), men det förstör varje
+ * plats där nästa bit ritas EFTER den förra: en rad med m³fub ritas i tre
+ * drawText (text · upphöjd siffra · text), och var och en läggs på den MÄTTA
+ * bredden. Uppmätt i Bondeskogs skotningsrapport 2026-11-25: raden
+ * "… har mätt körspår, 354 m" mäter 423,567 pt men ritas 426,672 pt bred —
+ * 3,105 pt (ett mellanslag) — så trean i "354 m³fub" hamnade mitt i m:et,
+ * medan den andra m³fub på samma rad (kortare del, mindre kerning) såg rätt ut.
+ *
+ * Gäller också högerställd text och radbrytning: mäter man smalare än man
+ * ritar hamnar höger kant utanför och en rad kan bli för lång.
+ *
+ * Regeln: mät som du ritar. Varje PDF-ritare som positionerar text i flera
+ * drawText ska använda den här, aldrig `widthOfTextAtSize` på hela strängen.
+ */
+export function breddUtanKerning(
+  font: { widthOfTextAtSize: (s: string, storlek: number) => number },
+  text: string,
+  storlek: number,
+): number {
+  let b = 0;
+  for (const tecken of text) b += font.widthOfTextAtSize(tecken, storlek);
+  return b;
+}
