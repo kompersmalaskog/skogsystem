@@ -4725,7 +4725,7 @@ export default function Arbetsrapport() {
                           <span style={{ ...TYP.meta,color:FARG.text }}>{(t => t.charAt(0).toUpperCase() + t.slice(1))(fD(new Date(r.startDatum)))}</span>
                           <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:farg,...TNUM,whiteSpace:"nowrap" }}>{fmtStor(r.vila)}</span>
                         </div>
-                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>{r.slutTid} → {r.startTid}{r.anledning ? ` · ${r.anledning}` : ''}</p>
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>{r.slutTid} → {r.startTid}{r.anledning ? " · " + r.anledning : ""}</p>
                       </div>
                     );
                   })}
