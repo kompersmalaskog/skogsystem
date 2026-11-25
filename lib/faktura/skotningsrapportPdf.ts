@@ -37,6 +37,57 @@ export type RapportKarta = {
   avlagg: { nr: number; namn: string; plats: { lat: number; lng: number } }[];
 };
 
+/**
+ * Hur långt utanför trakten en spårpunkt får ligga och fortfarande höra till
+ * jobbet. Avlägget ligger nästan alltid utanför traktgränsen, vid vägen, och
+ * körningen dit är skotning — men hemresan är det inte.
+ */
+export const SPAR_MARGINAL_M = 200;
+
+/**
+ * Klipper körspåret mot trakten.
+ *
+ * HITTAT 2026-11-25 på Skälviken i prod: `hyttspar` för objektet innehåller
+ * hela dagens körning, hemresan med. Spåret sträckte sig 6 308 m i höjd mot
+ * traktens 448 — kartans ram blev sex kilometer hög och trakten en klump i
+ * hörnet. Fixturen jag byggde testet mot hade 38 handplockade punkter, alla
+ * inne på trakten, så testet kunde aldrig se det.
+ *
+ * Ramen är traktgräns ∪ stammar ∪ avlägg plus marginalen. En linje som lämnar
+ * den BRYTS (inte raderas): det som är kvar inne ritas, och vi drar aldrig en
+ * rak linje tvärs över kartan där maskinen försvann ut och kom tillbaka.
+ * Saknas allt att klippa mot lämnas spåret som det är — hellre ett stort spår
+ * än ett bortklippt.
+ */
+export function klippSparMotTrakt(k: RapportKarta): RapportKarta {
+  const inom: { lat: number; lng: number }[] = [
+    ...k.granser.flat(), ...k.stammar, ...k.avlagg.map(a => a.plats),
+  ];
+  if (inom.length === 0 || k.korspar.length === 0) return k;
+
+  const latMin = Math.min(...inom.map(p => p.lat));
+  const latMax = Math.max(...inom.map(p => p.lat));
+  const lngMin = Math.min(...inom.map(p => p.lng));
+  const lngMax = Math.max(...inom.map(p => p.lng));
+  const dLat = SPAR_MARGINAL_M / 111320;
+  const dLng = SPAR_MARGINAL_M / (111320 * Math.max(0.1, Math.cos((latMin + latMax) / 2 * Math.PI / 180)));
+
+  const inne = (p: { lat: number; lng: number }) =>
+    p.lat >= latMin - dLat && p.lat <= latMax + dLat
+    && p.lng >= lngMin - dLng && p.lng <= lngMax + dLng;
+
+  const korspar: RapportKarta['korspar'] = [];
+  for (const linje of k.korspar) {
+    let bit: { lat: number; lng: number }[] = [];
+    for (const p of linje) {
+      if (inne(p)) bit.push(p);
+      else { if (bit.length > 1) korspar.push(bit); bit = []; }
+    }
+    if (bit.length > 1) korspar.push(bit);
+  }
+  return { ...k, korspar };
+}
+
 /** true när det finns något att rita. En tom karta ritas aldrig. */
 export function harKarta(k: RapportKarta): boolean {
   return k.granser.some(r => r.length > 0) || k.stammar.length > 0

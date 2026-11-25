@@ -118,6 +118,48 @@ describe('vad som kommer ut', () => {
     expect(r.karta.stammar).toHaveLength(1);
   });
 
+  // HITTAT I PROD 2026-11-25, inte av ett test: `hyttspar` för Skälviken
+  // sträcker sig 6 308 m i höjd (maskinen körde hem) mot traktens 448. Kartans
+  // ram blev sex kilometer hög och trakten en klump i hörnet. Fixturen ovan
+  // har 38 punkter, alla inne på trakten — den kunde aldrig visa felet.
+  //
+  // PUNKTERNA MÅSTE VARA TÄTA. Första versionen av det här testet la
+  // hemresan som sex glesa punkter; då bröt `korsparLinjer` linjen vid varje
+  // hopp över 200 m och varje punkt blev en egen linje som föll bort på
+  // `length > 1` — testet gick igenom också UTAN klippningen. Prod har 12 000
+  // punkter över 6,3 km, alltså en var halvmeter, och då bryts ingenting.
+  it('HEMRESAN KLIPPS BORT: spåret ritas bara vid trakten', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    // 120 punkter söderut, ~50 m isär — tätt nog att aldrig brytas som hopp.
+    const hemresa: { lat: number; lng: number }[] = [];
+    for (let i = 1; i <= 120; i++) {
+      hemresa.push({ lat: 56.2864 - i * 0.00045, lng: 15.3760 - i * 0.00002 });
+    }
+    const { sb } = fake({
+      detalj_stam: { data: [{ latitude: 56.2857, longitude: 15.3742 }], error: null },
+      hyttspar: {
+        data: [{
+          points: [
+            { lat: 56.2860, lng: 15.3758 }, { lat: 56.2862, lng: 15.3759 },
+            { lat: 56.2864, lng: 15.3760 },
+            ...hemresa,
+          ],
+        }],
+        error: null,
+      },
+      skotar_lass: { data: LASS, error: null },
+      dim_maskin: { data: [{ maskin_id: 'A130743', visningsnamn: 'Elefant 26' }], error: null },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    const alla = r.karta.korspar.flat();
+    expect(alla.length).toBeGreaterThan(1);
+    // Inget kvar söder om trakten + marginalen.
+    expect(Math.min(...alla.map(p => p.lat))).toBeGreaterThan(56.283);
+    // Och kartans höjd är traktens, inte sex kilometer.
+    const hojd = (Math.max(...alla.map(p => p.lat)) - Math.min(...alla.map(p => p.lat))) * 111320;
+    expect(hojd).toBeLessThan(600);
+  });
+
   it('körspåret blir en ritad linje', async () => {
     gransMock.mockResolvedValue(gransOk);
     const { sb } = allt();

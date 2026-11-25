@@ -15,7 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
 import { korsparLinjer } from '@/lib/korspar';
-import type { RapportKarta } from './skotningsrapportPdf';
+import { klippSparMotTrakt, type RapportKarta } from './skotningsrapportPdf';
 
 export type RapportUnderlag = {
   karta: RapportKarta;
@@ -143,5 +143,8 @@ export async function lasSkotningsrapport(
     }
   }
 
-  return { karta: { granser, stammar, korspar, avlagg }, period, skotare, fel };
+  // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
+  // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
+  const karta = klippSparMotTrakt({ granser, stammar, korspar, avlagg });
+  return { karta, period, skotare, fel };
 }

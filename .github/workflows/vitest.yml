@@ -31,6 +31,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # poppler-utils ger `pdftoppm`: PDF-testerna renderar den riktiga filen
+      # till pixlar och mäter att kartan har ritats och att sida 1 svarar
+      # ensam. Ett textprov räcker inte — pdf-lib skriver ³ i filen men ritar
+      # ingen glyf, så papperet sa "m fub" medan texten sa "m³fub".
+      # UTAN raden faller de testerna med `spawnSync pdftoppm ENOENT`. Det är
+      # med flit inget skipIf: en kontroll som tyst hoppas över i CI vaktar
+      # ingenting i CI.
+      - run: sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Kör hela vitest
         env:
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
