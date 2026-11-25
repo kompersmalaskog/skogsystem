@@ -6,36 +6,47 @@
 // Avståndstillägget är den post på en ackordfaktura som flyttar mest pengar
 // och är svårast att visa. Förut fanns inget underlag alls: Martin satt ett
 // tal för hand, och inköparen fick lita på det. Nu mäter appen avståndet ur
-// hyttspårets GPS, och då ska mätningen gå att SKICKA — inte bara stå i vår
-// egen app.
+// hyttspårets GPS, och då ska mätningen gå att SKICKA.
 //
 // RAPPORTEN SVARAR PÅ EN FRÅGA: hur långt skotades virket, och vad ger det?
 //
-// Ordningen: svaret, kartan som visar det, de fyra måtten på samma körning,
-// och vad det blir i kronor. Kartan är beviset — traktgränsen, var virket
-// stod, och var skotaren körde.
+// SIDAN ÄR EN A4, och ordningen är skissens (Martin godkände den 2026-11-25
+// och tog senare upp att den byggda PDF:en inte följde den):
 //
-// ÄRLIGHETEN ÄR POÄNGEN. De fyra måtten står alla i rapporten, inklusive de
-// tre vi INTE fakturerar. Inköparen ser att vi tagit det lägsta
-// transportmåttet (414 m där halva cykeln är 739), och att talet är mätt och
-// inte påstått. Martins egen regel: "det ska vara verkligheten så det stämmer
-// för alla både markägaren och entreprenören ingen ska bli lurad".
+//   huvud · tre kort (avstånd · prislista · tillägg) · källmeningen
+//   kartan | Var låg virket?      ← sida vid sida
+//   Skotningen · Samma körning, fyra mått · Så är det mätt
+//
+// ÄRLIGHETEN ÄR POÄNGEN. Alla fyra måtten står i rapporten, också de tre vi
+// INTE fakturerar. Inköparen ser att vi tagit det lägsta transportmåttet
+// (414 m där halva cykeln är 739), och att talet är mätt och inte påstått.
+// Martins egen regel: "det ska vara verkligheten så det stämmer för alla både
+// markägaren och entreprenören ingen ska bli lurad".
 //
 // REN FUNKTION. All text och alla tal här; ritaren (skotningsrapportPdf.ts)
 // ritar bara. Talen kommer ur samma funktioner som fakturan (`avstandsTillagg`
 // och `sammanstallCykel`) — rapporten räknar aldrig själv, så den kan inte
 // säga ett annat tal än det vi fakturerar.
 
-import type { Dokument, DokRad, DokSektion } from '@/lib/arbetsmiljo/dokument';
 import { langtDatum } from '@/lib/arbetsmiljo/dokument';
 import { SKAL_TEXT, type CykelSammanstallning } from './lassCykel';
+import { virkesfordelning, type Stam, type Virkesfordelning } from './virkesfordelning';
 
 export type SkotningsrapportIndata = {
-  trakt: { namn: string; voNummer: string; kund: string | null; avtalsform: string | null };
+  trakt: {
+    namn: string;
+    voNummer: string;
+    kund: string | null;
+    avtalsform: string | null;
+    /** Hektar ur trakten. null = sägs inte. */
+    arealHa?: number | null;
+  };
   /** Skotarens namn (dim_maskin.visningsnamn). Tom lista = inget sägs. */
   skotare: string[];
   /** Första och sista lossningsdagen, 'YYYY-MM-DD'. null = okänt. */
   period: { fran: string; till: string } | null;
+  /** Dagar med lass — inte kalenderdagar mellan första och sista. */
+  dagar?: number;
   /** Traktens skördade volym, m³fub — det fakturan räknas på. */
   volymM3fub: number;
   /** Avståndet priset räknas på, enkel väg. null = inget tal finns. */
@@ -44,6 +55,19 @@ export type SkotningsrapportIndata = {
   handsatt: boolean;
   /** Lassens sammanställning. null = trakten har inga app-lass. */
   cykel: CykelSammanstallning | null;
+  /**
+   * Ett avstånd per lass, enkel väg — underlaget för kortaste och längsta.
+   *
+   * `kalla` MÅSTE med: appens lass bär avståndet ut till virket, Optis bär
+   * halva körsträckan (se lassCykel). Summeras de rått blandas två mått i
+   * samma tal, och "längsta lasset" kan bli ett Opti-lass mätt på ett annat
+   * sätt än det vi fakturerar.
+   */
+  lass?: { avstandM: number; volym: number; kalla?: string }[];
+  /** Skördarens stammar med volym — underlaget för "Var låg virket?". */
+  virke?: Stam[];
+  /** Avläggen, för att mäta virkets avstånd. */
+  avlagg?: { lat: number; lng: number; namn?: string }[];
   pris: {
     /** Meter som ingår utan tillägg. null = ingen sats gäller. */
     grundavstandM: number | null;
@@ -65,20 +89,130 @@ function krPerM3(kronor: number, volym: number): number | null {
   return volym > 0 ? kronor / volym : null;
 }
 
+// ── Sidans delar ─────────────────────────────────────────────────────────
+
+/** Ett av de tre korten överst. `varde` är stort, `under` litet. */
+export type Kort = { etikett: string; varde: string; under: string | null };
+
+/** En rad i "Var låg virket?". `andel` 0–100 ger stapelns längd. */
+export type VirkeRad = { etikett: string; m3fub: string; andel: number };
+
+/** En rad etikett/värde i "Skotningen" och "Samma körning". */
+export type Rad = { etikett: string; varde: string; under?: string | null };
+
+export type SkotningsrapportSida = {
+  /** Filens namn, utan ändelse. */
+  filnamn: string;
+  titel: string;
+  /** "Kompersmåla Skog AB · 25 november 2026 · till Vida" */
+  avsandare: string;
+  traktNamn: string;
+  /** "VO 11271860 · rotpost · 7,28 ha · 1 746 m³fub · avlägg 01-1" */
+  traktFakta: string;
+  /** Avståndet, prislistan och tillägget. Prislistan kan saknas. */
+  kort: Kort[];
+  /** En mening om var avståndet kommer ifrån. Står alltid. */
+  kalla: string;
+  /** Teckenförklaringen under kartan. */
+  kartforklaring: string;
+  /** "Var låg virket?" — null när virket inte går att placera. */
+  virke: {
+    rubrik: string;
+    under: string;
+    rader: VirkeRad[];
+    summa: string;
+    /** Sägs under tabellen när stammar saknar plats eller volym. */
+    not: string | null;
+  } | null;
+  /** "Skotningen" — lass och längder, som en vågrät statsrad. */
+  skotningen: Rad[];
+  /**
+   * Perioden och dagarna, som en mening under statsraden.
+   *
+   * Står INTE som en stat: "3 november 2026 – 18 november 2026" är fyra gånger
+   * bredare än de andra värdena och sköt in i grannkolumnen (uppmätt i den
+   * renderade PDF:en). En rad i full bredd är både läsbar och ärlig.
+   */
+  skotningenPeriod: string | null;
+  /** "Samma körning, fyra mått" — det fakturerade först och märkt. */
+  matt: Rad[];
+  /** Under måttrubriken: vad som inte gick att mäta. */
+  mattLucka: string | null;
+  /** "Så är det mätt" — tre korta stycken. */
+  saMatt: { rubrik: string; text: string }[];
+  /** Foten. */
+  not: string;
+};
+
+// ── Delarna, var för sig och testbara ────────────────────────────────────
+
 /**
- * SVARET: avståndet, stort. Det är rapportens enda tal som står för sig själv.
- * Saknas det sägs det rakt ut — rapporten gissar aldrig ett avstånd.
+ * De tre korten. Avståndet är rapportens svar och står först.
+ *
+ * Saknas avståndet står kortet ändå, med orsaken i stället för ett tal —
+ * ett tomt kort vore värre än ett som säger varför.
  */
-export function svarRad(d: SkotningsrapportIndata): { svar: string; ton?: 'bra' | 'brist' | 'dampad' } {
-  if (d.avstandM == null) {
-    return { svar: 'Skotningsavståndet är inte mätt på den här trakten.', ton: 'dampad' };
+export function kortRad(d: SkotningsrapportIndata): Kort[] {
+  const ut: Kort[] = [{
+    etikett: 'Skotningsavstånd',
+    varde: d.avstandM == null ? '—' : meter(d.avstandM),
+    under: d.avstandM == null
+      ? 'Inte mätt på den här trakten.'
+      : 'Enkel väg, avlägget till virket. Det avstånd fakturan räknar på.',
+  }];
+
+  const { grundavstandM, krPer100m, kronor } = d.pris;
+  const per = krPerM3(kronor, d.volymM3fub);
+  if (per != null) {
+    // ENHETEN STÅR UNDER, INTE I TALET. Två skäl: tre kort som alla slutar på
+    // ett kort tal ("414 m", "12,00 kr", "20 956 kr") läses snabbare, och i
+    // den stora stilen läser pdftotext den upphöjda trean som ett eget ord —
+    // den som kopierar texten ur filen fick "12,00 kr/m fub" (uppmätt i den
+    // renderade PDF:en 2026-11-25). I underradens storlek sitter den ihop.
+    const villkor = grundavstandM != null && krPer100m != null
+      ? ` ${meter(grundavstandM)} fritt, sedan ${tal(krPer100m, 2)} kr per påbörjad 100 m.`
+      : '';
+    ut.push({
+      etikett: 'Prislistan',
+      varde: `${tal(per, 2)} kr`,
+      under: `per m³fub.${villkor}`,
+    });
   }
-  return { svar: `Skotningsavståndet var ${meter(d.avstandM)} enkel väg.` };
+
+  ut.push({
+    etikett: 'Tillägg',
+    varde: kr(kronor),
+    under: `${vol(d.volymM3fub)} skördad volym`,
+  });
+  return ut;
 }
 
 /**
- * Hur talet kom fram, i en mening under svaret. Handsatt och mätt är två
- * olika påståenden och ska aldrig låta lika.
+ * Avtalsformen i klartext. Databasen bär Vidas koder ('Rp', 'Au'); en rapport
+ * ska inte kräva att läsaren kan dem. En kod vi inte känner skrivs som den är
+ * — hellre Vidas eget ord än ett påhittat.
+ */
+const AVTALSFORM: Record<string, string> = {
+  rp: 'rotpost',
+  au: 'avverkningsuppdrag',
+};
+
+/** "VO 11271860 · rotpost · 7,28 ha · 1 746 m³fub · avlägg 01-1" */
+export function traktFakta(d: SkotningsrapportIndata): string {
+  const delar: string[] = [`VO ${d.trakt.voNummer}`];
+  const form = d.trakt.avtalsform?.trim();
+  if (form) delar.push(AVTALSFORM[form.toLowerCase()] ?? form);
+  if (d.trakt.arealHa != null && d.trakt.arealHa > 0) delar.push(`${tal(d.trakt.arealHa, 2)} ha`);
+  delar.push(vol(d.volymM3fub));
+  const namn = (d.avlagg ?? []).map(a => a.namn).filter(Boolean);
+  if (namn.length === 1) delar.push(`avlägg ${namn[0]}`);
+  else if (namn.length > 1) delar.push(`${namn.length} avlägg`);
+  return delar.join(' · ');
+}
+
+/**
+ * Hur talet kom fram, i en mening. Handsatt och mätt är två olika påståenden
+ * och ska aldrig låta lika.
  */
 export function kallaMening(d: SkotningsrapportIndata): string {
   if (d.avstandM == null) {
@@ -96,61 +230,57 @@ export function kallaMening(d: SkotningsrapportIndata): string {
   if (!c) return 'Mätt ur skotarens körspår.';
   const andel = d.volymM3fub > 0 ? Math.round((c.volymMedCykel / d.volymM3fub) * 100) : null;
   const tackning = andel == null ? '' : ` — ${andel} % av traktens volym`;
-  return `Snitt ur ${tal(c.medCykel)} av ${tal(c.lass)} lass med mätt körspår, `
-    + `viktat på volym: ${vol(c.volymMedCykel)} av ${vol(d.volymM3fub)}${tackning}.`;
+  return `Varje lass är mätt med GPS i skotarhytten. Snittet är viktat på volym: `
+    + `${tal(c.medCykel)} av ${tal(c.lass)} lass har mätt körspår, `
+    + `${vol(c.volymMedCykel)} av ${vol(d.volymM3fub)}${tackning}.`;
 }
 
 /**
  * SAMMA KÖRNING, FYRA MÅTT — med det vi fakturerar först och märkt.
  *
- * Det här är rapportens viktigaste del för en inköpare: den visar att samma
- * körning går att mäta på fyra sätt, att de skiljer sig kraftigt, och att vi
- * valt det lägsta transportmåttet. Tom lista när trakten inte har app-lass.
+ * Rapportens viktigaste del för en inköpare: samma körning går att mäta på
+ * fyra sätt, de skiljer sig kraftigt, och vi har valt det lägsta
+ * transportmåttet. Tom lista när trakten inte har app-lass.
  */
-export function mattRader(c: CykelSammanstallning | null, handsattM: number | null = null): DokRad[] {
+export function mattRader(c: CykelSammanstallning | null, handsattM: number | null = null): Rad[] {
   if (!c || c.enkelVagM == null) return [];
-  const rader: DokRad[] = [];
+  const rader: Rad[] = [];
   // ÄR AVSTÅNDET SATT FÖR HAND är det DET som faktureras — då får ingen mätt
   // rad märket "fakturerat". Annars läser inköparen 414 m som priset, medan
   // fakturan vilar på 450. Det vore att visa fel tal i ett underlag.
   if (handsattM != null) {
     rader.push({
-      titel: 'Satt för hand',
-      text: 'Avståndet för hela trakten, satt av oss.',
-      status: `${meter(handsattM)} · fakturerat`,
-      ton: 'bra',
+      etikett: 'Satt för hand',
+      varde: `${meter(handsattM)} · fakturerat`,
+      under: 'Avståndet för hela trakten, satt av oss.',
     });
   }
   if (c.ytterstM != null) {
     rader.push({
-      titel: 'Ut till virket',
-      text: handsattM == null
+      etikett: 'Ut till virket',
+      varde: handsattM == null ? `${meter(c.ytterstM)} · fakturerat` : meter(c.ytterstM),
+      under: handsattM == null
         ? 'Från avlägget ut till virket. Det här räknas tillägget på.'
         : 'Från avlägget ut till virket, mätt ur körspåret.',
-      status: handsattM == null ? `${meter(c.ytterstM)} · fakturerat` : meter(c.ytterstM),
-      ton: handsattM == null ? 'bra' : 'dampad',
     });
   }
   rader.push({
-    titel: 'Halva cykeln',
-    text: 'Hela körningen delat på två. Räknar in sortering vid avlägget, som är betald i kubikpriset.',
-    status: meter(c.enkelVagM),
-    ton: 'dampad',
+    etikett: 'Halva cykeln',
+    varde: meter(c.enkelVagM),
+    under: 'Hela körningen delat på två. Räknar in sortering vid avlägget, som är betald i kubikpriset.',
   });
   if (c.hemMedLassM != null) {
     rader.push({
-      titel: 'Efter vändpunkten',
-      text: 'Körningen efter den punkt som låg längst bort.',
-      status: meter(c.hemMedLassM),
-      ton: 'dampad',
+      etikett: 'Efter vändpunkten',
+      varde: meter(c.hemMedLassM),
+      under: 'Körningen efter den punkt som låg längst bort.',
     });
   }
   if (c.vidAvlaggetM != null) {
     rader.push({
-      titel: 'Vid avlägget',
-      text: 'Sortering inom 60 m från lossningen. Inte skotning.',
-      status: meter(c.vidAvlaggetM),
-      ton: 'dampad',
+      etikett: 'Vid avlägget',
+      varde: meter(c.vidAvlaggetM),
+      under: 'Sortering inom 60 m från lossningen. Inte skotning.',
     });
   }
   return rader;
@@ -167,28 +297,99 @@ export function luckaRad(c: CykelSammanstallning | null): string | null {
     + `drar inte ner snittet — ${delar.join('; ')}.`;
 }
 
-/** Prislistan och kronorna, i ord. */
-export function prisRader(d: SkotningsrapportIndata): DokRad[] {
-  const rader: DokRad[] = [];
-  const { grundavstandM, krPer100m, kronor } = d.pris;
-  if (grundavstandM != null && krPer100m != null) {
-    rader.push({
-      titel: 'Ur prislistan',
-      text: `${meter(grundavstandM)} ingår utan tillägg, sedan ${tal(krPer100m, 2)} kr per m³fub per påbörjad 100 m.`,
+/**
+ * "SKOTNINGEN" — hur jobbet såg ut i siffror.
+ *
+ * LASSEN TILLSAMMANS, inte "körd sträcka". Summan av lassens enkla vägar är
+ * INTE vad maskinen körde — den körde dubbelt så långt plus landningsarbete
+ * (Skälviken: 85 lass à 414 m enkel väg är 35 km, men hela cykeln är 125 km).
+ * Skissen kallade det "Körd sträcka"; det talet håller inte om inköparen
+ * räknar efter, och ett underlag som inte håller förlorar hela sitt värde.
+ */
+export function skotningenRader(d: SkotningsrapportIndata): Rad[] {
+  const ut: Rad[] = [];
+  const c = d.cykel;
+  if (c) ut.push({ etikett: 'Lass', varde: tal(c.lass) });
+
+  // ETT MÅTT I TAGET. Har trakten app-lass räknas bara de — deras avstånd är
+  // det ut till virket, alltså samma mått som fakturan. Finns inga app-lass
+  // är alla lass Optis, och då är halva cykeln måttet för allihop. Det som
+  // aldrig får hända är en blandning: "längsta lasset" mätt på ett sätt och
+  // det fakturerade avståndet på ett annat.
+  const alla = (d.lass ?? []).filter(l => Number.isFinite(l.avstandM));
+  const app = alla.filter(l => l.kalla === 'app');
+  const lass = app.length > 0 ? app : alla;
+  if (lass.length > 0) {
+    const m = lass.map(l => l.avstandM);
+    ut.push({ etikett: 'Kortaste lasset', varde: meter(Math.min(...m)) });
+    ut.push({ etikett: 'Längsta lasset', varde: meter(Math.max(...m)) });
+    const summa = m.reduce((s, x) => s + x, 0);
+    ut.push({
+      etikett: 'Lassen tillsammans',
+      varde: `${tal(summa / 1000, 1)} km`,
+      under: 'Enkel väg, lass för lass. Maskinen körde mer än så — tur och retur, plus arbetet vid avlägget.',
     });
   }
-  const per = krPerM3(kronor, d.volymM3fub);
-  rader.push({
-    titel: 'Avståndstillägg',
-    text: per == null
-      ? 'Traktens volym är inte känd, så tillägget går inte att räkna per m³fub.'
-      : `${tal(per, 2)} kr per m³fub × ${vol(d.volymM3fub)}.`,
-    status: kr(kronor),
-  });
-  return rader;
+
+  return ut;
 }
 
-/** "3–18 november 2026" eller null. */
+/**
+ * "Skotat 3 november 2026 – 18 november 2026 · 11 dagar med lass"
+ *
+ * DAGAR MED LASS, inte kalenderdagar i perioden. Skotaren står still på
+ * trakten medan skördaren ligger före, och "26 dagar" om 11 arbetade läses
+ * som att vi tagit för lång tid.
+ */
+export function periodMening(d: SkotningsrapportIndata): string | null {
+  const per = periodText(d.period);
+  if (!per) return null;
+  const dagar = d.dagar && d.dagar > 0
+    ? ` · ${tal(d.dagar)} ${d.dagar === 1 ? 'dag' : 'dagar'} med lass`
+    : '';
+  return `Skotat ${per}${dagar}`;
+}
+
+/**
+ * "Så är det mätt" — de korta styckena längst ner.
+ *
+ * `harVirke` säger om tabellen "Var låg virket?" står på sidan. Gör den inte
+ * det utelämnas stycket som förklarar den: en förklaring till något som inte
+ * finns på papperet läses som att vi glömt tabellen.
+ */
+export function saMattStycken(
+  d: SkotningsrapportIndata,
+  harVirke: boolean,
+): { rubrik: string; text: string }[] {
+  const ut: { rubrik: string; text: string }[] = [];
+  ut.push({
+    rubrik: d.handsatt ? 'Det fakturerade avståndet' : 'Körd väg',
+    text: d.handsatt
+      ? 'Satt för hand och gäller hela trakten. Måtten nedanför är mätta ur körspåret och står som jämförelse.'
+      : 'GPS:en i skotarens hytt, lass för lass: från avlägget ut till den punkt i trakten som låg längst bort. '
+        + 'Snittet är viktat på lassens volym, och lass utan körspår drar inte ner det.',
+  });
+  if (harVirke) {
+    ut.push({
+      rubrik: 'Fågelväg',
+      text: 'Tabellen "Var låg virket?" mäter rakt från avlägget till varje 20 m-ruta, viktat på rutans volym. '
+        + 'Den visar var virket låg — inte hur långt maskinen körde.',
+    });
+  }
+  const c = d.cykel;
+  if (c) {
+    const andel = d.volymM3fub > 0 ? Math.round((c.volymMedCykel / d.volymM3fub) * 100) : null;
+    ut.push({
+      rubrik: 'Täckning',
+      text: andel == null
+        ? `${tal(c.medCykel)} av ${tal(c.lass)} lass har mätt körspår.`
+        : `${tal(c.medCykel)} av ${tal(c.lass)} lass har mätt körspår, och de bär ${andel} % av traktens volym.`,
+    });
+  }
+  return ut;
+}
+
+/** "3 november 2026 – 18 november 2026" eller null. */
 export function periodText(p: { fran: string; till: string } | null): string | null {
   if (!p) return null;
   return p.fran === p.till ? langtDatum(p.fran) : `${langtDatum(p.fran)} – ${langtDatum(p.till)}`;
@@ -199,62 +400,42 @@ export const KARTA_FORKLARING =
   'Traktgränsen streckad, virket som prickar, skotarens körspår som linje och '
   + 'avläggen som ringar. Norr är uppåt.';
 
-/**
- * Hela rapporten. Ritaren lägger till kartan mellan svaret och avsnitten.
- */
-export function skotningsrapport(d: SkotningsrapportIndata): Dokument {
-  const { svar, ton } = svarRad(d);
-  const fakta: { etikett: string; varde: string }[] = [
-    { etikett: 'Trakt', varde: d.trakt.namn },
-    { etikett: 'VO-nummer', varde: d.trakt.voNummer },
-  ];
-  if (d.trakt.kund) fakta.push({ etikett: 'Kund', varde: d.trakt.kund });
-  const per = periodText(d.period);
-  if (per) fakta.push({ etikett: 'Skotat', varde: per });
-  if (d.skotare.length > 0) {
-    fakta.push({ etikett: d.skotare.length === 1 ? 'Skotare' : 'Skotare', varde: d.skotare.join(', ') });
-  }
-  fakta.push({ etikett: 'Volym', varde: vol(d.volymM3fub) });
-
-  const sektioner: DokSektion[] = [];
-
-  // Var talet kommer ifrån står ALLTID i rapporten — handsatt och mätt är två
-  // olika påståenden, och ett underlag som inte skiljer dem är vilseledande.
-  const kalla = kallaMening(d);
-
-  const matt = mattRader(d.cykel, d.handsatt ? d.avstandM : null);
-  if (matt.length > 0) {
-    sektioner.push({
-      rubrik: d.handsatt ? 'Avståndet, och vad körspåret säger' : 'Samma körning, fyra mått',
-      under: `${kalla} ${d.handsatt
-        ? 'Måtten nedan är mätta ur körspåret.'
-        : 'Tillägget räknas på det första. De andra står här för att talen ska gå att jämföra.'}`,
-      rader: matt,
-    });
-  }
-
-  const lucka = luckaRad(d.cykel);
-  sektioner.push({
-    rubrik: 'Vad det ger',
-    // Utan måttsektion har källmeningen ingen annan plats — den ska stå.
-    under: [matt.length === 0 ? kalla : null, lucka].filter(Boolean).join(' ') || undefined,
-    rader: prisRader(d),
-  });
-
+/** "Var låg virket?" ur stammarna och avläggen. null när den inte går att räkna. */
+export function virkeDel(d: SkotningsrapportIndata): SkotningsrapportSida['virke'] {
+  const f: Virkesfordelning | null = virkesfordelning(d.virke ?? [], d.avlagg ?? []);
+  if (!f) return null;
   return {
-    titel: 'Skotningsrapport',
+    rubrik: 'Var låg virket?',
+    under: 'Fågelväg från avlägget till varje 20 m-ruta, viktat på rutans volym.',
+    rader: f.klasser.map(k => ({ etikett: k.etikett, m3fub: tal(k.m3fub), andel: k.andel })),
+    summa: vol(f.summaM3fub),
+    not: f.utan > 0
+      ? `${tal(f.utan)} ${f.utan === 1 ? 'stam' : 'stammar'} saknar plats eller volym och räknas inte.`
+      : null,
+  };
+}
+
+/** Hela sidan. */
+export function skotningsrapport(d: SkotningsrapportIndata): SkotningsrapportSida {
+  const till = d.trakt.kund ? ` · till ${d.trakt.kund}` : '';
+  const virke = virkeDel(d);
+  return {
     filnamn: `skotningsrapport-${d.trakt.voNummer}`,
-    fakta,
-    svar,
-    svarTon: ton,
-    sektioner,
-    not: (d.handsatt
-      ? 'Det fakturerade avståndet är satt för hand och gäller hela trakten. '
-        + 'Måtten ur körspåret är mätta ur GPS:en i skotarens hytt, lass för '
-        + 'lass: från avlägget ut till den punkt i trakten som låg längst bort. '
-      : 'Mätt ur GPS:en i skotarens hytt, lass för lass: från avlägget ut '
-        + 'till den punkt i trakten som låg längst bort. Snittet är viktat på '
-        + 'lassens volym, och lass utan körspår drar inte ner det. ')
-      + 'Kompersmåla Skog.',
+    titel: 'Skotningsrapport',
+    avsandare: `Kompersmåla Skog AB · ${langtDatum(new Date().toISOString().slice(0, 10))}${till}`,
+    traktNamn: d.trakt.namn,
+    traktFakta: traktFakta(d),
+    kort: kortRad(d),
+    kalla: kallaMening(d),
+    kartforklaring: KARTA_FORKLARING,
+    virke,
+    skotningen: skotningenRader(d),
+    skotningenPeriod: periodMening(d),
+    matt: mattRader(d.cykel, d.handsatt ? d.avstandM : null),
+    mattLucka: luckaRad(d.cykel),
+    saMatt: saMattStycken(d, virke != null),
+    not: d.skotare.length > 0
+      ? `Skotare: ${d.skotare.join(', ')}. Kompersmåla Skog AB.`
+      : 'Kompersmåla Skog AB.',
   };
 }

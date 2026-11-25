@@ -28,18 +28,13 @@ function hex(h: string): [number, number, number] {
  *
  * `rita` får rutan i pt. null = inget att rita (då hoppas rutan över).
  *
- * `egenSida`: kartan ritas SIST, på en egen sida, och fyller den. En karta som
- * ska kunna läsas behöver ungefär en halv A4, och ett dokument med fakta, svar
- * och två avsnitt har inte så mycket plats kvar — mätt på skotningsrapporten
- * blev det två sidor även med en karta på 60 pt. Då är det bättre att sida 1
- * svarar på frågan ensam och kartan får hela sida 2, än att innehållet bryts
- * mitt i. `hojd` ignoreras då; rutan är sidan minus marginal och rubrik.
+ * En karta på EGEN SIDA fanns här en kort tid (skotningsrapporten 2026-11-25)
+ * och är borta: den rapporten har en egen tvåkolumnsritare, eftersom kartan
+ * ska stå BREDVID sin tabell. Behöver ett dokument en helsidekarta igen är
+ * det en egen ändring — en oanvänd flagga i en delad ritare ruttnar.
  */
 export type PdfKarta = {
   hojd: number;
-  egenSida?: boolean;
-  /** Rubriken över kartan på dess egen sida. */
-  rubrik?: string;
   rita: (a: {
     sida: unknown;
     lib: unknown;
@@ -109,7 +104,7 @@ export async function skapaArbetsmiljoPdf(dok: Dokument, karta?: PdfKarta): Prom
   y += svarH + 22;
 
   // ── Kartan (valfri) ───────────────────────────────────────────────────────────────────────────────────────────────
-  if (karta && !karta.egenSida) {
+  if (karta) {
     plats(karta.hojd + 8);
     karta.rita({ sida, lib: pdfLib, fonter: { normal, fet }, ruta: { x: MARG, top: y, b: B, h: karta.hojd } });
     y += karta.hojd + 18;
@@ -152,17 +147,6 @@ export async function skapaArbetsmiljoPdf(dok: Dokument, karta?: PdfKarta): Prom
     const rader = bryt(dok.not, STEG.micro, normal, B);
     plats(rader.length * STEG.micro * 1.4);
     for (const r of rader) { text(r, MARG, y, STEG.micro, normal, F.sek); y += STEG.micro * 1.4; }
-  }
-
-  // Kartan på egen sida, sist: hela sidan minus marginal och rubrik.
-  if (karta?.egenSida) {
-    nySida();
-    if (karta.rubrik) {
-      text(karta.rubrik, MARG, y, STEG.rubrik, fet, F.text);
-      y += STEG.rubrik * 1.3 + 6;
-    }
-    const h = FOT_Y - MARG - y - STEG.micro - 8;
-    karta.rita({ sida, lib: pdfLib, fonter: { normal, fet }, ruta: { x: MARG, top: y, b: B, h } });
   }
 
   sidor.forEach((s, i) => {

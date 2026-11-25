@@ -1,23 +1,26 @@
 // Skotningsrapporten — det Martin skickar till Vidas inköpare.
 //
 // Rapportens hela värde ligger i att den säger SANT och att talen är desamma
-// som fakturans. Testerna vaktar tre saker:
+// som fakturans. Testerna vaktar fyra saker:
 //
 //   1. Rapporten räknar inget eget pris — kronorna och avståndet kommer in.
 //   2. Alla fyra måtten står där, med det fakturerade märkt.
 //   3. Ett saknat tal sägs rakt ut, aldrig som en nolla eller en gissning.
+//   4. Ett mått blandas aldrig med ett annat i samma tal.
 //
 // FACIT är Skälviken i prod 2026-11-25: 414 m ut, 739 halva cykeln, 660 efter
 // vändpunkten, 250 vid avlägget; 12 kr/m³fub på 1 746,35 m³fub = 20 956 kr.
 import { describe, it, expect } from 'vitest';
 import {
-  KARTA_FORKLARING, kallaMening, luckaRad, mattRader, periodText, prisRader,
-  skotningsrapport, svarRad, type SkotningsrapportIndata,
+  KARTA_FORKLARING, kallaMening, kortRad, luckaRad, mattRader, periodText,
+  periodMening, saMattStycken, skotningenRader, skotningsrapport, traktFakta, virkeDel,
+  type SkotningsrapportIndata,
 } from './skotningsrapport';
 import type { CykelSammanstallning } from './lassCykel';
+import { SKALVIKEN_AVLAGG, SKALVIKEN_RUTOR } from './__fixtures__/skalviken_virke_2026-11-25';
 
 /** toLocaleString('sv-SE') ger hårt mellanslag som tusenavskiljare. */
-const txt = (s: string | null | undefined) => s?.replace(/[\u00a0\u202f]/g, ' ') ?? s;
+const txt = (s: string | null | undefined) => s?.replace(/[  ]/g, ' ') ?? s;
 
 const SKALVIKEN_CYKEL: CykelSammanstallning = {
   lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
@@ -27,27 +30,97 @@ const SKALVIKEN_CYKEL: CykelSammanstallning = {
 };
 
 const SKALVIKEN: SkotningsrapportIndata = {
-  trakt: { namn: 'Skälviken RP J-Hus -25', voNummer: '11271860', kund: 'Vida', avtalsform: 'Rp' },
+  trakt: {
+    namn: 'Skälviken RP J-Hus -25', voNummer: '11271860', kund: 'Vida',
+    avtalsform: 'Rp', arealHa: 7.28,
+  },
   skotare: ['Elefant 26'],
   period: { fran: '2026-11-03', till: '2026-11-18' },
+  dagar: 11,
   volymM3fub: 1746.35,
   avstandM: 414.4,
   handsatt: false,
   cykel: SKALVIKEN_CYKEL,
+  lass: [
+    { avstandM: 672, volym: 18, kalla: 'app' },
+    { avstandM: 414, volym: 20, kalla: 'app' },
+    { avstandM: 40, volym: 19, kalla: 'app' },
+  ],
+  virke: SKALVIKEN_RUTOR,
+  avlagg: [{ ...SKALVIKEN_AVLAGG, namn: '01-1' }],
   pris: { grundavstandM: 200, krPer100m: 4, kronor: 20956.2 },
 };
 
-describe('svaret', () => {
-  it('avståndet, enkel väg, stort', () => {
-    expect(svarRad(SKALVIKEN).svar).toBe('Skotningsavståndet var 414 m enkel väg.');
-    expect(svarRad(SKALVIKEN).ton).toBeUndefined();
+describe('de tre korten — rapportens svar', () => {
+  it('avståndet först, prislistan, tillägget', () => {
+    const k = kortRad(SKALVIKEN);
+    expect(k.map(x => x.etikett)).toEqual(['Skotningsavstånd', 'Prislistan', 'Tillägg']);
+    expect(k[0].varde).toBe('414 m');
+    expect(k[0].under).toContain('Enkel väg');
+    // 20 956,2 / 1 746,35 = 12,00. Enheten står UNDER talet, inte i det —
+    // tre kort som alla slutar på ett kort tal läses snabbare, och i stor stil
+    // läser pdftotext den upphöjda trean som ett eget ord ("12,00 kr/m fub").
+    expect(txt(k[1].varde)).toBe('12,00 kr');
+    expect(txt(k[1].under)).toContain('per m³fub');
+    expect(txt(k[1].under)).toContain('200 m fritt');
+    expect(txt(k[2].varde)).toBe('20 956 kr');
+    // Volymen priset vilar på står vid kronorna, så summan går att räkna om.
+    expect(txt(k[2].under)).toContain('1 746 m³fub');
   });
 
-  it('saknas avståndet sägs det — aldrig 0 m', () => {
-    const r = svarRad({ ...SKALVIKEN, avstandM: null });
-    expect(r.svar).toContain('inte mätt');
-    expect(r.svar).not.toContain('0 m');
-    expect(r.ton).toBe('dampad');
+  it('saknas avståndet står kortet ändå, med orsaken — aldrig 0 m', () => {
+    const k = kortRad({ ...SKALVIKEN, avstandM: null });
+    expect(k[0].varde).toBe('—');
+    expect(k[0].under).toContain('Inte mätt');
+    expect(k[0].varde).not.toContain('0 m');
+  });
+
+  it('utan prislista blir det två kort, aldrig ett tomt', () => {
+    const k = kortRad({ ...SKALVIKEN, volymM3fub: 0 });
+    expect(k.map(x => x.etikett)).toEqual(['Skotningsavstånd', 'Tillägg']);
+    expect(JSON.stringify(k)).not.toContain('Infinity');
+    expect(JSON.stringify(k)).not.toContain('NaN');
+  });
+
+  it('utan prislistans villkor påstås inget villkor, men kronorna står', () => {
+    const k = kortRad({ ...SKALVIKEN, pris: { grundavstandM: null, krPer100m: null, kronor: 20956.2 } });
+    expect(txt(k[1].varde)).toBe('12,00 kr');
+    expect(k[1].under).toBe('per m³fub.');
+    expect(k[1].under).not.toContain('fritt');
+  });
+});
+
+describe('trakten', () => {
+  it('nummer, avtalsform, areal, volym och avlägget på en rad', () => {
+    expect(txt(traktFakta(SKALVIKEN)))
+      .toBe('VO 11271860 · rotpost · 7,28 ha · 1 746 m³fub · avlägg 01-1');
+  });
+
+  it('Vidas koder skrivs i klartext, en okänd kod står som den är', () => {
+    // 'Rp' betyder inget för den som inte kan Vidas koder; 'LRK' kan vi inte
+    // skriva ut utan att gissa, och då står Vidas eget ord kvar.
+    expect(traktFakta(SKALVIKEN)).toContain('rotpost');
+    expect(traktFakta({ ...SKALVIKEN, trakt: { ...SKALVIKEN.trakt, avtalsform: 'Au' } }))
+      .toContain('avverkningsuppdrag');
+    expect(traktFakta({ ...SKALVIKEN, trakt: { ...SKALVIKEN.trakt, avtalsform: 'LRK' } }))
+      .toContain('LRK');
+  });
+
+  it('det som saknas står inte', () => {
+    expect(txt(traktFakta({
+      ...SKALVIKEN,
+      trakt: { ...SKALVIKEN.trakt, avtalsform: null, arealHa: null },
+      avlagg: [],
+    }))).toBe('VO 11271860 · 1 746 m³fub');
+  });
+
+  it('flera avlägg räknas, aldrig ett utpekat av dem', () => {
+    const f = traktFakta({
+      ...SKALVIKEN,
+      avlagg: [{ lat: 1, lng: 1, namn: '01-1' }, { lat: 2, lng: 2, namn: '01-2' }],
+    });
+    expect(f).toContain('2 avlägg');
+    expect(f).not.toContain('01-1');
   });
 });
 
@@ -74,26 +147,25 @@ describe('var talet kommer ifrån', () => {
 describe('samma körning, fyra mått', () => {
   it('det fakturerade står FÖRST och är märkt', () => {
     const r = mattRader(SKALVIKEN_CYKEL);
-    expect(r.map(x => [x.titel, txt(x.status)])).toEqual([
+    expect(r.map(x => [x.etikett, txt(x.varde)])).toEqual([
       ['Ut till virket', '414 m · fakturerat'],
       ['Halva cykeln', '739 m'],
       ['Efter vändpunkten', '660 m'],
       ['Vid avlägget', '250 m'],
     ]);
-    expect(r[0].ton).toBe('bra');
   });
 
   it('ÄRLIGHETEN: rapporten visar att vi tagit det lägsta transportmåttet', () => {
     const r = mattRader(SKALVIKEN_CYKEL);
     // Halva cykeln (739) är nästan dubbelt — står kvar, med skälet.
-    expect(r[1].text).toContain('betald i kubikpriset');
+    expect(r[1].under).toContain('betald i kubikpriset');
     // Landningsarbetet sägs ligga utanför det vi fakturerar.
-    expect(r[3].text).toContain('Inte skotning');
+    expect(r[3].under).toContain('Inte skotning');
   });
 
   it('en del som inte gick att mäta får ingen rad', () => {
     const r = mattRader({ ...SKALVIKEN_CYKEL, hemMedLassM: null, vidAvlaggetM: null });
-    expect(r.map(x => x.titel)).toEqual(['Ut till virket', 'Halva cykeln']);
+    expect(r.map(x => x.etikett)).toEqual(['Ut till virket', 'Halva cykeln']);
   });
 
   it('inga app-lass ger inga mått — inte fyra nollor', () => {
@@ -119,27 +191,131 @@ describe('luckan', () => {
   });
 });
 
-describe('priset', () => {
-  it('kronorna kommer IN, räknas inte här — och kr/m³fub följer av dem', () => {
-    const r = prisRader(SKALVIKEN);
-    expect(txt(r[0].text)).toContain('200 m ingår');
-    expect(txt(r[0].text)).toContain('4,00 kr');
-    // 20 956,2 / 1 746,35 = 12,00
-    expect(txt(r[1].text)).toContain('12,00 kr per m³fub');
-    expect(txt(r[1].status)).toBe('20 956 kr');
+describe('skotningen', () => {
+  it('lass, kortaste, längsta och sträckan som en statsrad', () => {
+    const r = skotningenRader(SKALVIKEN);
+    expect(r.map(x => [x.etikett, txt(x.varde)])).toEqual([
+      ['Lass', '85'],
+      ['Kortaste lasset', '40 m'],
+      ['Längsta lasset', '672 m'],
+      ['Lassen tillsammans', '1,1 km'],
+    ]);
   });
 
-  it('utan prislista påstås inget villkor', () => {
-    const r = prisRader({ ...SKALVIKEN, pris: { grundavstandM: null, krPer100m: null, kronor: 0 } });
-    expect(r).toHaveLength(1);
-    expect(r[0].status).toBe('0 kr');
+  it('perioden är en MENING, inte en stat — den är fyra gånger bredare', () => {
+    // Uppmätt i den renderade PDF:en: "3 november 2026 – 18 november 2026"
+    // som stat sköt in i grannkolumnen och lade sig över dagarnas tal.
+    expect(periodMening(SKALVIKEN))
+      .toBe('Skotat 3 november 2026 – 18 november 2026 · 11 dagar med lass');
+    expect(skotningenRader(SKALVIKEN).map(x => x.etikett)).not.toContain('Skotat');
   });
 
-  it('utan volym räknas ingen kr/m³fub fram', () => {
-    const r = prisRader({ ...SKALVIKEN, volymM3fub: 0 });
-    expect(txt(r[1].text)).toContain('inte känd');
-    expect(r[1].text).not.toContain('Infinity');
-    expect(r[1].text).not.toContain('NaN');
+  it('en dag skrivs "1 dag", utan period finns ingen mening', () => {
+    expect(periodMening({ ...SKALVIKEN, dagar: 1 })).toContain('1 dag med lass');
+    expect(periodMening({ ...SKALVIKEN, dagar: 0 })).not.toContain('dagar');
+    expect(periodMening({ ...SKALVIKEN, period: null })).toBeNull();
+  });
+
+  it('SUMMAN PÅSTÅR INTE ATT MASKINEN KÖRDE SÅ LÅNGT', () => {
+    // Skissen kallade talet "Körd sträcka". Det håller inte: lassens enkla
+    // vägar summerade är ungefär halva det maskinen körde (tur och retur),
+    // och ett underlag som inte håller när inköparen räknar efter tappar
+    // hela sitt värde. Raden säger därför vad talet ÄR.
+    const r = skotningenRader(SKALVIKEN);
+    const summa = r.find(x => x.etikett === 'Lassen tillsammans')!;
+    expect(summa.under).toContain('Maskinen körde mer än så');
+    expect(r.map(x => x.etikett)).not.toContain('Körd sträcka');
+  });
+
+  it('ETT MÅTT I TAGET: Optis lass blandas aldrig in bland appens', () => {
+    // Optis lass bär halva körsträckan, appens avståndet ut till virket. Ett
+    // Opti-lass på 1 198 m skulle annars bli "längsta lasset" — mätt på ett
+    // annat sätt än det vi fakturerar.
+    const r = skotningenRader({
+      ...SKALVIKEN,
+      lass: [...SKALVIKEN.lass!, { avstandM: 1198, volym: 20, kalla: 'opti' }],
+    });
+    expect(txt(r.find(x => x.etikett === 'Längsta lasset')!.varde)).toBe('672 m');
+  });
+
+  it('finns bara Opti-lass räknas DE, konsekvent för sig', () => {
+    const r = skotningenRader({
+      ...SKALVIKEN,
+      lass: [{ avstandM: 858, volym: 20, kalla: 'opti' }, { avstandM: 1538, volym: 20, kalla: 'opti' }],
+    });
+    expect(txt(r.find(x => x.etikett === 'Längsta lasset')!.varde)).toBe('1 538 m');
+  });
+
+  it('utan lass står inga längder — aldrig 0 m', () => {
+    const r = skotningenRader({ ...SKALVIKEN, lass: [] });
+    expect(r.map(x => x.etikett)).toEqual(['Lass']);
+    expect(JSON.stringify(r)).not.toContain('0 m');
+  });
+});
+
+describe('var låg virket', () => {
+  it('klasserna, summan och måttet sägs', () => {
+    const v = virkeDel(SKALVIKEN)!;
+    expect(v.rubrik).toBe('Var låg virket?');
+    expect(v.under).toContain('Fågelväg');
+    expect(txt(v.summa)).toBe('1 746 m³fub');
+    expect(v.rader[0].etikett).toBe('under 100 m');
+    expect(v.rader.at(-1)!.etikett).toBe('500–600 m');
+  });
+
+  it('summan är samma volym som tillägget räknas på', () => {
+    // Går de isär står två olika volymer på samma sida, framför inköparen.
+    const v = virkeDel(SKALVIKEN)!;
+    const kort = kortRad(SKALVIKEN);
+    expect(txt(v.summa)).toBe(txt(kort.at(-1)!.under!.replace(' skördad volym', '')));
+  });
+
+  it('utan virke eller avlägg finns ingen tabell — aldrig en rad nollor', () => {
+    expect(virkeDel({ ...SKALVIKEN, virke: [] })).toBeNull();
+    expect(virkeDel({ ...SKALVIKEN, avlagg: [] })).toBeNull();
+    expect(virkeDel({ ...SKALVIKEN, virke: undefined, avlagg: undefined })).toBeNull();
+  });
+
+  it('stammar utan plats eller volym SÄGS', () => {
+    const v = virkeDel({
+      ...SKALVIKEN,
+      virke: [...SKALVIKEN.virke!.slice(0, 5), { lat: NaN, lng: 15.37, volym: 9 }],
+    })!;
+    expect(v.not).toContain('1 stam');
+    expect(v.not).toContain('räknas inte');
+  });
+});
+
+describe('så är det mätt', () => {
+  it('mätt: körd väg, fågelväg och täckning', () => {
+    const s = saMattStycken(SKALVIKEN, true);
+    expect(s.map(x => x.rubrik)).toEqual(['Körd väg', 'Fågelväg', 'Täckning']);
+    expect(s[0].text).toContain('GPS');
+    expect(s[0].text).toContain('viktat på lassens volym');
+    // Fågelvägen säger rakt ut att den INTE är den körda vägen.
+    expect(s[1].text).toContain('inte hur långt maskinen körde');
+  });
+
+  it('handsatt: säger att talet är satt, inte mätt', () => {
+    const s = saMattStycken({ ...SKALVIKEN, handsatt: true, avstandM: 450 }, true);
+    expect(s[0].rubrik).toBe('Det fakturerade avståndet');
+    expect(s[0].text).toContain('Satt för hand');
+    expect(s[0].text).not.toContain('GPS');
+  });
+
+  it('UTAN tabellen står ingen förklaring till den', () => {
+    // Fågelvägs-stycket förklarar "Var låg virket?". Finns tabellen inte på
+    // sidan läses förklaringen som att vi glömt tabellen.
+    const s = saMattStycken(SKALVIKEN, false);
+    expect(s.map(x => x.rubrik)).toEqual(['Körd väg', 'Täckning']);
+    for (const x of s) expect(x.text).not.toContain('Var låg virket');
+  });
+
+  it('... och hela rapporten utan avlägg nämner inte tabellen någonstans', () => {
+    const s = skotningsrapport({ ...SKALVIKEN, avlagg: [] });
+    expect(s.virke).toBeNull();
+    const allt = [s.kalla, s.not, ...s.saMatt.map(x => `${x.rubrik} ${x.text}`)].join(' ');
+    expect(allt).not.toContain('Var låg virket');
   });
 });
 
@@ -151,21 +327,20 @@ describe('perioden', () => {
   });
 });
 
-describe('hela dokumentet', () => {
-  it('fakta, svar och avsnitt i ordning', () => {
-    const dok = skotningsrapport(SKALVIKEN);
-    expect(dok.titel).toBe('Skotningsrapport');
-    expect(dok.filnamn).toBe('skotningsrapport-11271860');
-    expect(dok.fakta.map(f => f.etikett)).toEqual(['Trakt', 'VO-nummer', 'Kund', 'Skotat', 'Skotare', 'Volym']);
-    expect(txt(dok.svar)).toContain('414 m');
-    expect(dok.sektioner.map(s => s.rubrik)).toEqual(['Samma körning, fyra mått', 'Vad det ger']);
-  });
-
-  it('noten säger HUR det mäts — rapporten påstår aldrig ett tal utan källa', () => {
-    const dok = skotningsrapport(SKALVIKEN);
-    expect(dok.not).toContain('GPS');
-    expect(dok.not).toContain('viktat på lassens volym');
-    expect(dok.not).toContain('Kompersmåla Skog');
+describe('hela sidan', () => {
+  it('skissens delar, i skissens ordning', () => {
+    const s = skotningsrapport(SKALVIKEN);
+    expect(s.titel).toBe('Skotningsrapport');
+    expect(s.filnamn).toBe('skotningsrapport-11271860');
+    expect(s.avsandare).toContain('Kompersmåla Skog AB');
+    expect(s.avsandare).toContain('till Vida');
+    expect(s.traktNamn).toBe('Skälviken RP J-Hus -25');
+    expect(s.kort).toHaveLength(3);
+    expect(s.virke).not.toBeNull();
+    expect(s.skotningen.length).toBeGreaterThan(0);
+    expect(s.matt.length).toBe(4);
+    expect(s.saMatt.length).toBe(3);
+    expect(s.not).toContain('Elefant 26');
   });
 
   // Hittat 2026-11-25 när render-testet körde den riktiga PDF:en: med ett
@@ -173,44 +348,42 @@ describe('hela dokumentet', () => {
   // vilade på 450, källmeningen saknades helt och noten sa "Mätt ur GPS:en".
   // En inköpare hade läst fel tal som priset. Det får inte komma tillbaka.
   it('HANDSATT: det handsatta talet är det fakturerade, och det SÄGS', () => {
-    const dok = skotningsrapport({ ...SKALVIKEN, handsatt: true, avstandM: 450 });
-    const matt = dok.sektioner[0].rader;
-    // Det handsatta står först och är det enda som är märkt fakturerat.
-    expect([matt[0].titel, txt(matt[0].status)]).toEqual(['Satt för hand', '450 m · fakturerat']);
-    expect(matt.filter(r => (r.status ?? '').includes('fakturerat'))).toHaveLength(1);
-    expect(txt(matt[1].status)).toBe('414 m'); // mätt, men inte fakturerat
+    const s = skotningsrapport({ ...SKALVIKEN, handsatt: true, avstandM: 450 });
+    expect(s.kort[0].varde).toBe('450 m');
+    // Det handsatta står först bland måtten och är det enda märkta.
+    expect([s.matt[0].etikett, txt(s.matt[0].varde)]).toEqual(['Satt för hand', '450 m · fakturerat']);
+    expect(s.matt.filter(r => r.varde.includes('fakturerat'))).toHaveLength(1);
+    expect(txt(s.matt[1].varde)).toBe('414 m'); // mätt, men inte fakturerat
     // ... och raden påstår INTE att tillägget räknas på den.
-    expect(matt[1].text).not.toContain('räknas tillägget på');
-    // Och "mätta ur körspåret" står en gång, inte i både rubrik och rad.
-    expect(matt[0].text).not.toContain('Måtten nedan');
-    // Källan står i dokumentet, inte bara i en funktion ingen anropar.
-    expect(dok.sektioner[0].under).toContain('satt för hand');
-    // Och noten påstår inte att talet är mätt.
-    expect(dok.not).toContain('satt för hand');
-    expect(dok.not).not.toMatch(/^Mätt ur GPS/);
+    expect(s.matt[1].under).not.toContain('räknas tillägget på');
+    // Källan står på sidan, inte bara i en funktion ingen anropar.
+    expect(s.kalla).toContain('satt för hand');
+    expect(s.saMatt[0].text).toContain('Satt för hand');
   });
 
-  it('MÄTT: källmeningen står i dokumentet även där', () => {
-    const dok = skotningsrapport(SKALVIKEN);
-    expect(txt(dok.sektioner[0].under)).toContain('70 av 85 lass');
-    expect(dok.sektioner[0].rader.filter(r => (r.status ?? '').includes('fakturerat'))).toHaveLength(1);
+  it('MÄTT: källmeningen står på sidan även där', () => {
+    const s = skotningsrapport(SKALVIKEN);
+    expect(txt(s.kalla)).toContain('70 av 85 lass');
+    expect(s.matt.filter(r => r.varde.includes('fakturerat'))).toHaveLength(1);
   });
 
-  it('en trakt utan app-lass får bara prisavsnittet, aldrig tomma mått', () => {
-    const dok = skotningsrapport({ ...SKALVIKEN, cykel: null, handsatt: true, avstandM: 450 });
-    expect(dok.sektioner.map(s => s.rubrik)).toEqual(['Vad det ger']);
-    // Utan måttsektion har källmeningen ingen annan plats — den ska stå ändå.
-    expect(dok.sektioner[0].under).toContain('satt för hand');
-    expect(dok.svar).toContain('450 m');
+  it('en trakt utan app-lass får inga mått, men behåller svaret och källan', () => {
+    const s = skotningsrapport({ ...SKALVIKEN, cykel: null, lass: [], handsatt: true, avstandM: 450 });
+    expect(s.matt).toEqual([]);
+    expect(s.kalla).toContain('satt för hand');
+    expect(s.kort[0].varde).toBe('450 m');
+    // Täckningsstycket finns inte utan lass — ingen tom rubrik.
+    expect(s.saMatt.map(x => x.rubrik)).not.toContain('Täckning');
   });
 
-  it('utan kund och utan skotare står de raderna inte', () => {
-    const dok = skotningsrapport({
+  it('utan kund står inget "till" i avsändaren, utan skotare ingen maskin i foten', () => {
+    const s = skotningsrapport({
       ...SKALVIKEN,
       trakt: { ...SKALVIKEN.trakt, kund: null },
-      skotare: [], period: null,
+      skotare: [],
     });
-    expect(dok.fakta.map(f => f.etikett)).toEqual(['Trakt', 'VO-nummer', 'Volym']);
+    expect(s.avsandare).not.toContain('till');
+    expect(s.not).toBe('Kompersmåla Skog AB.');
   });
 
   it('teckenförklaringen står i ord — färg är aldrig ensam bärare', () => {
@@ -221,11 +394,11 @@ describe('hela dokumentet', () => {
 
 describe('FACIT: rapporten säger samma tal som fakturan', () => {
   it('Skälviken: 414 m, 12 kr/m³fub, 20 956 kr', () => {
-    const dok = skotningsrapport(SKALVIKEN);
-    const text = txt(JSON.stringify(dok))!;
+    const text = txt(JSON.stringify(skotningsrapport(SKALVIKEN)))!;
     expect(text).toContain('414 m');
     expect(text).toContain('20 956 kr');
-    expect(text).toContain('12,00 kr per m³fub');
+    expect(text).toContain('12,00 kr');
+    expect(text).toContain('per m³fub');
     // Och halva cykeln står som jämförelse, inte som pris.
     expect(text).toContain('739 m');
     expect(text).not.toContain('41 9');

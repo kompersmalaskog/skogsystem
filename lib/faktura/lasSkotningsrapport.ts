@@ -16,11 +16,23 @@ import { hamtaAlla } from '@/lib/supabaseAlla';
 import { lasVidaGrans } from '@/lib/egenkontrollOrigo';
 import { korsparLinjer } from '@/lib/korspar';
 import { klippSparMotTrakt, type RapportKarta } from './skotningsrapportPdf';
+import type { Stam } from './virkesfordelning';
 
 export type RapportUnderlag = {
   karta: RapportKarta;
+  /**
+   * Skördarens stammar med volym — underlaget för "Var låg virket?".
+   * Samma läsning som kartans prickar, bara med `total_volym` med.
+   */
+  virke: Stam[];
   /** Första och sista lossningsdagen ur lassen. null = inga lass. */
   period: { fran: string; till: string } | null;
+  /**
+   * Dagar med lass — inte kalenderdagar mellan första och sista. Skotaren
+   * står still på trakten medan skördaren ligger före, och en rapport som
+   * säger "26 dagar" om 16 arbetade läses som att vi tagit för lång tid.
+   */
+  dagar: number;
   /** Skotarnas visningsnamn, i bokstavsordning. */
   skotare: string[];
   /** Det som inte gick att läsa, i ord. Tom lista = allt gick. */
@@ -69,9 +81,11 @@ export async function lasSkotningsrapport(
   const [gransSvar, stamSvar, sparSvar, lassSvar] = await Promise.all([
     lasVidaGrans(sb, a.objektUuid).catch((e: unknown) => ({ typ: 'fel' as const, meddelande: String(e) })),
     // Kolumnerna heter `latitude`/`longitude` i detalj_stam (inte lat/lng).
+    // `total_volym` bär m³fub per stam och summerar till traktens skördade
+    // volym — det är underlaget för "Var låg virket?".
     // Pagineras: PostgREST kapar tyst vid 1 000, och Skälviken har 2 842.
-    hamtaAlla<{ latitude: number | null; longitude: number | null }>(
-      () => sb.from('detalj_stam').select('id, latitude, longitude')
+    hamtaAlla<{ latitude: number | null; longitude: number | null; total_volym: number | null }>(
+      () => sb.from('detalj_stam').select('id, latitude, longitude, total_volym')
         .in('objekt_id', ids).not('latitude', 'is', null),
       'id',
     ),
@@ -97,11 +111,19 @@ export async function lasSkotningsrapport(
     fel.push('Traktgränsen kunde inte läsas.');
   }
 
-  // Stammarna — var virket stod.
+  // Stammarna — var virket stod. Samma rader bär kartans prickar och
+  // fördelningens volym; en stam utan volym ritas men räknas inte.
   let stammar: LatLng[] = [];
+  let virke: Stam[] = [];
   if (stamSvar.error) fel.push('Stammarnas lägen kunde inte läsas.');
   else {
-    stammar = (stamSvar.data ?? []).map(s => punkt(s.latitude, s.longitude)).filter((p): p is LatLng => p != null);
+    for (const s of stamSvar.data ?? []) {
+      const p = punkt(s.latitude, s.longitude);
+      if (!p) continue;
+      stammar.push(p);
+      const v = Number(s.total_volym);
+      if (Number.isFinite(v) && v > 0) virke.push({ ...p, volym: v });
+    }
   }
 
   // Skotarens körspår. RITNINGEN går genom `korsparLinjer` — samma rensning
@@ -117,15 +139,17 @@ export async function lasSkotningsrapport(
       .filter(l => l.length > 1);
   }
 
-  // Perioden och skotarna ur lassen som räknas.
+  // Perioden, dagarna och skotarna ur lassen som räknas.
   let period: { fran: string; till: string } | null = null;
+  let dagar = 0;
   const maskiner = new Set<string>();
   if (lassSvar.error) fel.push('Lassen kunde inte läsas, så perioden saknas.');
   else {
     const rader = ((lassSvar.data ?? []) as { datum: string | null; maskin_id: string | null; bekraftad_av: string | null }[])
       .filter(r => r.bekraftad_av !== 'auto' && r.datum);
-    const dagar = rader.map(r => r.datum!).sort();
-    if (dagar.length > 0) period = { fran: dagar[0], till: dagar[dagar.length - 1] };
+    const unika = [...new Set(rader.map(r => r.datum!))].sort();
+    if (unika.length > 0) period = { fran: unika[0], till: unika[unika.length - 1] };
+    dagar = unika.length;
     for (const r of rader) if (r.maskin_id) maskiner.add(r.maskin_id);
   }
 
@@ -146,5 +170,5 @@ export async function lasSkotningsrapport(
   // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
   // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
   const karta = klippSparMotTrakt({ granser, stammar, korspar, avlagg });
-  return { karta, period, skotare, fel };
+  return { karta, virke, period, dagar, skotare, fel };
 }

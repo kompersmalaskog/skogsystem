@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Mutationskontroll: skotningsrapporten (PDF till Vidas inköpare).
 //
-// Rapportens värde ligger i att den säger SANT och SAMMA tal som fakturan.
-// Varje mutant nedan är ett sätt att göra den osann eller vilseledande utan
-// att något blir "fel" i vanlig mening — ett märke på fel rad, ett påstående
-// om mätning när talet är handsatt, en karta som klipper bort avlägget.
+// Rapportens värde ligger i att den säger SANT, SAMMA tal som fakturan, och
+// att den ser ut som sidan Martin godkände. Varje mutant nedan är ett sätt
+// att bryta något av det utan att något blir "fel" i vanlig mening — ett
+// märke på fel rad, ett påstående om mätning när talet är handsatt, en tabell
+// som glider ner under kartan, ett avstånd mätt från fel avlägg.
 //
 //   node scripts/mutationskontroll-skotningsrapport.mjs
 import { execFileSync } from 'node:child_process';
@@ -13,7 +14,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const TESTER = [
   'lib/faktura/skotningsrapport.test.ts',
   'lib/faktura/skotningsrapportPdf.test.ts',
+  'lib/faktura/virkesfordelning.test.ts',
+  'lib/faktura/lasSkotningsrapport.test.ts',
   'components/faktura/Skotningsrapport.render.test.tsx',
+  'lib/upphojtPdf.test.ts',
 ];
 
 const MUTANTER = [
@@ -21,14 +25,14 @@ const MUTANTER = [
   {
     namn: 'handsatt avstånd märks inte som fakturerat (mätt rad tar märket)',
     fil: 'lib/faktura/skotningsrapport.ts',
-    fran: "      status: `${meter(handsattM)} · fakturerat`,",
-    till: '      status: meter(handsattM),',
+    fran: "      varde: `${meter(handsattM)} · fakturerat`,",
+    till: '      varde: meter(handsattM),',
   },
   {
     namn: 'mätt rad behåller "fakturerat" fast avståndet är handsatt',
     fil: 'lib/faktura/skotningsrapport.ts',
-    fran: "      status: handsattM == null ? `${meter(c.ytterstM)} · fakturerat` : meter(c.ytterstM),",
-    till: "      status: `${meter(c.ytterstM)} · fakturerat`,",
+    fran: "      varde: handsattM == null ? `${meter(c.ytterstM)} · fakturerat` : meter(c.ytterstM),",
+    till: "      varde: `${meter(c.ytterstM)} · fakturerat`,",
   },
   {
     namn: 'den handsatta raden försvinner helt',
@@ -36,45 +40,115 @@ const MUTANTER = [
     fran: '  if (handsattM != null) {',
     till: '  if (false) {',
   },
-
-  // ── Att källan sägs ──────────────────────────────────────────────────────
-  {
-    namn: 'källmeningen byggs men hamnar inte i dokumentet',
-    fil: 'lib/faktura/skotningsrapport.ts',
-    fran: "      under: `${kalla} ${d.handsatt",
-    till: "      under: `${''} ${d.handsatt",
-  },
-  {
-    namn: 'källmeningen tappas bort när måttsektionen saknas',
-    fil: 'lib/faktura/skotningsrapport.ts',
-    fran: '    under: [matt.length === 0 ? kalla : null, lucka].filter(Boolean).join(\' \') || undefined,',
-    till: '    under: lucka ?? undefined,',
-  },
-  {
-    namn: 'noten säger "mätt" också om ett handsatt tal',
-    fil: 'lib/faktura/skotningsrapport.ts',
-    fran: '    not: (d.handsatt',
-    till: '    not: (false',
-  },
   {
     namn: 'handsatt låter som mätt i källmeningen',
     fil: 'lib/faktura/skotningsrapport.ts',
     fran: '    return `Avståndet är satt för hand och gäller hela trakten.${jam}`;',
     till: '    return `Mätt ur skotarens körspår.${jam}`;',
   },
+  {
+    namn: 'handsatt låter som mätt i "Så är det mätt"',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: "    rubrik: d.handsatt ? 'Det fakturerade avståndet' : 'Körd väg',",
+    till: "    rubrik: 'Körd väg',",
+  },
+  {
+    namn: 'källmeningen töms',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: '    kalla: kallaMening(d),',
+    till: "    kalla: '',",
+  },
 
   // ── Att alla fyra måtten står kvar ───────────────────────────────────────
   {
     namn: 'halva cykeln göms (bara det vi fakturerar visas)',
     fil: 'lib/faktura/skotningsrapport.ts',
-    fran: "  rader.push({\n    titel: 'Halva cykeln',",
-    till: "  if (c.enkelVagM == null) rader.push({\n    titel: 'Halva cykeln',",
+    fran: "  rader.push({\n    etikett: 'Halva cykeln',",
+    till: "  if (c.enkelVagM == null) rader.push({\n    etikett: 'Halva cykeln',",
   },
   {
     namn: 'vid avlägget göms — landningsarbetet syns inte',
     fil: 'lib/faktura/skotningsrapport.ts',
     fran: '  if (c.vidAvlaggetM != null) {',
     till: '  if (false) {',
+  },
+
+  // ── Ett mått i taget ─────────────────────────────────────────────────────
+  {
+    namn: 'Optis lass blandas in bland appens (två mått i samma tal)',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: '  const lass = app.length > 0 ? app : alla;',
+    till: '  const lass = alla;',
+  },
+  {
+    namn: '"Lassen tillsammans" påstår att maskinen körde så långt',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: "      under: 'Enkel väg, lass för lass. Maskinen körde mer än så",
+    till: "      under: null && ('Enkel väg, lass för lass. Maskinen körde mer än så",
+  },
+  {
+    namn: 'perioden blir en stat igen och trycker sönder statsraden',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: '    skotningenPeriod: periodMening(d),',
+    till: '    skotningenPeriod: null,',
+  },
+
+  // ── Var låg virket ───────────────────────────────────────────────────────
+  {
+    namn: 'avståndet mäts från FÖRSTA avlägget, inte det närmaste',
+    fil: 'lib/faktura/virkesfordelning.ts',
+    fran: '      if (m < narmast) narmast = m;',
+    till: '      if (narmast === Infinity) narmast = m;',
+  },
+  {
+    namn: 'rutans mitt tas ur stammarna — rutan flyttar med virket',
+    fil: 'lib/faktura/virkesfordelning.ts',
+    fran: '    const lat = (iy + 0.5) * stegLat;',
+    till: '    const lat = iy * stegLat;',
+  },
+  {
+    namn: 'procenten avrundas var för sig och summerar inte till 100',
+    fil: 'lib/faktura/virkesfordelning.ts',
+    fran: '  const andelar = heltalTill100(poster.map(([, v]) => (v / summa) * 100));',
+    till: '  const andelar = poster.map(([, v]) => Math.round((v / summa) * 100));',
+  },
+  {
+    namn: 'stammar utan plats eller volym räknas tyst bort',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: '    not: f.utan > 0',
+    till: '    not: false',
+  },
+  {
+    namn: 'tabellen ritas även utan avlägg — en rad nollor',
+    fil: 'lib/faktura/virkesfordelning.ts',
+    fran: '  if (avlagg.length === 0) return null;',
+    till: '  if (false) return null;',
+  },
+  {
+    namn: 'förklaringen till tabellen står kvar fast tabellen saknas',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: '  if (harVirke) {',
+    till: '  if (true) {',
+  },
+
+  // ── Layouten: skissen är kravet ──────────────────────────────────────────
+  {
+    namn: 'tabellen hamnar under kartan i stället för bredvid',
+    fil: 'lib/faktura/skotningsrapportPdf.ts',
+    fran: 'const HOGER_X = MARG + KART_B + GAP;',
+    till: 'const HOGER_X = MARG;',
+  },
+  {
+    namn: 'måtten och "Så är det mätt" staplas — sidan blir två A4',
+    fil: 'lib/faktura/skotningsrapportPdf.ts',
+    fran: '    const kb = (B - GAP) / 2;\n    const hx = MARG + kb + GAP;',
+    till: '    const kb = B;\n    const hx = MARG;',
+  },
+  {
+    namn: 'staplarna ritas inte — bara talen',
+    fil: 'lib/faktura/skotningsrapportPdf.ts',
+    fran: '        sid.drawRectangle({ x: HOGER_X, y: sy, width: bb, height: 2.5, color: F.stapel });',
+    till: '',
   },
 
   // ── Kartan ───────────────────────────────────────────────────────────────
@@ -85,30 +159,36 @@ const MUTANTER = [
     till: '        { etiketter: true },',
   },
   {
-    namn: 'kartan ritas i flödet igen — innehållet bryts mitt itu',
+    namn: 'en tom karta ritas som en tom ruta utan förklaring',
     fil: 'lib/faktura/skotningsrapportPdf.ts',
-    fran: '    egenSida: true,',
-    till: '    egenSida: false,',
-  },
-  {
-    namn: 'en tom karta ritas som en tom ruta',
-    fil: 'lib/faktura/skotningsrapportPdf.ts',
-    fran: '  if (!harKarta(k)) return undefined;',
-    till: '  if (false) return undefined;',
+    fran: '    const ritas = harKarta(karta);',
+    till: '    const ritas = true;',
   },
   {
     namn: 'teckenförklaringen under kartan uteblir',
     fil: 'lib/faktura/skotningsrapportPdf.ts',
-    fran: '      for (const rad of forklRader) {',
-    till: '      for (const rad of []) {',
+    fran: '      stycke(sida.kartforklaring, MARG, toppen + kartH + 6',
+    till: "      stycke('', MARG, toppen + kartH + 6",
+  },
+  {
+    namn: 'hemresan klipps inte bort — kartans ram blir sex kilometer hög',
+    fil: 'lib/faktura/skotningsrapportPdf.ts',
+    fran: 'export const SPAR_MARGINAL_M = 200;',
+    till: 'export const SPAR_MARGINAL_M = 100000;',
   },
 
   // ── Tecken som inte ritas ────────────────────────────────────────────────
   {
-    namn: '³ lämnas kvar — glyfen ritas inte och enheten blir "m fub"',
-    fil: 'lib/markagarrapport/pdf.ts',
-    fran: "    .replace(/³/g, '3')",
-    till: '',
+    namn: '³ ritas inte alls — enheten blir "m fub" på papperet',
+    fil: 'lib/upphojtPdf.ts',
+    fran: "      ut.push({ text: t === '²' ? '2' : '3', upp: true });",
+    till: '      // borttagen',
+  },
+  {
+    namn: '³ lämnas som tecken — glyfen blir ett tomrum',
+    fil: 'lib/upphojtPdf.ts',
+    fran: "    if (t === '²' || t === '³') {",
+    till: '    if (false) {',
   },
 ];
 

@@ -67,9 +67,20 @@ const TRAKT = {
   granskning: GRANSKNING as never,
 };
 
+/** Tre stammar och ett avlägg — nog för att "Var låg virket?" ska bli en tabell. */
+const AVLAGG = { lat: 56.2876, lng: 15.3756 };
 const UNDERLAG = {
-  karta: { granser: [], stammar: [], korspar: [], avlagg: [] },
+  karta: {
+    granser: [], stammar: [], korspar: [],
+    avlagg: [{ nr: 1, namn: '01-1', plats: AVLAGG }],
+  },
+  virke: [
+    { lat: 56.2870, lng: 15.3756, volym: 40 },
+    { lat: 56.2850, lng: 15.3756, volym: 30 },
+    { lat: 56.2830, lng: 15.3756, volym: 30 },
+  ],
   period: { fran: '2026-11-03', till: '2026-11-18' },
+  dagar: 11,
   skotare: ['Elefant 26'],
   fel: [] as string[],
 };
@@ -138,6 +149,27 @@ describe('arket', () => {
     expect(t).toContain('1 746 m3fub');    // granskningens volym
     expect(t).toContain('Elefant 26');     // skotaren ur läsningen
     expect(t).toContain('3 november 2026 – 18 november 2026');
+    expect(t).toContain('11 dagar med lass');  // dagarna ur läsningen
+  }, 30000);
+
+  // Virket och avläggen kommer ur LÄSNINGEN, inte ur granskningen — kopplingen
+  // syns bara när arkets egen `skapa()` körs. Tappas den blir tabellen borta
+  // utan att något annat ser fel ut.
+  it('VIRKET NÅR PDF:EN: "Var låg virket?" byggs ur läsningens stammar', async () => {
+    await rita();
+    const t = await pdfText();
+    expect(t).toContain('Var låg virket?');
+    expect(t).toContain('Fågelväg');
+    // Tre stammar, 100 m3fub, fördelade på avstånd från avlägget.
+    expect(t).toContain('100 m3fub');
+  }, 30000);
+
+  it('utan avlägg finns ingen tabell — aldrig en rad nollor', async () => {
+    await rita({ ...UNDERLAG, karta: { ...UNDERLAG.karta, avlagg: [] } });
+    const t = await pdfText();
+    expect(t).not.toContain('Var låg virket?');
+    // Men resten av rapporten står kvar.
+    expect(t).toContain('414 m');
   }, 30000);
 
   it('ett HANDSATT avstånd sägs vara handsatt — aldrig som en mätning', async () => {

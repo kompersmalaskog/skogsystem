@@ -96,10 +96,17 @@ export default function SkotningsrapportArk({ d, onStang }: { d: Trakt; onStang:
             },
             skotare: underlag.skotare,
             period: underlag.period,
+            dagar: underlag.dagar,
             volymM3fub: g.volym,
             avstandM: avstandMeter(g.avstand),
             handsatt: g.avstand.manuellt != null,
             cykel: g.avstand.cykel,
+            lass: g.avstand.lass,
+            // Virket och avläggen bär "Var låg virket?". Avläggen kommer ur
+            // kartans läsning (Vidas tilläggspunkter) — samma punkter som
+            // ritas, så tabellen mäter från det inköparen ser på kartan.
+            virke: underlag.virke,
+            avlagg: underlag.karta.avlagg.map(a => ({ ...a.plats, namn: a.namn })),
             pris: {
               grundavstandM: g.avstand.grundavstandM,
               krPer100m: g.avstand.krPer100m,

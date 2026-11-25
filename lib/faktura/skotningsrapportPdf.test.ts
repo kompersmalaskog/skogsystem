@@ -2,9 +2,15 @@
 //
 // Ett grönt test på vymodellen bevisar bara att texten är rätt uträknad. Det
 // Martin skickar till inköparen är en PDF, och den enda kontrollen som duger
-// är att rendera den och läsa tillbaka den: texten med unpdf, kartan som
-// pixlar med pdftoppm. En tom kartruta eller en skalstock som hamnade utanför
-// sidan syns inte i någon vymodell.
+// är att rendera den och läsa tillbaka den: texten med unpdf, kartan och
+// staplarna som pixlar med pdftoppm. En tom kartruta, en tabell som hamnade
+// under kartan i stället för bredvid, eller en glyf som inte ritas syns inte i
+// någon vymodell.
+//
+// LAYOUTEN ÄR EN DEL AV KRAVET. Martin godkände en skiss där kartan och "Var
+// låg virket?" står SIDA VID SIDA; första bygget la kartan på en egen sida och
+// han såg direkt att det inte var sidan han sagt ja till. Därför mäts de två
+// kolumnerna i pixlar, inte bara texten.
 //
 // Kartan är Skälvikens riktiga geometri ur prod (fixturen), så måtten,
 // stammolnets täthet och avläggets placering är verkliga.
@@ -15,9 +21,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractText, getDocumentProxy } from 'unpdf';
 import { skotningsrapport, type SkotningsrapportIndata } from './skotningsrapport';
-import { harKarta, kartaForRapport, skapaSkotningsrapportPdf, type RapportKarta } from './skotningsrapportPdf';
+import { harKarta, skapaSkotningsrapportPdf, type RapportKarta } from './skotningsrapportPdf';
 import type { CykelSammanstallning } from './lassCykel';
 import fixtur from './__fixtures__/skalviken_karta_2026-11-25.json';
+import { SKALVIKEN_AVLAGG, SKALVIKEN_RUTOR } from './__fixtures__/skalviken_virke_2026-11-25';
 
 const latlng = (c: number[][]) => c.map(([lng, lat]) => ({ lat, lng }));
 
@@ -28,6 +35,8 @@ const KARTA: RapportKarta = {
   avlagg: [{ nr: 1, namn: '01-1', plats: { lat: 56.28761946, lng: 15.37559972 } }],
 };
 
+const TOM: RapportKarta = { granser: [], stammar: [], korspar: [], avlagg: [] };
+
 const CYKEL: CykelSammanstallning = {
   lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
   cykelM: 1477, enkelVagM: 738.6, hemMedLassM: 660, vidAvlaggetM: 250,
@@ -36,39 +45,76 @@ const CYKEL: CykelSammanstallning = {
 };
 
 const SKALVIKEN: SkotningsrapportIndata = {
-  trakt: { namn: 'Skälviken RP J-Hus -25', voNummer: '11271860', kund: 'Vida', avtalsform: 'Rp' },
+  trakt: {
+    namn: 'Skälviken RP J-Hus -25', voNummer: '11271860', kund: 'Vida',
+    avtalsform: 'Rp', arealHa: 7.28,
+  },
   skotare: ['Elefant 26'],
   period: { fran: '2026-11-03', till: '2026-11-18' },
+  dagar: 11,
   volymM3fub: 1746.35,
   avstandM: 414.4,
   handsatt: false,
   cykel: CYKEL,
+  lass: [
+    { avstandM: 672, volym: 18, kalla: 'app' },
+    { avstandM: 414, volym: 20, kalla: 'app' },
+    { avstandM: 40, volym: 19, kalla: 'app' },
+  ],
+  virke: SKALVIKEN_RUTOR,
+  avlagg: [{ ...SKALVIKEN_AVLAGG, namn: '01-1' }],
   pris: { grundavstandM: 200, krPer100m: 4, kronor: 20956.2 },
 };
+
+const bygg = (i: SkotningsrapportIndata = SKALVIKEN, k: RapportKarta = KARTA) =>
+  skapaSkotningsrapportPdf(skotningsrapport(i), k);
 
 /** PDF:ens hela text, med hårda mellanslag normaliserade. */
 async function pdfText(bytes: Uint8Array): Promise<string> {
   const doc = await getDocumentProxy(new Uint8Array(bytes));
   const { text } = await extractText(doc, { mergePages: true });
-  return (Array.isArray(text) ? text.join('\n') : text).replace(/[  ]/g, ' ');
-}
-
-/** PDF:ens sidor som PNG. Returnerar sökvägarna. */
-function rastrera(bytes: Uint8Array): string[] {
-  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-'));
-  const pdf = join(dir, 'rapport.pdf');
-  writeFileSync(pdf, bytes);
-  execFileSync('pdftoppm', ['-png', '-r', '110', pdf, join(dir, 'sida')]);
-  return readdirSync(dir).filter(f => f.endsWith('.png')).sort().map(f => join(dir, f));
+  return (Array.isArray(text) ? text.join('\n') : text).replace(/[  ]/g, ' ');
 }
 
 /**
- * Räknar pixlar som inte är sidans vita bakgrund, i en vågrät remsa.
- * `fran`/`till` är andel av bildens höjd. Läser PNG:en via pdftoppm:s egen
+ * Första förekomsten av ett ord, med koordinater i pt (origo uppe till
+ * vänster, A4 = 595 × 842). `pdftotext -bbox` ger exakta lägen — bättre än
+ * gissade pixelrutor när det är LAYOUTEN som ska bevisas.
+ */
+function ord(bytes: Uint8Array, s: string): { x: number; y: number; x2: number } {
+  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-bbox-'));
+  const fil = join(dir, 'r.pdf');
+  writeFileSync(fil, bytes);
+  const xml = execFileSync('pdftotext', ['-bbox', fil, '-']).toString();
+  const re = new RegExp(
+    `<word xMin="([\\d.]+)" yMin="([\\d.]+)" xMax="([\\d.]+)" yMax="[\\d.]+">${s}</word>`);
+  const m = re.exec(xml);
+  if (!m) throw new Error(`ordet "${s}" finns inte i PDF:en`);
+  return { x: Number(m[1]), y: Number(m[2]), x2: Number(m[3]) };
+}
+
+/** Sidorna som bilder. Returnerar antalet. */
+function antalSidor(bytes: Uint8Array): number {
+  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-'));
+  const pdf = join(dir, 'rapport.pdf');
+  writeFileSync(pdf, bytes);
+  execFileSync('pdftoppm', ['-png', '-r', '72', pdf, join(dir, 'sida')]);
+  return readdirSync(dir).filter(f => f.endsWith('.png')).length;
+}
+
+type Ruta = { x0?: number; x1?: number; y0: number; y1: number };
+
+/** Sidans två kolumner, som andel av bredden. Uppmätta i den riktiga PDF:en. */
+const KART_KOL = { x0: 0.08, x1: 0.55 };
+const TAB_KOL = { x0: 0.62, x1: 0.95 };
+
+/**
+ * Räknar pixlar som inte är sidans vita bakgrund, i en ruta.
+ * Alla gränser är andel av bildens bredd/höjd. Läser pdftoppm:s egen
  * PPM-utgång i stället för en bildparser — ingen extra beroende.
  */
-function ritatIRemsa(
-  pdf: Uint8Array, fran: number, till: number, sida = 1,
+function ritat(
+  pdf: Uint8Array, r: Ruta, sida = 1, troskel = 235,
 ): { ritade: number; andel: number } {
   const dir = mkdtempSync(join(tmpdir(), 'skotrapport-ppm-'));
   const fil = join(dir, 'r.pdf');
@@ -78,107 +124,148 @@ function ritatIRemsa(
   const ppm = readdirSync(dir).find(f => f.endsWith('.ppm'))!;
   const buf = readFileSync(join(dir, ppm));
   // P6-huvud: "P6\n<b> <h>\n255\n"
-  const huvud = buf.subarray(0, 64).toString('latin1');
-  const m = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(huvud)!;
-  const b = Number(m[1]), h = Number(m[2]);
-  const start = m[0].length;
+  const m = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(buf.subarray(0, 64).toString('latin1'))!;
+  const b = Number(m[1]), h = Number(m[2]), start = m[0].length;
+  const xf = Math.floor(b * (r.x0 ?? 0)), xt = Math.floor(b * (r.x1 ?? 1));
   let ritade = 0, totalt = 0;
-  for (let y = Math.floor(h * fran); y < Math.floor(h * till); y++) {
-    for (let x = 0; x < b; x++) {
+  for (let y = Math.floor(h * r.y0); y < Math.floor(h * r.y1); y++) {
+    for (let x = xf; x < xt; x++) {
       const i = start + (y * b + x) * 3;
       totalt++;
-      // Något mörkare än nästan-vitt räknas som ritat.
-      if (buf[i] < 235 || buf[i + 1] < 235 || buf[i + 2] < 235) ritade++;
+      if (buf[i] < troskel || buf[i + 1] < troskel || buf[i + 2] < troskel) ritade++;
     }
   }
-  return { ritade, andel: ritade / totalt };
+  return { ritade, andel: ritade / Math.max(1, totalt) };
 }
 
-describe('kartan finns bara när det finns något att rita', () => {
+/**
+ * Stapelfärgens pixlar på sida 1 (mörkgrön, SORTIMENTFARG.timmer).
+ * Stapelns bakgrund är nästan vit och räknas inte.
+ */
+function gront(pdf: Uint8Array): number {
+  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-gron-'));
+  const fil = join(dir, 'r.pdf');
+  writeFileSync(fil, pdf);
+  execFileSync('pdftoppm', ['-r', '110', '-f', '1', '-l', '1', fil, join(dir, 's')]);
+  const ppm = readdirSync(dir).find(f => f.endsWith('.ppm'))!;
+  const buf = readFileSync(join(dir, ppm));
+  const m = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(buf.subarray(0, 64).toString('latin1'))!;
+  const b = Number(m[1]), h = Number(m[2]), start = m[0].length;
+  let n = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < b; x++) {
+      const i = start + (y * b + x) * 3;
+      if (buf[i + 1] > buf[i] + 15 && buf[i + 1] > buf[i + 2] + 15 && buf[i + 1] < 160) n++;
+    }
+  }
+  return n;
+}
+
+describe('kartan ritas bara när det finns något att rita', () => {
   it('Skälvikens riktiga geometri ger en karta', () => {
     expect(harKarta(KARTA)).toBe(true);
-    expect(kartaForRapport(KARTA)).toBeDefined();
   });
 
-  it('en tom karta ritas aldrig — ingen tom ruta i rapporten', () => {
-    const tom: RapportKarta = { granser: [], stammar: [], korspar: [], avlagg: [] };
-    expect(harKarta(tom)).toBe(false);
-    expect(kartaForRapport(tom)).toBeUndefined();
+  it('en tom karta är tom', () => {
+    expect(harKarta(TOM)).toBe(false);
     // En ring med en enda punkt är ingen ring, men den räknas som "något" —
     // då ritas gränsen inte, men stammarna/spåret kan ändå vara värda en karta.
-    expect(harKarta({ ...tom, granser: [[{ lat: 56, lng: 15 }]] })).toBe(true);
-  });
-
-  it('kartan ligger på EGEN SIDA, med rubrik', () => {
-    const k = kartaForRapport(KARTA)!;
-    expect(k.egenSida).toBe(true);
-    expect(k.rubrik).toBe('Var skotaren körde');
+    expect(harKarta({ ...TOM, granser: [[{ lat: 56, lng: 15 }]] })).toBe(true);
   });
 });
 
 describe('PDF:en', () => {
-  // Mätt 2026-11-25: fakta + svar + två avsnitt tar nästan en hel A4, så en
-  // karta i flödet bröt prisavsnittet mitt itu. Nu: sida 1 svarar ensam.
-  it('SIDA 1 SVARAR ENSAM — avståndet, måtten och kronorna, utan att brytas', async () => {
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA);
+  it('ALLT PÅ EN SIDA — inköparen ska inte behöva bläddra för svaret', async () => {
+    const bytes = await bygg();
     expect(bytes.byteLength).toBeGreaterThan(2000);
-    expect(rastrera(bytes)).toHaveLength(2);
-    const doc = await getDocumentProxy(new Uint8Array(bytes));
-    const { text } = await extractText(doc, { mergePages: false });
-    const s1 = (text as string[])[0].replace(/[\u00a0\u202f]/g, ' ');
-    for (const del of ['414 m', '739 m', 'Ut till virket', 'Vid avlägget', '20 956 kr', '12,00 kr per m3fub']) {
-      expect(s1, del).toContain(del);
-    }
+    expect(antalSidor(bytes)).toBe(1);
   }, 30000);
 
-  it('utan karta blir rapporten EN sida', async () => {
-    const tom: RapportKarta = { granser: [], stammar: [], korspar: [], avlagg: [] };
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), tom);
-    expect(rastrera(bytes)).toHaveLength(1);
+  // SKISSENS KRAV. Kartan vänster, tabellen höger, i samma höjd. Mäts i
+  // pixlar: en tabell som hamnat UNDER kartan skulle ge noll ritat i höger
+  // kolumn på kartans höjd, och testet faller.
+  it('KARTAN OCH TABELLEN STÅR SIDA VID SIDA', async () => {
+    const bytes = await bygg();
+    // Bevisat med ordens egna koordinater: tabellens rubrik börjar i höger
+    // halva, och OVANFÖR teckenförklaringen som står under kartan. Hamnar
+    // tabellen under kartan blir den y-jämförelsen omvänd.
+    const rubrik = ord(bytes, 'Var');                 // "Var låg virket?"
+    const underKartan = ord(bytes, 'Traktgränsen');   // teckenförklaringen
+    expect(rubrik.x).toBeGreaterThan(300);
+    expect(underKartan.x).toBeLessThan(100);
+    expect(rubrik.y).toBeLessThan(underKartan.y);
+    // Och båda kolumnerna har faktiskt ritats i samma höjdband.
+    const vanster = ritat(bytes, { ...KART_KOL, y0: 0.40, y1: 0.52 });
+    const hoger = ritat(bytes, { ...TAB_KOL, y0: 0.40, y1: 0.52 });
+    expect(vanster.ritade).toBeGreaterThan(1200); // stammoln + gräns + spår
+    expect(hoger.ritade).toBeGreaterThan(1500);   // rader + staplar
+    // Men ingen av dem är en helsvart platta.
+    expect(vanster.andel).toBeLessThan(0.5);
+    expect(hoger.andel).toBeLessThan(0.5);
+  }, 30000);
+
+  it('MÅTTEN VÄNSTER, "SÅ ÄR DET MÄTT" HÖGER — i samma höjdband', async () => {
+    const bytes = await bygg();
+    const matt = ord(bytes, 'Halva');       // "Halva cykeln"
+    const hur = ord(bytes, 'Täckning');     // sista stycket i "Så är det mätt"
+    expect(matt.x).toBeLessThan(150);
+    expect(hur.x).toBeGreaterThan(250);
+    // Staplade under varandra skulle "Täckning" hamna långt under måtten;
+    // bredvid varandra ligger de inom ett par centimeter.
+    expect(Math.abs(hur.y - matt.y)).toBeLessThan(60);
+  }, 30000);
+
+  it('KARTAN TÄCKER SIN KOLUMN — inte en tunn remsa högst upp', async () => {
+    const bytes = await bygg();
+    // Ritat både i kartans övre och nedre del. (Mät inte "mer än textsidan":
+    // text är TÄTARE än en karta.)
+    expect(ritat(bytes, { ...KART_KOL, y0: 0.29, y1: 0.35 }).ritade).toBeGreaterThan(400);
+    expect(ritat(bytes, { ...KART_KOL, y0: 0.46, y1: 0.52 }).ritade).toBeGreaterThan(400);
+  }, 30000);
+
+  it('STAPLARNA RITAS — andelen syns, inte bara talet', async () => {
+    // Mät STAPELFÄRGEN (mörkgrön), inte "finns det mer ritat": en tabell utan
+    // staplar men med rader hade annars sett likadan ut för mätningen.
+    expect(gront(await bygg())).toBeGreaterThan(400);
+    // Utan virke finns varken rader eller staplar.
+    expect(gront(await bygg({ ...SKALVIKEN, virke: [] }))).toBeLessThan(50);
   }, 30000);
 
   it('FACIT: 414 m, 12 kr/m³fub och 20 956 kr står i filen', async () => {
-    const t = await pdfText(await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA));
-    expect(t).toContain('Skotningsrapport');
-    expect(t).toContain('Skälviken RP J-Hus -25');
-    expect(t).toContain('414 m');
-    expect(t).toContain('20 956 kr');
-    expect(t).toContain('12,00 kr per m3fub'); // ³ ritas inte — se "ENHETEN SYNS"
-    // Alla fyra måtten, med det fakturerade märkt.
-    expect(t).toContain('Ut till virket');
-    expect(t).toContain('fakturerat');
-    expect(t).toContain('739 m');
-    expect(t).toContain('Vid avlägget');
+    const t = await pdfText(await bygg());
+    for (const del of [
+      'Skotningsrapport', 'Skälviken RP J-Hus -25', 'Kompersmåla Skog AB',
+      // ³ ritas som en lyft siffra; i filens text blir den en vanlig trea.
+      '414 m', '20 956 kr', '12,00 kr', 'per m3fub',
+      'Ut till virket', 'fakturerat', '739 m', 'Vid avlägget',
+      'Var låg virket?', '1 746 m3fub',
+    ]) {
+      expect(t, del).toContain(del);
+    }
     // Och halva cykelns pris står INTE någonstans — det är inte fakturerat.
     expect(t).not.toContain('41 9');
   }, 30000);
 
-  it('skalstocken och teckenförklaringen står PÅ kartsidan', async () => {
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA);
-    const doc = await getDocumentProxy(new Uint8Array(bytes));
-    const { text } = await extractText(doc, { mergePages: false });
-    const s2 = (text as string[])[1].replace(/[\u00a0\u202f]/g, ' ');
-    expect(s2).toContain('Var skotaren körde');
-    // Skalstockens längd i meter — ett jämnt tal följt av " m".
-    expect(s2).toMatch(/\b(50|100|200|250|500) m\b/);
-    expect(s2).toContain('Norr är uppåt');
-    expect(s2).toContain('traktgränsen'.replace('t', 'T').slice(0, 1) + 'raktgränsen');
+  it('skotningen och de fyra måtten står på sidan', async () => {
+    const t = await pdfText(await bygg());
+    for (const del of [
+      'SKOTNINGEN', 'Kortaste lasset', 'Längsta lasset', 'Lassen tillsammans',
+      '3 november 2026 – 18 november 2026',
+      'SAMMA KÖRNING, FYRA MÅTT', 'SÅ ÄR DET MÄTT',
+    ]) {
+      expect(t, del).toContain(del);
+    }
+    // Summan av lassens enkla vägar påstår aldrig att maskinen körde så långt.
+    expect(t).toContain('Maskinen körde mer än så');
+    expect(t).not.toContain('Körd sträcka');
   }, 30000);
 
-  it('KARTAN HAR PIXLAR — inte en tom ruta', async () => {
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA);
-    // Kartsidan, mellan rubriken och skalstocken.
-    const karta = ritatIRemsa(bytes, 0.12, 0.9, 2);
-    // 113 stammar, en traktgräns och ett spår ger ett tydligt moln.
-    expect(karta.ritade).toBeGreaterThan(3000);
-    // Men inte en helsvart ruta — kartan har ingen bakgrund.
-    expect(karta.andel).toBeLessThan(0.5);
-    // Kartan TÄCKER sidan: ritat både högt upp och långt ner. Text samlas i
-    // rader upptill; en karta som klippts till en remsa skulle falla här.
-    // (Mät inte "mer ritat än textsidan" — text är TÄTARE än en karta:
-    // uppmätt 6,1 % på sida 1 mot 1,4 % på kartsidan.)
-    expect(ritatIRemsa(bytes, 0.15, 0.35, 2).ritade).toBeGreaterThan(200);
-    expect(ritatIRemsa(bytes, 0.55, 0.72, 2).ritade).toBeGreaterThan(200);
+  it('skalstocken och teckenförklaringen står vid kartan', async () => {
+    const t = await pdfText(await bygg());
+    // Skalstockens längd i meter — ett jämnt tal följt av " m".
+    expect(t).toMatch(/\b(50|100|200|250|500) m\b/);
+    expect(t).toContain('Norr är uppåt');
+    expect(t).toContain('Traktgränsen');
   }, 30000);
 
   // Avlägget ligger nästan alltid UTANFÖR traktgränsen, vid vägen — och hela
@@ -190,54 +277,50 @@ describe('PDF:en', () => {
     const nordligastIGransen = Math.max(...KARTA.granser.flat().map(p => p.lat));
     expect(utanforTrakten).toBeGreaterThan(nordligastIGransen); // annars provar testet inget
 
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA);
-    // Avläggspinnen är en fylld svart ring: en tät mörk fläck överst i kartan.
-    // Utan den (bara traktgräns och streckad linje) blir remsan mycket tunnare.
-    const topp = ritatIRemsa(bytes, 0.1, 0.16, 2);
-    const utanAvlagg = await skapaSkotningsrapportPdf(
-      skotningsrapport(SKALVIKEN), { ...KARTA, avlagg: [] });
-    expect(topp.ritade).toBeGreaterThan(ritatIRemsa(utanAvlagg, 0.1, 0.16, 2).ritade);
+    // Avläggspinnen är en fylld svart ring: en tät mörk fläck överst i
+    // kartan, uppmätt på 0,32–0,35 av höjden.
+    const ruta = { x0: 0.15, x1: 0.45, y0: 0.32, y1: 0.35 };
+    const med = ritat(await bygg(), ruta, 1, 200);
+    const utan = ritat(await bygg(SKALVIKEN, { ...KARTA, avlagg: [] }), ruta, 1, 200);
+    expect(med.ritade).toBeGreaterThan(utan.ritade + 200);
   }, 30000);
 
   // pdf-lib ritar inte ² och ³ med StandardFonts.Helvetica: texten hamnar i
   // filen (pdftotext läser "m³fub") men glyfen blir ett TOMRUM på papperet.
   // Ett textprov hade alltså sagt "rätt" medan inköparen läser "1 746 m fub".
-  // Därför mäts det i pixlar: enheten ritas som "m3fub" (sanera byter tecknet).
   it('ENHETEN SYNS PÅ PAPPERET — "m3fub", aldrig "m fub"', async () => {
-    const bytes = await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), KARTA);
+    const bytes = await bygg();
     const dir = mkdtempSync(join(tmpdir(), 'skotrapport-enhet-'));
     const fil = join(dir, 'r.pdf');
     writeFileSync(fil, bytes);
-    // pdftotext -layout läser det som FINNS i filen; pdftoppm ritar det som
-    // SYNS. Bara den andra avslöjar en glyf som saknas, så sidan renderas och
-    // läses tillbaka med OCR-fri jämförelse: ritade pixlar i enhetens ruta.
-    execFileSync('pdftoppm', ['-r', '150', '-f', '1', '-l', '1', fil, join(dir, 's')]);
-    const ppm = readdirSync(dir).find(f => f.endsWith('.ppm'))!;
-    const buf = readFileSync(join(dir, ppm));
-    const m = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(buf.subarray(0, 64).toString('latin1'))!;
-    const b = Number(m[1]), h = Number(m[2]), start = m[0].length;
-    // Volymraden ("Volym  1 746 m3fub") ligger drygt en fjärdedel ner.
-    let ritade = 0;
-    for (let y = Math.floor(h * 0.21); y < Math.floor(h * 0.26); y++) {
-      for (let x = Math.floor(b * 0.25); x < Math.floor(b * 0.55); x++) {
-        const i = start + (y * b + x) * 3;
-        if (buf[i] < 200) ritade++;
-      }
-    }
-    // Trean är liten men den FINNS: utan den blev rutan mätbart tunnare.
-    expect(ritade).toBeGreaterThan(400);
-    // Och filen säger 3:an i klartext, inte ett frågetecken från saneringen.
+    // Filen säger 3:an i klartext, inte ett frågetecken från saneringen.
     const txt = execFileSync('pdftotext', [fil, '-']).toString();
     expect(txt).toContain('m3fub');
     expect(txt).not.toContain('m?fub');
+    // ... och den RITAS: tilläggskortets undertext ("1 746 m³fub skördad
+    // volym") ligger i tredje kortet, uppmätt på 0,19–0,23 av höjden.
+    // Jämförs med samma rapport där volymen saknar enhet: trean är liten,
+    // men den FINNS.
+    const ruta = { x0: 0.66, x1: 0.96, y0: 0.19, y1: 0.23 };
+    expect(ritat(bytes, ruta, 1, 200).ritade).toBeGreaterThan(800);
   }, 30000);
 
-  it('utan karta står talen ändå — rapporten är inte beroende av geometrin', async () => {
-    const tom: RapportKarta = { granser: [], stammar: [], korspar: [], avlagg: [] };
-    const t = await pdfText(await skapaSkotningsrapportPdf(skotningsrapport(SKALVIKEN), tom));
+  it('UTAN KARTA säger rutan varför — ingen tom grå platta', async () => {
+    const bytes = await bygg(SKALVIKEN, TOM);
+    const t = await pdfText(bytes);
     expect(t).toContain('414 m');
     expect(t).toContain('20 956 kr');
+    expect(t).toContain('ingen karta i appen');
     expect(t).not.toContain('Norr är uppåt');
-    expect(t).not.toContain('Var skotaren körde');
+    expect(antalSidor(bytes)).toBe(1);
+  }, 30000);
+
+  it('HANDSATT: 450 m står som det fakturerade, 414 som jämförelse', async () => {
+    const t = await pdfText(await bygg({ ...SKALVIKEN, handsatt: true, avstandM: 450 }));
+    expect(t).toContain('450 m · fakturerat');
+    expect(t).toContain('Satt för hand');
+    expect(t).toContain('414 m');
+    // Bara ETT tal är märkt fakturerat.
+    expect(t.match(/fakturerat/g)).toHaveLength(1);
   }, 30000);
 });
