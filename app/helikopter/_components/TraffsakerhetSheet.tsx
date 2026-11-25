@@ -10,9 +10,11 @@ import { useEffect, useState } from 'react'
 import { Sheet } from '@/components/Sheet'
 import Sektion from '@/components/design/Sektion'
 import Rad from '@/components/design/Rad'
+import Svarsrad from '@/components/design/Svarsrad'
+import Ikon from '@/components/design/Ikon'
 import Flikkontroll from '@/components/design/Flikkontroll'
 import { RadLank } from '@/components/ui/RadGrupp'
-import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
+import { AVSTAND, FARG, IKON, TNUM, TYP } from '@/lib/design/tokens'
 import { hamtaPrognosFacit } from '../_lib/queries'
 import { fmtDag } from '../_lib/format'
 import { KALLA_ORD, blevText, byggPar, grupperaTrakter, kallaText, ordna, parRader, summera, svarRubrik, type FacitRad, type Ordning } from '../_lib/traffsakerhet'
@@ -62,12 +64,7 @@ export function Innehall({ rader, ordning, onOrdning }: { rader: FacitRad[]; ord
   return (
     <>
       {/* Svaret först, i en mening. */}
-      {svar && (
-        <div data-svar="1" style={{ marginBottom: AVSTAND.l }}>
-          <div style={{ ...TYP.titel, color: FARG.text }}>{svar.rubrik}</div>
-          {svar.under && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>}
-        </div>
-      )}
+      {svar && <div data-svar="1"><Svarsrad rubrik={svar.rubrik} rad={svar.under} fri /></div>}
 
       <Sektion rubrik="Hur mycket missar de?" kort={false} not={appenSaknas ? 'Appens första jämförelse kommer när en ny trakt är klar.' : undefined}>
         {(['appen', 'planeraren'] as const).map((k, i) => {
@@ -91,7 +88,7 @@ export function Innehall({ rader, ordning, onOrdning }: { rader: FacitRad[]; ord
                   <div>{blevText(p)}</div>
                   {parRader(p).map(r => (
                     <div key={r.kalla} style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: AVSTAND.xs, ...TYP.text, color: r.narmast ? FARG.text : FARG.text2, fontWeight: r.narmast ? 600 : 400 }}>
-                      <span>{r.narmast ? '✓ ' : ''}{r.text}{r.narmast ? ' · närmast' : ''}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>{r.narmast && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{r.text}{r.narmast ? ' · närmast' : ''}</span>
                       <span style={TNUM}>{r.hoger}</span>
                     </div>
                   ))}

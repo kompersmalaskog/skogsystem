@@ -11,6 +11,7 @@ import PageContainer from '@/components/PageContainer'
 import Flikkontroll from '@/components/design/Flikkontroll'
 import { AVSTAND, FARG, IKON, KORT, RAD, ROT_MIN_HOJD, TNUM, TRAFFYTA, TYP, VY_ROT } from '@/lib/design/tokens'
 import Rad from '@/components/design/Rad'
+import Svarsrad from '@/components/design/Svarsrad'
 import { ymdLokal } from '@/lib/datumLokal'
 import { TYPER, TYP_NAMN } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik } from '../_lib/format'
@@ -184,12 +185,7 @@ function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
   const lista = [...veckor].reverse()
   return (
     <>
-      {svar && (
-        <div data-svar="1" style={{ marginBottom: AVSTAND.l, padding: `0 ${AVSTAND.xs}px` }}>
-          <div style={{ ...TYP.titel, color: FARG.text }}>{svar.rubrik}</div>
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>
-        </div>
-      )}
+      {svar && <div data-svar="1"><Svarsrad rubrik={svar.rubrik} rad={svar.under} fri /></div>}
       <section style={{ ...KORT, marginBottom: AVSTAND.rad }}>
         {lista.map((v, i) => {
           const r = veckoRader(v)
@@ -202,7 +198,7 @@ function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
                 under={[r.skordat, r.skotat].map((x, k) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: k === 0 ? AVSTAND.xs : AVSTAND.xs, ...TYP.text, color: x.klart ? FARG.text : FARG.text2, fontWeight: x.klart ? 600 : 400 }}>
                     <span style={TNUM}>{x.text}</span>
-                    <span style={{ ...TNUM, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.ord}</span>
+                    <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
                   </div>
                 ))}
                 sista={i === lista.length - 1 && !oppen}

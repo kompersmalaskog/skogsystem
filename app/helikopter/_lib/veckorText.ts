@@ -1,4 +1,4 @@
-// Veckor — "Hur gick veckorna?": en veckorad har två rader (Skördat / Skotat), var och en "612 av 669" + ett ord ("57 kvar", "39 under", "✓ klart").
+// Veckor — "Hur gick veckorna?": en veckorad har två rader (Skördat / Skotat), var och en "612 av 669" + ett ord ("57 kvar", "39 under", "Klart").
 // Ren modell: samma tal som förut (plan, skördat, skotat per vecka), bara orden är nya. "Klart" = veckan nått planen (≥, som veckaFarg).
 import type { VeckaRad } from './queries'
 import { fmt } from './format'
@@ -18,7 +18,7 @@ function rad(namn: string, varde: number, plan: number | null, status: VeckaRad[
   if (plan == null || plan <= 0) return { text: `${namn} ${status === 'kommande' ? '–' : fmt(varde)}`, ord: '', klart: false }
   if (status === 'kommande') return { text: `${namn} – av ${fmt(plan)}`, ord: '', klart: false }
   const text = `${namn} ${fmt(varde)} av ${fmt(plan)}`
-  if (varde >= plan) return { text, ord: '✓ klart', klart: true }
+  if (varde >= plan) return { text, ord: 'Klart', klart: true }
   const skillnad = fmt(plan - varde)
   return { text, ord: status === 'pagar' ? `${skillnad} kvar` : `${skillnad} under`, klart: false }
 }

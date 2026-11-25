@@ -10,9 +10,9 @@ describe('Veckor — orden', () => {
     expect(r.skordat).toEqual({ text: 'Skördat 612 av 669', ord: '57 kvar', klart: false })
     expect(r.skotat).toEqual({ text: 'Skotat 540 av 669', ord: '129 kvar', klart: false })
   })
-  it('låst: ✓ klart vid plan eller över, annars "under"', () => {
+  it('låst: Klart vid plan eller över, annars "under"', () => {
     const r = veckoRader(v({ status: 'last', plan: 909, skordat: 980, skotat: 780 }))
-    expect(r.skordat.ord).toBe('✓ klart')
+    expect(r.skordat.ord).toBe('Klart')
     expect(r.skotat).toMatchObject({ ord: '129 under', klart: false })
     expect(veckoRader(v({ status: 'last', plan: 909, skordat: 909 })).skordat.klart).toBe(true)   // exakt plan = nått
   })
