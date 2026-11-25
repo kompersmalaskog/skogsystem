@@ -122,38 +122,40 @@ export function summera(par: Par[]): Summering {
 
 const tim = (n: number) => `${new Intl.NumberFormat('sv-SE', { maximumFractionDigits: n % 1 ? 1 : 0 }).format(n)} tim`
 
-/** Rubrikraden för en källa: "Inom 12 % · 14 trakter" / "2 trakter – för få för ett tal" / "Inga trakter än". */
-export function kallaText(s: KallaSumma): { tal: string; under: string } {
-  if (s.antal === 0) return { tal: '–', under: 'Inga trakter än' }
-  if (s.inomProcent == null) return { tal: '–', under: `${s.antal} ${s.antal === 1 ? 'trakt' : 'trakter'} – för få för ett tal` }
-  const bas = Math.min(s.antal, SENASTE_N)
-  return { tal: `inom ${s.inomProcent} %`, under: `på de senaste ${bas} trakterna` }
+/** Raden för en källa: "8 %" (så mycket den brukar missa) / "–" med en ärlig rad när det inte finns något att räkna på. */
+export function kallaText(s: KallaSumma): { tal: string; under: string | null } {
+  if (s.antal === 0) return { tal: '–', under: 'Ingen klar trakt än' }
+  if (s.inomProcent == null) return { tal: '–', under: `${s.antal} ${s.antal === 1 ? 'trakt' : 'trakter'} – för få` }
+  return { tal: `${s.inomProcent} %`, under: null }
 }
 
-/** "Appen låg närmast 9 av 14 gånger · planeraren 4 · lika 1" — bara när något är jämfört. */
-export function narmastText(s: Summering): string | null {
+/** Svaret i en mening: "Appen hade oftast rätt" + "Närmast på 9 av 14 trakter". Null när inget går att jämföra (då räcker raderna). */
+export function svarRubrik(s: Summering): { rubrik: string; under: string | null } | null {
   if (s.jamforda === 0) return null
   const a = s.kallor.appen.narmast
   const p = s.kallor.planeraren.narmast
-  const forst: Kalla = a >= p ? 'appen' : 'planeraren'
-  const andra: Kalla = forst === 'appen' ? 'planeraren' : 'appen'
-  const delar = [`${KALLA_ORD[forst]} låg närmast ${s.kallor[forst].narmast} av ${s.jamforda} gånger`, `${andra} ${s.kallor[andra].narmast}`]
-  if (s.lika > 0) delar.push(`lika ${s.lika}`)
-  return delar.join(' · ')
+  if (a === p) return { rubrik: 'Lika bra', under: null }
+  const vinnare: Kalla = a > p ? 'appen' : 'planeraren'
+  return { rubrik: `${KALLA_ORD[vinnare]} hade oftast rätt`, under: `Närmast på ${s.kallor[vinnare].narmast} av ${s.jamforda} ${s.jamforda === 1 ? 'trakt' : 'trakter'}` }
 }
 
-/** Radens text för ett par: "Skördaren blev 52 tim · planeraren 56 · appen 48". Saknad källa skrivs inte alls (ingen "–" att missförstå). */
-export function parText(p: Par): string {
-  const delar = [`${ROLL_ORD[p.roll]} blev ${tim(p.blev)}`]
-  if (p.planeraren != null) delar.push(`planeraren ${tim(p.planeraren)}`)
-  if (p.appen != null) delar.push(`appen ${tim(p.appen)}`)
-  return delar.join(' · ')
-}
+const fmtN = (n: number) => new Intl.NumberFormat('sv-SE', { maximumFractionDigits: n % 1 ? 1 : 0 }).format(n)
 
-/** Vem som låg närmast, i ord, för raden; null när inget går att jämföra. */
-export function parNarmastText(p: Par): string | null {
-  if (p.narmast == null) return null
-  return p.narmast === 'lika' ? 'lika nära' : `${p.narmast} låg närmast`
+/** "Det blev 52 tim" — med rollen när traktens två roller ritas var för sig. */
+export function blevText(p: Par): string { return `${ROLL_ORD[p.roll]} blev ${tim(p.blev)}` }
+
+export type PrognosRad = { kalla: Kalla; text: string; hoger: string; narmast: boolean }
+
+/** Vad varje källa sa och hur långt ifrån det blev: "Planeraren sa 58" · "6 för mycket". Saknad källa skrivs inte alls. */
+export function parRader(p: Par): PrognosRad[] {
+  const ut: PrognosRad[] = []
+  for (const k of ['planeraren', 'appen'] as const) {
+    const v = p[k]
+    if (v == null) continue
+    const d = v - p.blev
+    ut.push({ kalla: k, text: `${KALLA_ORD[k]} sa ${fmtN(v)}`, hoger: Math.abs(d) < LIKA_TIM ? 'nästan exakt' : `${fmtN(Math.abs(d))} ${d > 0 ? 'för mycket' : 'för lite'}`, narmast: p.narmast === k })
+  }
+  return ut
 }
 
 export type Ordning = 'senaste' | 'skillnad'

@@ -202,6 +202,11 @@ export type VeckaRad = {
   plan: number | null
   skordat: number
   skotat: number
+  /** Del av skotat som är egen skotning, räknad på skördad volym (markägaren skotar). Ingår i skotat. */
+  skotat_egen?: number
+  /** Skördat och skotat på bolag UTAN beställning (t.ex. Privat) — står utanför plan och "kvar", men ingår i "Alla bolag". */
+  skordat_ovrigt?: number
+  skotat_ovrigt?: number
   status: 'last' | 'pagar' | 'kommande'
   orsak: string | null
   maskiner: { maskin_id: string; modell: string | null; namn: string; roll: 'skordare' | 'skotare'; volym: number }[]
@@ -271,7 +276,7 @@ function normVecka(r: any): VeckaRad {
   return {
     isovecka: tal(r.isovecka), iso_ar: tal(r.iso_ar), fran: r.fran, till: r.till,
     arbetsdagar: tal(r.arbetsdagar), arbetsdagar_kvar: tal(r.arbetsdagar_kvar), plan: talEllerNull(r.plan),
-    skordat: tal(r.skordat), skotat: tal(r.skotat), status: r.status, orsak: r.orsak ?? null,
+    skordat: tal(r.skordat), skotat: tal(r.skotat), skotat_egen: tal(r.skotat_egen), skordat_ovrigt: tal(r.skordat_ovrigt), skotat_ovrigt: tal(r.skotat_ovrigt), status: r.status, orsak: r.orsak ?? null,
     maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, namn: String(m?.namn ?? m?.modell ?? m?.maskin_id ?? ''), roll: m?.roll, volym: tal(m?.volym) })) : [],
   }
 }
@@ -696,5 +701,104 @@ export async function sattEgenSkotning(objektId: string, egen: boolean): Promise
     return { error: r.ok ? null : r.fel }
   } catch (e) {
     return { error: felText(e) }
+  }
+}
+
+/** Var maskinerna faktiskt arbetat de senaste dagarna, i köns egna id (objekt.id): `pa` = de köade trakter de arbetat på, tomt = arbetat, men inte på något i kön.
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass. En maskin utan rader i fönstret är inte med (okänt, inte "kör annat"). */
+export type SenasteArbete = { maskin_id: string; pa: string[]; /** false = allt maskinen gjort utanför kön är på AVSLUTADE objekt (den är klar och på väg vidare, kör inte annat); saknas = okänt. */ annat_oppet?: boolean }
+export async function hamtaSenasteArbete(fran: string, koIds: string[]): Promise<Svar<SenasteArbete[]>> {
+  try {
+    const [p, l, o] = await Promise.all([
+      supabase.from('fakt_produktion').select('maskin_id, objekt_id').gte('datum', fran).limit(1000),
+      supabase.from('helikopter_lass').select('maskin_id, objekt_id').gte('datum', fran).limit(1000),
+      koIds.length === 0 ? Promise.resolve({ data: [], error: null }) : supabase.from('objekt').select('id, vo_nummer, dim_objekt_id').in('id', koIds),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    if (o.error) return { data: null, error: felText(o.error) }
+    if ((p.data ?? []).length >= 1000 || (l.data ?? []).length >= 1000) return { data: null, error: 'För många rader för en läsning' }
+    const rader = [...(p.data ?? []), ...(l.data ?? [])] as { maskin_id: string | null; objekt_id: string | null }[]
+    const dimIds = [...new Set(rader.map(r => r.objekt_id).filter((v): v is string => !!v).map(String))]
+    const dim = new Map<string, string | null>()
+    for (let i = 0; i < dimIds.length; i += 200) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, vo_nummer').in('objekt_id', dimIds.slice(i, i + 200))
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) dim.set(String(x.objekt_id), x.vo_nummer ? String(x.vo_nummer) : null)
+    }
+    // Köns trakt ↔ maskinobjekt: samma koppling som egen skotning (dim_objekt_id eller vo_nummer).
+    const koPerNyckel = new Map<string, string>()
+    for (const x of (o.data ?? []) as any[]) {
+      if (x.dim_objekt_id) koPerNyckel.set(`d:${x.dim_objekt_id}`, String(x.id))
+      if (x.vo_nummer) koPerNyckel.set(`v:${x.vo_nummer}`, String(x.id))
+    }
+    // Status per objekt (vo_nummer): arbete utanför kön på ett AVSLUTAT objekt är inte "kör annat" — maskinen är klar där.
+    const vos = [...new Set([...dim.values()].filter((v): v is string => !!v))]
+    const oppen = new Map<string, boolean>()
+    for (let i = 0; i < vos.length; i += 200) {
+      const st = await supabase.from('objekt').select('vo_nummer, status').in('vo_nummer', vos.slice(i, i + 200))
+      if (st.error) return { data: null, error: felText(st.error) }
+      for (const x of (st.data ?? []) as any[]) if (x.vo_nummer) oppen.set(String(x.vo_nummer), !['avslutat', 'avslutad'].includes(String(x.status)))
+    }
+    const annatOppet = new Map<string, boolean>()
+    const per = new Map<string, Set<string>>()
+    for (const r of rader) {
+      if (!r.maskin_id) continue
+      const s = per.get(String(r.maskin_id)) ?? new Set<string>()
+      per.set(String(r.maskin_id), s)
+      if (r.objekt_id == null) continue
+      const vo = dim.get(String(r.objekt_id))
+      const ko = koPerNyckel.get(`d:${r.objekt_id}`) ?? (vo ? koPerNyckel.get(`v:${vo}`) : undefined) ?? koPerNyckel.get(`v:${r.objekt_id}`)
+      if (ko) s.add(ko)
+      else if (oppen.get(vo ?? '') !== false) annatOppet.set(String(r.maskin_id), true)
+    }
+    return { data: [...per.entries()].map(([maskin_id, s]) => ({ maskin_id, pa: [...s], annat_oppet: annatOppet.get(maskin_id) === true })), error: null }
+  } catch (e) {
+    return { data: null, error: felText(e) }
+  }
+}
+
+/** Vad varje maskin SENAST gjorde, rakt ur data (inget antaget): trakt, typ (GROT, energiklippning, virke) och när.
+ *  Skördare ur fakt_produktion, skotare ur helikopter_lass; den senaste raden per maskin de senaste 7 dagarna. Maskin utan rader är inte med. */
+export type KorNu = { maskin_id: string; namn: string | null; typ: string | null; datum: string; tid: string | null }
+export async function hamtaKorNu(fran: string): Promise<Svar<KorNu[]>> {
+  try {
+    const [p, l] = await Promise.all([
+      supabase.from('fakt_produktion').select('maskin_id, objekt_id, datum, skapad_tid').gte('datum', fran).order('datum', { ascending: false }).limit(1000),
+      supabase.from('helikopter_lass').select('maskin_id, objekt_id, datum, skapad_tid').gte('datum', fran).order('datum', { ascending: false }).limit(1000),
+    ])
+    if (p.error) return { data: null, error: felText(p.error) }
+    if (l.error) return { data: null, error: felText(l.error) }
+    if ((p.data ?? []).length >= 1000 || (l.data ?? []).length >= 1000) return { data: null, error: 'För många rader för en läsning' }
+    type R = { maskin_id: string | null; objekt_id: string | null; datum: string; skapad_tid: string | null }
+    const senast = new Map<string, R>()
+    for (const r of [...(p.data ?? []), ...(l.data ?? [])] as R[]) {
+      if (!r.maskin_id) continue
+      const g = senast.get(String(r.maskin_id))
+      if (!g || `${r.datum} ${r.skapad_tid ?? ''}` > `${g.datum} ${g.skapad_tid ?? ''}`) senast.set(String(r.maskin_id), r)
+    }
+    const ids = [...new Set([...senast.values()].map(r => r.objekt_id).filter((v): v is string => !!v).map(String))]
+    const namn = new Map<string, { namn: string | null; vo: string | null }>()
+    if (ids.length > 0) {
+      const d = await supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').in('objekt_id', ids)
+      if (d.error) return { data: null, error: felText(d.error) }
+      for (const x of (d.data ?? []) as any[]) namn.set(String(x.objekt_id), { namn: x.object_name ?? null, vo: x.vo_nummer ? String(x.vo_nummer) : null })
+    }
+    const vos = [...new Set([...namn.values()].map(x => x.vo).filter((v): v is string => !!v))]
+    const typ = new Map<string, string>()
+    if (vos.length > 0) {
+      const o = await supabase.from('objekt').select('vo_nummer, typ').in('vo_nummer', vos)
+      if (o.error) return { data: null, error: felText(o.error) }
+      for (const x of (o.data ?? []) as any[]) if (x.vo_nummer && x.typ) typ.set(String(x.vo_nummer), String(x.typ))
+    }
+    return {
+      data: [...senast.entries()].map(([maskin_id, r]) => {
+        const n = r.objekt_id ? namn.get(String(r.objekt_id)) : undefined
+        return { maskin_id, namn: n?.namn ?? null, typ: n?.vo ? typ.get(n.vo) ?? null : null, datum: r.datum, tid: r.skapad_tid }
+      }),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: felText(e) }
   }
 }

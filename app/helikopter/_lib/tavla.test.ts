@@ -142,11 +142,11 @@ describe('räcker trakterna', () => {
   it('skotaren: skog nog, även den som saknar maskin räknas som skog att ta', () => {
     expect(rad('slutavverkning', 'skotare')).toMatchObject({ ord: 'Räcker', ton: 'gron' })
   })
-  it('Vad kan du göra: saknas först, sedan trakter utan maskin, sist för mycket', () => {
-    expect(t.gor.map(g => g.slag)).toEqual(['saknas', 'utan', 'formycket'])
+  it('Vad kan du göra: saknas först, sist för mycket — en trakt utan skotare är ingen uppgift när trakterna med skotare redan räcker', () => {
+    // Krokshult saknar skotare men Edestad (med skotare) täcker skotarens behov: ingen "utan"-rad.
+    expect(t.gor.map(g => g.slag)).toEqual(['saknas', 'formycket'])
     expect(t.gor[0]).toMatchObject({ text: 'Lägg in en ny trakt i slutavverkning', under: `Skördare saknar ${fmt(378)} m³` })
-    expect(t.gor[1]).toMatchObject({ slag: 'utan', text: '1 trakt har ingen skotare' })
-    expect(t.gor[2].text).toBe('Gallring har för mycket inlagt')
+    expect(t.gor[1].text).toBe('Gallring har för mycket inlagt')
   })
   it('vilka trakter som behövs: de första i körordning som täcker behovet, resten kan vänta (gallring november)', () => {
     const b = rad('gallring', 'skordare').behov!
@@ -236,6 +236,19 @@ describe('räcker trakterna', () => {
     expect(sk.utanSumma).toBe(221)
     expect(rad('slutavverkning', 'skordare').skot).toBeNull()
   })
+  it('skotare: trakten maskinen arbetar på just nu räknas först och behövs, hur ordningen än ser ut', () => {
+    const d = bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 })],
+      utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 4000 }],
+      klar: klar([...maskiner, maskin('Skotare810', 'skotare')], [trakt('A', 'skotare', 'Elefant', { rest_volym: 1000 }), trakt('B', 'skotare', 'Skotare810', { rest_volym: 120 })]),
+      senaste: [{ maskin_id: 'Skotare810', pa: ['B'] }],
+    })
+    const sk = byggTavla(d).spar[0].racker.find(r => r.roll === 'skotare')!.skot!
+    // B står sist i ordningen men 810:an kör där nu: den räknas först (120 behövs) och resten (880) går till A.
+    expect(sk.rader.map(r => r.namn)).toEqual(['B', 'A'])
+    expect(sk.rader[0]).toMatchObject({ pagar: true, behovs: 120 })
+    expect(sk.rader[1]).toMatchObject({ pagar: false, behovs: 880 })
+  })
   it('skotare: en trakt utan skotare täcker inte behovet — saknas räknas bara på trakter med skotare', () => {
     const d = bas({
       spar: [spar('slutavverkning', { bestallt: 5000 })],
@@ -245,6 +258,8 @@ describe('räcker trakterna', () => {
     const sk = byggTavla(d).spar[0].racker.find(r => r.roll === 'skotare')!.skot!
     // Behov 1 000; A (med skotare) ger 500 → saknas 500 trots att B (900, utan skotare) finns.
     expect(sk).toMatchObject({ behov: 1000, saknas: 500, utanSumma: 900 })
+    // Här räcker inte trakterna med skotare: trakten utan skotare är en uppgift.
+    expect(byggTavla(d).gor.map(g => g.slag)).toContain('utan')
     expect(sk.rader.find(r => r.namn === 'A')!.behovs).toBe(500)
     expect(sk.rader.find(r => r.namn === 'B')!.behovs).toBe(0)
   })
@@ -304,6 +319,37 @@ describe('räcker trakterna', () => {
   })
 })
 
+describe('kör annat', () => {
+  const maskiner = [maskin('Elefant', 'skotare'), maskin('Wisent', 'skotare')]
+  const trakter = [
+    trakt('Arvidstorp', 'skotare', 'Elefant', { rest_volym: 300, timmar: 40 }),
+    trakt('Bondeskog', 'skotare', 'Wisent', { rest_volym: 300, timmar: 40 }),
+  ]
+  const ind = (senaste?: { maskin_id: string; pa: string[] }[]) => bas({
+    spar: [spar('slutavverkning', { bestallt: 1000, skordat: 700, skotat: 200 })],
+    utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 200 }],
+    klar: klar(maskiner, trakter), senaste,
+  })
+  const wisent = (senaste?: { maskin_id: string; pa: string[] }[]) => byggTavla(ind(senaste)).spar[0].block[1].maskiner.find(m => m.namn === 'Wisent')!
+  it('Wisent kör energiklippning, inte Bondeskog: ingen prognos läggs på honom, och kortet säger det', () => {
+    const b = byggTavla(ind([{ maskin_id: 'Wisent', pa: [] }, { maskin_id: 'Elefant', pa: ['Arvidstorp'] }])).spar[0].block[1]
+    expect(b.maskiner.find(m => m.namn === 'Wisent')).toMatchObject({ korAnnat: true, landar: 0, ca: false })
+    expect(b.maskiner.find(m => m.namn === 'Elefant')?.korAnnat).toBe(false)
+    expect(b.korAnnat).toEqual(['Wisent'])
+  })
+  it('arbetar han på Bondeskog räknas han med; okänt (ingen avläsning, eller inga rader) ändrar ingenting', () => {
+    expect(wisent([{ maskin_id: 'Wisent', pa: ['Bondeskog'] }]).korAnnat).toBe(false)
+    expect(wisent([{ maskin_id: 'Wisent', pa: ['Bondeskog'] }]).landar).toBeGreaterThan(0)
+    expect(wisent(undefined)).toMatchObject({ korAnnat: false })
+    expect(wisent([]).korAnnat).toBe(false)
+    expect(wisent(undefined).landar).toBe(wisent([{ maskin_id: 'Elefant', pa: [] }]).landar)
+  })
+  it('avslutad månad: ingen avkänning', () => {
+    const t = byggTavla({ ...ind([{ maskin_id: 'Wisent', pa: [] }]), status: 'avslutad' })
+    expect(t.spar[0].block[1].korAnnat).toEqual([])
+  })
+})
+
 describe('egen skotning', () => {
   const maskiner = [maskin('H8E', 'skordare')]
   const trakter = [
@@ -335,6 +381,22 @@ describe('egen skotning', () => {
     // Det markägaren landar på = det skördaren landar på där: summan går att räkna ihop.
     expect(b.landar).toBe(b.markagare!.landar)
     expect(b.markagare!.landar).toBe(t.spar[0].block[0].maskiner[0].landar! - 38 - 45)
+  })
+  it('Räcker trakterna: egen skotning räknas åt båda hållen — skotaren säger aldrig "saknar" för skog som markägaren skotar', () => {
+    const r = t.spar[0].racker
+    const skord = r.find(x => x.roll === 'skordare')!
+    const skot = r.find(x => x.roll === 'skotare')!
+    expect(skord.diff).toBeGreaterThan(0)
+    // Samma trakt, samma skog: skotaren ser den också, så de två raderna kan inte säga emot varandra.
+    expect(skot.diff).toBeGreaterThan(0)
+    expect(skot.ord).not.toMatch(/Saknar/)
+    expect(skot.skot!.saknas).toBe(0)
+    expect(skot.skot!.utanSumma).toBe(0)
+    const rad = skot.skot!.rader.find(x => x.namn.includes('Santhe'))!
+    expect(rad.maskin).toBe('Egen skotning')
+    expect(rad.kvar).toBeGreaterThan(0)
+    // Tavlans "Vad kan du göra" ber inte om en ny trakt när skogen räcker.
+    expect(t.gor.some(g => g.slag === 'saknas')).toBe(false)
   })
   it('valet Egen skotning finns för skotaren, och står först när det gäller', () => {
     const v = flyttVal(ind, 'Santhe', 'skotare')!
