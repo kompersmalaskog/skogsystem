@@ -236,7 +236,7 @@ function OvrigtKort({ rader, onTrakt }: { rader: TavlaOvrig[]; onTrakt?: (v: Tra
 
 
 /** "Vad kan du göra?" — bara det som finns. Trakter utan maskin öppnas på plats, och ett tryck på en trakt väljer maskin. */
-function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) => void }) {
+export function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) => void }) {
   const [oppen, setOppen] = useState<number | null>(null)
   return (
     <Sektion rubrik="Vad kan du göra?">

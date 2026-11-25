@@ -1,13 +1,12 @@
-// Menyn på /helikopter: fem sidor, var och en svarar på EN fråga (Martin 2026-11-19).
-//   Läget nu — ligger vi bra till?   ·   Prognos — hinner vi?   ·   Planera — vilka trakter, i vilken ordning?   ·   Månader — hur gick det?
+// Menyn på /helikopter: fyra sidor, var och en svarar på EN fråga (Martin 2026-11-19).
+//   Läget nu — ligger vi bra till?   ·   Kalender — när?   ·   Planera — vilka trakter, i vilken ordning?   ·   Månader — hur gick det?
 // Sidan ligger i adressen (?sida=planera) så att den går att öppna direkt och överlever en omladdning. Läget nu är standard och har ingen parameter.
 
-export type Sida = 'prognos' | 'laget' | 'kalender' | 'planera' | 'manader'
+export type Sida = 'laget' | 'kalender' | 'planera' | 'manader'
 
 export const SIDOR: { id: Sida; namn: string; fraga: string; ikon: string }[] = [
   { id: 'laget', namn: 'Läget nu', fraga: 'Ligger vi bra till?', ikon: 'speed' },
   { id: 'kalender', namn: 'Kalender', fraga: 'När?', ikon: 'calendar_view_week' },
-  { id: 'prognos', namn: 'Hinner vi?', fraga: 'Hinner vi?', ikon: 'query_stats' },
   { id: 'planera', namn: 'Planera', fraga: 'Vilka trakter, i vilken ordning?', ikon: 'checklist' },
   { id: 'manader', namn: 'Månader', fraga: 'Hur gick det?', ikon: 'calendar_month' },
 ]

@@ -179,39 +179,29 @@ describe('/helikopter — tavlan', () => {
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
-  it('menyn: fem sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
+  it('menyn: fyra sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
     q.params = 'ar=2026&manad=10'
     await monter()
     const meny = Array.from(cont.querySelectorAll('[data-meny]')) as HTMLButtonElement[]
-    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Kalender', 'Hinner vi?', 'Planera', 'Månader'])
+    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Kalender', 'Planera', 'Månader'])
     expect(meny[0].getAttribute('aria-current')).toBe('page')
     expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
-    await act(async () => { meny[4].click() })
+    await act(async () => { meny[3].click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=manader', { scroll: false })
     await ritaOm()
     expect(cont.querySelector('[data-meny="manader"]')!.getAttribute('aria-current')).toBe('page')
-    await act(async () => { (cont.querySelector('[data-meny="prognos"]') as HTMLButtonElement).click() })
-    expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=prognos', { scroll: false })
+    expect(cont.querySelector('[data-meny="prognos"]')).toBeNull()
     // Läget nu är standard och har ingen parameter.
     await act(async () => { (cont.querySelector('[data-meny="laget"]') as HTMLButtonElement).click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10', { scroll: false })
   })
 
-  it('Hinner vi? är en egen sida i menyn och enkel: ett ord per spår och maskintyp, trakterna med ett besked var; detaljerna bor bakom "Visa detaljer"', async () => {
+  it('en gammal adress till Hinner vi? (?sida=prognos) öppnar Läget nu — sidan finns inte längre', async () => {
     q.params = 'ar=2026&manad=10&sida=prognos'
     q.hamtaManadsdata.mockResolvedValue({ data: manadsdata({ takter }), error: null })
     await monter()
-    expect(cont.querySelector('[data-sida="prognos"]')).not.toBeNull()
-    expect(cont.querySelector('[data-sida="laget"]')).toBeNull()
-    expect(cont.querySelector('[data-prognos-rubrik]')!.textContent).toMatch(/Vad ska vi göra\?|Inget behöver göras/)
-    expect(cont.querySelector('[data-prognos-vy]')).toBeNull()
-    expect(cont.textContent).not.toMatch(/G15h/)
-    await act(async () => { (cont.querySelector('[data-visa-detaljer]') as HTMLButtonElement).click() })
-    expect(cont.querySelector('[data-prognos-vy="trakt"]')).not.toBeNull()
-    await act(async () => { (Array.from(cont.querySelectorAll('[role="tab"]')).find(b => b.textContent === 'Per maskin') as HTMLButtonElement).click() })
-    expect(cont.querySelector('[data-prognos-vy="maskin"]')).not.toBeNull()
-    await act(async () => { (cont.querySelector('[data-dolj-detaljer]') as HTMLButtonElement).click() })
-    expect(cont.querySelector('[data-prognos-enkel]')).not.toBeNull()
+    expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
+    expect(cont.querySelector('[data-sida="prognos"]')).toBeNull()
   })
 
   it('Månader: hur gick det? — procenten per månad står på sin egen sida, inte i en sidokolumn', async () => {

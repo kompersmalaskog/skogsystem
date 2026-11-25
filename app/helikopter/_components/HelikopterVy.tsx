@@ -36,7 +36,6 @@ import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medPrognoser } from '../_lib/klar'
 import Kalender from './Kalender'
 import type { SkogKort } from '@/lib/skogsdata/las'
-import { byggForslag, byggPrognos } from '../_lib/prognos'
 import { byggTidslinje } from '../_lib/lage'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
@@ -48,8 +47,7 @@ import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
 import Lage from './Lage'
-import Prognos from './Prognos'
-import { FlyttaSheet, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
+import { FlyttaSheet, GorKort, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
 import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
@@ -322,8 +320,6 @@ export default function HelikopterVy() {
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
   // Tidslinjen på Läget nu: vem gör vad dag för dag. Bara i en pågående månad med köunderlag.
   const tidslinje = useMemo(() => (tavla && tavlaIn ? byggTidslinje(tavlaIn, tavla) : null), [tavla, tavlaIn])
-  const prognos = useMemo(() => (tavlaIn && tavla ? byggPrognos(tavlaIn, tavla) : null), [tavlaIn, tavla])
-  const forslag = useMemo(() => (tavlaIn && tavla ? byggForslag(tavlaIn, tavla) : []), [tavlaIn, tavla])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
   const underrad = !dagar
@@ -473,12 +469,9 @@ export default function HelikopterVy() {
                     <div data-sida="planera">
                       <PlaneraFlik tavla={tavla} typ={planera.typ} onTyp={typ => setPlanera({ typ, roll: 'skordare' })} start={planera.roll} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} />
                     </div>
-                  ) : sida === 'prognos' ? (
-                    <div data-sida="prognos">
-                      {prognos && <Prognos prognos={prognos} forslag={forslag} onTrakt={tillPlanera} onMaskin={(typ, objekt_id, roll) => (bytMaskin ? bytMaskin({ objekt_id, roll }) : tillPlanera(typ, roll))} />}
-                    </div>
                   ) : (
                   <div className="hk-rutnat" data-sida="laget">
+                    {tavla && tavla.gor.length > 0 && <div style={{ gridColumn: '1 / -1' }}><GorKort gor={tavla.gor} onTrakt={bytMaskin} /></div>}
                     <Lage tavla={tavla} status={status} onSpar={tillPlanera} tidslinje={tidslinje} korNu={korNu} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>

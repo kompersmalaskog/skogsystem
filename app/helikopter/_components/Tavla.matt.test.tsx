@@ -95,11 +95,6 @@ describe(`Tavlan — ${CHROMIUM ? 'mätt i Chromium' : 'HOPPAD ÖVER: ingen Chro
       { namn: 'behov-ordning', html: await html([kort('slutavverkning', 'skordare'), '[data-trakt-rad] [data-pil="keyboard_arrow_down"]'], 'ar=2026&manad=10&sida=laget') },
       { namn: 'skot', html: await html([kort('slutavverkning', 'skotare')], 'ar=2026&manad=10&sida=laget') },
       { namn: 'manader', html: await html([], 'ar=2026&manad=10&sida=manader') },
-      { namn: 'prognos', html: await html([]) },
-      { namn: 'prognos-osaker', html: await html([], 'ar=2026&manad=10&sida=prognos', true) },
-      { namn: 'prognos-osaker-detalj', html: await html(['[data-visa-detaljer]'], 'ar=2026&manad=10&sida=prognos', true) },
-      { namn: 'prognos-detalj', html: await html(['[data-visa-detaljer]'], 'ar=2026&manad=10&sida=prognos') },
-      { namn: 'prognos-maskin', html: await html(['[data-visa-detaljer]', '[data-prognos] [role="tab"]:nth-child(2)'], 'ar=2026&manad=10&sida=prognos') },
     ]
     vyer.unshift({ namn: 'november', html: await html([], 'ar=2026&manad=11', false, true) })
     const b = await CHROMIUM!.launch({})
