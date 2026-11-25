@@ -5149,11 +5149,14 @@ describe("Förarens godkännande i Löneunderlag", () => {
       expect(kolla()!.textContent).toContain("Ser rätt ut");
       expect(svar()).toContain("1 sak att kolla");
     });
-    it("'Se dagen' är blå accent (dit det åtgärdas); 'Ser rätt ut' är mindre framträdande och inte blå", async () => {
+    it("båda går att trycka på och är blå (Apples regel: grå text går aldrig att trycka på); 'Ser rätt ut' är mindre än 'Se dagen'", async () => {
       g.__salary = med();
       await monter("flik=lon&forare=m1");
-      expect(getComputedStyle(blad("Ser rätt ut")[0].closest("button") as HTMLElement).color).not.toBe(rgbAv(FARG.bla));
-      expect(getComputedStyle(blad("Se dagen")[0].closest("button") as HTMLElement).color).toBe(rgbAv(FARG.bla));
+      const ser = blad("Ser rätt ut")[0].closest("button") as HTMLElement;
+      const dag = blad("Se dagen")[0].closest("button") as HTMLElement;
+      expect(getComputedStyle(ser).color).toBe(rgbAv(FARG.bla));
+      expect(getComputedStyle(dag).color).toBe(rgbAv(FARG.bla));
+      expect(parseFloat(getComputedStyle(ser).fontSize)).toBeLessThan(parseFloat(getComputedStyle(dag).fontSize));
     });
     it("tryck på 'Ser rätt ut' sparar kvitteringen med radens text, och punkten räknas inte längre", async () => {
       g.__salary = med();

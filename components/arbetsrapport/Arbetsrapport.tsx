@@ -6316,7 +6316,7 @@ export default function Arbetsrapport() {
                   <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.text,color:FARG.text }}>{fmt(delta)} var inte maskintid.</p>
                 )}
                 <button onClick={uppdateraTider} style={{ ...KNAPP.tertiar, display:"flex", width:"100%",marginBottom:AVSTAND.s }}>Det var fel — använd maskinens tider</button>
-                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.bla,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
@@ -6376,7 +6376,7 @@ export default function Arbetsrapport() {
                     );
                   })}
                 </div>
-                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.text2,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
+                <button onClick={hoppaÖver} style={{ width:"100%",minHeight:TRAFFYTA.min,padding:AVSTAND.m,background:"none",border:"none",color:FARG.bla,...TYP.meta,cursor:"pointer",fontFamily:"inherit" }}>Hoppa över</button>
               </Card>
             );
           })()}
