@@ -65,16 +65,20 @@ const fmtMin = (min: number) => { const h = Math.floor(min / 60), mm = Math.roun
 const tim = (min: number) => (Math.round(Math.abs(min) / 6) / 10).toLocaleString("sv-SE");
 const ANST_DATUM = /^Anställningsdatum saknas/i;
 /** Varningar som redan visas som egna rader eller lyfts till svarsraden. */
-const REDAN_VISAD = /saknar typ|^Kortpass|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad|^Anställningsdatum saknas/i;
+// "Deldag (…)" är lönemotorns egen förklaring (med paragrafer) — deldagen står redan som en rad i förarens ord.
+const REDAN_VISAD = /saknar typ|^Kortpass|^Helglön|^Löneart saknas|skickas inte: ingen kod är kopplad|^Anställningsdatum saknas|^Deldag \(/i;
 
-/** "Frånvaro (tjanstledig): 1 dag(ar) 2025-12-30 — löneart …" → "Tjänstledig 30 dec · ingen löneart i Fortnox, lägg in för hand". Flera dagar: "Sjuk 5 dagar, 3 aug–7 aug · …". Annan varning: orörd. */
-function franvaroRad(v: string): string | null {
+/**
+ * "Frånvaro (tjanstledig): 1 dag(ar) 2025-12-30 — löneart …" → "Tjänstledig 30 dec · lägg in i Fortnox för hand". Flera dagar: "Semester 5 dagar,
+ * 3 aug–7 aug · …". Det är något admin ska GÖRA, så raden står under "Att kolla". Id:t följer typ och första dagen. Annan varning: null.
+ */
+function franvaroRad(v: string): { id: string; text: string } | null {
   const m = /^Frånvaro \((\w+)\): (\d+) dag\(ar\) (\d{4}-\d{2}-\d{2})(?:…(\d{4}-\d{2}-\d{2}))? — löneart/.exec(v);
   if (!m) return null;
   const ord = FRANVARO_ORD[m[1]] || m[1];
   const n = Number(m[2]);
   const nar = n === 1 || !m[4] ? dagText(m[3]) : `${n} dagar, ${dagText(m[3])}–${dagText(m[4])}`;
-  return `${ord} ${nar} · ingen löneart i Fortnox, lägg in för hand`;
+  return { id: `fr-${m[1]}-${m[3]}`, text: `${ord} ${nar} · lägg in i Fortnox för hand` };
 }
 
 /** Så många dagar skrivs ut på kortet; resten blir "och N till". */
@@ -130,7 +134,8 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
   }
   for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)}: kortpass ${k.minuter} min · räknas inte som arbetsdag`, dagar, "Se dagen");
   // Id:t följer DATUMET (inte ordningen i listan): en kvittering ska inte hoppa till en annan dag när listan ändras.
-  (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)}: ${s.diff_min} min skiljer mot maskinen (du sa ${s.bekraftat}, maskinen ${s.maskinen})`, dagar, "Se dagen"));
+  // diff_min = förarens bekräftade tid − maskinens. Tiderna står i dagen ("Se dagen"), inte här.
+  (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)} · ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "mer" : "mindre"} än maskinen`, dagar, "Se dagen"));
   (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dagar, "Se dagen"));
   if ((m.obekraftade || 0) > 0) kolla("obekr", `${m.obekraftade} obekräftad${m.obekraftade === 1 ? "" : "e"} arbetsdag${m.obekraftade === 1 ? "" : "ar"}`, dagar, "Se dagarna");
   (m.byten || []).forEach((b: any, i: number) => {
@@ -159,7 +164,7 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
   }
   (m.varningar || []).filter((v: string) => !REDAN_VISAD.test(v)).forEach((v: string, i: number) => {
     const fr = franvaroRad(v);
-    if (fr) info(`fr-${i}`, fr); else info(`v-${i}`, v);
+    if (fr) kolla(fr.id, fr.text); else info(`v-${i}`, v);
   });
   return kort;
 }
@@ -171,7 +176,10 @@ export function saknarAnstallningsdatum(medarbetare: any[]): { id: string; namn:
     .map(m => ({ id: m.medarbetare_id, namn: m.namn }));
 }
 
+/** Det som är kvar att kolla för EN förare: okvitterade punkter, och anställningsnumret om det saknas. Samma tal som listan visar. */
+export const kvarAttKolla = (k: ForarKort): number => k.kolla.filter(r => !r.kvitterad).length + (k.saknarAnstNr ? 1 : 0);
+
 /** Antal saker att kolla: varje kolla-rad som inte är kvitterad, och en för anställningsdatum (hur många som än saknar det) och en för koder att koppla. */
 export function antalAttKolla(kort: ForarKort[], saknarDatum: number, kodRad: boolean): number {
-  return kort.reduce((n, k) => n + k.kolla.filter(r => !r.kvitterad).length + (k.saknarAnstNr ? 1 : 0), 0) + (saknarDatum > 0 ? 1 : 0) + (kodRad ? 1 : 0);
+  return kort.reduce((n, k) => n + kvarAttKolla(k), 0) + (saknarDatum > 0 ? 1 : 0) + (kodRad ? 1 : 0);
 }

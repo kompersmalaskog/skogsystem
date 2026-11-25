@@ -62,8 +62,9 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
   );
 }
 
-export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande, pagaende = false }: {
+export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande, pagaende = false, attKolla }: {
   m: any; arbetsManad: string;
+  /** "Att kolla" och "Bra att veta" ur Löneunderlaget (components/admin/ForarKortDelar). Står direkt under godkännandet. */ attKolla?: React.ReactNode;
   /** Månaden är inte slut: övertiden är "hittills" och godkännandet är inte aktuellt än. */ pagaende?: boolean;
   /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string;
   onStang: () => void;
@@ -163,6 +164,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
         </>
       )}
 
+      {attKolla}
+
       {!vy.foretagsledare && (
         <>
           <Sektion topp={AVSTAND.s}>Så blev det</Sektion>
@@ -188,8 +191,14 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
               <Sektion>Lönerader</Sektion>
               <Lista>
                 {vy.lonerader.map((r, i) => (
-                  <Rad key={r.nyckel} attr={{ "data-lonerad": r.nyckel }} rubrik={r.rubrik} detalj={r.detalj ?? undefined}
-                    hoger={<span style={fet}>{r.varde}</span>} sista={i === vy.lonerader.length - 1} />
+                  <Rad key={r.nyckel} attr={{ "data-lonerad": r.nyckel, "data-status": r.utanKod === "saknar" ? "saknar_kod" : r.utanKod === "valfri" ? "valfri_utan_kod" : "skickas" }}
+                    rubrik={r.rubrik} hoger={<span style={fet}>{r.varde}</span>} sista={i === vy.lonerader.length - 1}
+                    detalj={r.utanKod ? <>
+                      {r.utanKod === "saknar"
+                        ? <><span style={{ color: FARG.rod }}>Saknar löneart</span> – skickas inte</>
+                        : <><span style={{ color: FARG.orange }}>Hoppas över</span> – frivillig, ingen kod</>}
+                      {r.detalj && <><br />{r.detalj}</>}
+                    </> : r.detalj ?? undefined} />
                 ))}
               </Lista>
             </>

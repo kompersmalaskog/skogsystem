@@ -45,12 +45,12 @@ describe("Löneunderlaget per förare: en sak per rad, samma sak aldrig två gå
 
   it("frånvarovarningen får svenska ord och ett datumformat (aldrig 'tjanstledig' eller 'dag(ar)')", () => {
     const k = byggForarKort(forare({ varningar: ["Frånvaro (tjanstledig): 1 dag(ar) 2025-12-30 — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning."] }));
-    expect(k.info.map(r => r.text)).toEqual(["Tjänstledig 30 dec · ingen löneart i Fortnox, lägg in för hand"]);
+    expect(k.kolla.map(r => r.text)).toEqual(["Tjänstledig 30 dec · lägg in i Fortnox för hand"]);
   });
 
   it("flera frånvarodagar: antal och spann i ett kort format", () => {
     const k = byggForarKort(forare({ varningar: ["Frånvaro (sjuk): 5 dag(ar) 2026-08-03…2026-08-07 — löneart för Fortnox ej fastställd; läggs INTE som lönerad, sätt manuellt innan sändning."] }));
-    expect(k.info.map(r => r.text)).toEqual(["Sjuk 5 dagar, 3 aug–7 aug · ingen löneart i Fortnox, lägg in för hand"]);
+    expect(k.kolla.map(r => r.text)).toEqual(["Sjuk 5 dagar, 3 aug–7 aug · lägg in i Fortnox för hand"]);
   });
 
   it("helglön: bara undantagen står som rader — dagar som betalar syns i lönearaden", () => {

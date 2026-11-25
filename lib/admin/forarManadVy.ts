@@ -22,7 +22,8 @@ export function tidMedDecimal(min: number, h?: number): string {
 }
 
 export type VyRadDel = { nyckel: string; text: string; varde: string };
-export type VyLonerad = { nyckel: string; rubrik: string; varde: string; detalj: string | null };
+/** `utanKod`: raden har ett antal men ingen löneart i Fortnox — "saknar" stoppar sändningen, "valfri" (premien) hoppas över. */
+export type VyLonerad = { nyckel: string; rubrik: string; varde: string; detalj: string | null; utanKod: "saknar" | "valfri" | null };
 export type VyExtra = { nyckel: string; datum: string; text: string; tid: string; kommentar: string | null };
 export type VyKm = { totalt: string; over: string | null; mil: string; sa: string; dagarOver: { datum: string; text: string }[] };
 export type VyDag = {
@@ -145,7 +146,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
   // Lönerader i den ordning motorn lägger dem; övertid står i uträkningen och reseersättningen under Mil.
   const brandrisk = (m.brandrisk?.dagar || []) as { datum: string; start_tid: string; ob_min: number }[];
   const helglonGer = ((m.helglon?.dagar || []) as { datum: string; namn: string; ger: boolean }[]).filter(h => h.ger);
-  const lonerader: VyLonerad[] = ((m.lonerader || []) as { loneart: string; mangd: string; beskrivning: string }[])
+  const lonerader: VyLonerad[] = ((m.lonerader || []) as { loneart: string; mangd: string; beskrivning: string; status?: string }[])
     .filter(r => !r.loneart.startsWith("overtid") && r.loneart !== "korersattning" && r.loneart !== "valtlappar")
     .map(r => {
       const info = loneartInfo(r.loneart);
@@ -156,7 +157,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       else if (r.loneart.startsWith("premielon")) detalj = r.beskrivning.replace(/(\d)h\b/g, "$1 tim").replace(/(\d)\.(\d)/g, "$1,$2");
       else if (r.loneart.startsWith("helglon")) detalj = `8 tim per röd vardag: ${helglonGer.map(x => `${dagText(x.datum)} ${x.namn}`).join(", ")}`;
       else if (r.loneart === "brandrisk_ob") detalj = `Beordrade morgnar, start till 06:30: ${brandrisk.map(b => `${dagText(b.datum)} ${b.start_tid} (${minText(b.ob_min)})`).join(", ")}`;
-      return { nyckel: r.loneart, rubrik: info?.label ?? r.loneart, varde, detalj };
+      const utanKod = r.status === "saknar_kod" ? "saknar" as const : r.status === "valfri_utan_kod" ? "valfri" as const : null;
+      return { nyckel: r.loneart, rubrik: info?.label ?? r.loneart, varde, detalj, utanKod };
     });
 
   // Mil: totalen och det ersättningsgrundande är motorns (kor_mil, ersattningsmil per dag); uppdelningen är förarspecens egen funktion.
