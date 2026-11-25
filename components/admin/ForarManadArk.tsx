@@ -12,6 +12,7 @@ import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarManad, type VyDag, type VyExtra } from "@/lib/admin/forarManadVy";
 import { andradEfterSkickatText, dagText } from "@/lib/admin/loneunderlagVy";
 import { Bekrafta, Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod, Tertiar } from "./ui";
+import PdfLasare from "@/app/planering/PdfLasare";
 import { arSandbar, forarStatus, FORAR_STATUS_TEXT } from "@/lib/lonesystem/forarGodkannande";
 import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
 
@@ -80,6 +81,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
   const [bekrafta, setBekrafta] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [skickFel, setSkickFel] = useState<string | null>(null);
+  // Förarens tidsspecifikation (samma PDF som föraren öppnar i Arbetsrapport) — för att skriva ut eller dela åt hen.
+  const [visaPdf, setVisaPdf] = useState(false);
 
   useEffect(() => {
     let avbruten = false;
@@ -167,6 +170,18 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
             </div>
           )}
         </>
+      )}
+
+      <Lista>
+        <Rad attr={{ "data-tidsspec": "" }} rubrik="Tidsspecifikation (PDF)" detalj={`Samma som ${forNamn} ser · skriv ut eller dela`}
+          chevron onClick={() => setVisaPdf(true)} sista />
+      </Lista>
+      {visaPdf && (
+        <PdfLasare
+          signedUrl={`/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(arbetsManad)}&medarbetare_id=${encodeURIComponent(m.medarbetare_id)}`}
+          titel={`Tidsspecifikation · ${forNamn}`}
+          delaFilnamn={`tidsspecifikation-${arbetsManad}-${forNamn.toLowerCase().replace(/[^a-z0-9åäö]+/gi, "-")}.pdf`}
+          onClose={() => setVisaPdf(false)} />
       )}
 
       {attKolla && <div data-att-kolla-ankare="">{attKolla}</div>}
