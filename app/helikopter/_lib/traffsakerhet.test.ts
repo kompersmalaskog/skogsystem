@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byggPar, grupperaTrakter, kallaText, narmastText, ordna, parNarmastText, parText, summera, type FacitRad } from './traffsakerhet'
+import { blevText, byggPar, grupperaTrakter, kallaText, ordna, parRader, summera, svarRubrik, type FacitRad } from './traffsakerhet'
 
 const rad = (over: Partial<FacitRad>): FacitRad => ({
   objekt_id: 'o', namn: 'Trakt', typ: 'slutavverkning', klart: '2026-10-01T00:00:00Z', skordare_g15: 52, skotare_g15: 60,
@@ -21,15 +21,15 @@ describe('byggPar', () => {
     expect(sk.avvikelse.appen).toBeCloseTo(4 / 48)
     expect(sk.narmast).toBe('lika')              // 4 tim ifrån båda
     expect(sko.narmast).toBe('appen')            // 60: appen 61 (1), planeraren 72 (12)
-    expect(parText(sk)).toBe('Skördaren blev 52 tim · planeraren 56 tim · appen 48 tim')
-    expect(parNarmastText(sk)).toBe('lika nära')
-    expect(parNarmastText(sko)).toBe('appen låg närmast')
+    expect(blevText(sk)).toBe('Skördaren blev 52 tim')
+    expect(parRader(sk).map(r => `${r.text} · ${r.hoger} · ${r.narmast}`)).toEqual(['Planeraren sa 56 · 4 för mycket · false', 'Appen sa 48 · 4 för lite · false'])
+    expect(parRader(sko).find(r => r.narmast)!.kalla).toBe('appen')
   })
   it('bara en källa: ingen jämförelse, raden säger inte "–"', () => {
     const [p] = byggPar([rad({ app_prognos: null, skotare_g15: null })])
     expect(p.narmast).toBeNull()
-    expect(parText(p)).toBe('Skördaren blev 52 tim · planeraren 56 tim')
-    expect(parNarmastText(p)).toBeNull()
+    expect(parRader(p).map(r => r.kalla)).toEqual(['planeraren'])   // appen skrivs inte alls
+    expect(parRader(p)[0].narmast).toBe(false)
   })
   it('kommatal i gammal manuell_prognos läses', () => {
     const [p] = byggPar([rad({ manuell_prognos: { skordare: '56,5' }, app_prognos: null, skotare_g15: null })])
@@ -41,12 +41,12 @@ describe('summera', () => {
   it('tomt: inga tal, ärlig text', () => {
     const s = summera([])
     expect(s.kallor.appen.inomProcent).toBeNull()
-    expect(kallaText(s.kallor.appen)).toEqual({ tal: '–', under: 'Inga trakter än' })
-    expect(narmastText(s)).toBeNull()
+    expect(kallaText(s.kallor.appen)).toEqual({ tal: '–', under: 'Ingen klar trakt än' })
+    expect(svarRubrik(s)).toBeNull()
   })
   it('under MIN_PAR: antalet men inget tal', () => {
     const s = summera(byggPar([rad({ skotare_g15: null }), rad({ objekt_id: 'b', skotare_g15: null })]))
-    expect(kallaText(s.kallor.planeraren)).toEqual({ tal: '–', under: '2 trakter – för få för ett tal' })
+    expect(kallaText(s.kallor.planeraren)).toEqual({ tal: '–', under: '2 trakter – för få' })
   })
   it('medianen över de senaste 20, i hela procent; närmast räknas bara på jämförda par', () => {
     const rader: FacitRad[] = []
@@ -59,13 +59,13 @@ describe('summera', () => {
     expect(s.kallor.planeraren).toMatchObject({ antal: 25, inomProcent: 9, narmast: 0 })   // |100−110|/110 = 9,1 %
     expect(s.kallor.appen).toMatchObject({ antal: 20, inomProcent: 5, narmast: 20 })
     expect(s.jamforda).toBe(20)
-    expect(kallaText(s.kallor.planeraren)).toEqual({ tal: 'inom 9 %', under: 'på de senaste 20 trakterna' })
-    expect(narmastText(s)).toBe('Appen låg närmast 20 av 20 gånger · planeraren 0')
+    expect(kallaText(s.kallor.planeraren)).toEqual({ tal: '9 %', under: null })
+    expect(svarRubrik(s)).toEqual({ rubrik: 'Appen hade oftast rätt', under: 'Närmast på 20 av 20 trakter' })
   })
   it('lika räknas och sägs', () => {
     const s = summera(byggPar([rad({ skotare_g15: null })]))
     expect(s.lika).toBe(1)
-    expect(narmastText(s)).toBe('Appen låg närmast 0 av 1 gånger · planeraren 0 · lika 1')
+    expect(svarRubrik(s)).toEqual({ rubrik: 'Lika bra', under: null })
   })
 })
 

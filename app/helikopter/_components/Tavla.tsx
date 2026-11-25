@@ -236,7 +236,7 @@ function OvrigtKort({ rader, onTrakt }: { rader: TavlaOvrig[]; onTrakt?: (v: Tra
 
 
 /** "Vad kan du göra?" — bara det som finns. Trakter utan maskin öppnas på plats, och ett tryck på en trakt väljer maskin. */
-function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) => void }) {
+export function GorKort({ gor, onTrakt }: { gor: TavlaGor[]; onTrakt?: (v: TraktVal) => void }) {
   const [oppen, setOppen] = useState<number | null>(null)
   return (
     <Sektion rubrik="Vad kan du göra?">
@@ -396,7 +396,7 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
         <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere' }}>{namn}</span>
         {under.map((u, k) => <span key={k} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">{u}</span>)}
-        <span style={{ ...TYP.meta, ...TNUM, color: maskin ? FARG.text2 : FARG.orange }} data-maskin-rad="">{maskinText}</span>
+        <span style={{ ...TYP.meta, ...TNUM, color: maskin ? FARG.text2 : ton === 'dampad' ? FARG.text3 : FARG.orange }} data-maskin-rad="">{maskinText}</span>
       </span>
     </span>
   )
@@ -417,7 +417,7 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
       {onMaskin
         ? <button type="button" onClick={onMaskin} style={{ ...KNAPP_RAD, flex: 1, minWidth: 0, minHeight: TRAFFYTA.min }} aria-label={`${namn}: byt maskin`}>{namnBlock}</button>
         : <div style={{ flex: 1, minWidth: 0 }}>{namnBlock}</div>}
-      <span style={{ ...TYP.text, ...TNUM, color: text, fontWeight: ton === 'full' ? VIKT.fet : undefined, flexShrink: 0 }}>{fmt(tal)}</span>
+      <span style={{ ...TYP.text, ...TNUM, color: text, fontWeight: ton === 'full' ? VIKT.fet : undefined, flexShrink: 0 }}>{fmt(tal)} m³</span>
       {(upp !== undefined || ner !== undefined) && <span style={{ display: 'flex', flexShrink: 0 }}>{pil('keyboard_arrow_up', 'Flytta upp', upp)}{pil('keyboard_arrow_down', 'Flytta ned', ner)}</span>}
     </div>
   )
@@ -454,30 +454,47 @@ function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
  *  Skördare | Skotare är en växel (samma trakter, två vinklar). Listan står i den ordning trakterna körs;
  *  rubriken "Behövs inte i <månad>" är linjen där beställningen är full. Pilarna ändrar ordning, tryck på maskinen byter den. */
 export type PlaneraRoll = 'skordare' | 'skotare'
-type PlaneraTrakt = { objekt_id: string; namn: string; maskin: string | null; kvar: number; behovs: number; dagar: number | null; till: string | null; flyttbar: boolean; fast: boolean }
+type PlaneraTrakt = { objekt_id: string; namn: string; maskin: string | null; kvar: number; behovs: number; dagar: number | null; till: string | null; flyttbar: boolean; fast: boolean; pagar: boolean }
 
-export function PlaneraSida({ spar, start, manadNamn, nastaNamn, kanFlytta, onFlytta, ordning, onTrakt, onKlart, visaNamn = true }: {
-  spar: TavlaSpar; start: PlaneraRoll; visaNamn?: boolean; manadNamn: string; nastaNamn: string; kanFlytta: boolean
+type PlaneraProps = {
+  spar: TavlaSpar; manadNamn: string; nastaNamn: string; kanFlytta: boolean
   onFlytta: (objektIds: string[]) => Promise<string | null>
   ordning?: OrdningsStyrning; onTrakt?: (v: TraktVal) => void; onKlart?: () => void
-}) {
-  const [roll, setRoll] = useState<PlaneraRoll>(start)
+}
+
+/** Planera: skördare och skotare under varandra (bredvid varandra på bred skärm), ingen växel. Överst ett svar per maskinslag, sedan trakterna i körordning. */
+export function PlaneraSida({ spar, start, visaNamn = true, ordning, ...rest }: PlaneraProps & { start: PlaneraRoll; visaNamn?: boolean }) {
+  const roller: PlaneraRoll[] = start === 'skotare' ? ['skotare', 'skordare'] : ['skordare', 'skotare']
+  return (
+    <div data-planera={spar.typ}>
+      {visaNamn && <h2 style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.titel, color: FARG.text }}>{spar.namn}</h2>}
+      {ordning && <OrdningsBar st={ordning} primar />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: `0 ${AVSTAND.xl}px`, alignItems: 'start' }}>
+        {roller.map(r => <PlaneraRollAvsnitt key={r} spar={spar} roll={r} ordning={ordning} {...rest} />)}
+      </div>
+    </div>
+  )
+}
+
+function PlaneraRollAvsnitt({ spar, roll, manadNamn, nastaNamn, kanFlytta, onFlytta, ordning, onTrakt, onKlart }: PlaneraProps & { roll: PlaneraRoll }) {
   // Avmarkerade, inte markerade: när ordningen ändras och en annan trakt hamnar under "Behövs inte" är den förvald.
   const [bort, setBort] = useState<Set<string>>(() => new Set())
   const [lage, setLage] = useState<{ skickar: boolean; fel: string | null }>({ skickar: false, fel: null })
   const behov = spar.racker.find(r => r.roll === 'skordare')?.behov ?? null
   const skot = spar.racker.find(r => r.roll === 'skotare')?.skot ?? null
-  const takt = spar.block[roll === 'skordare' ? 0 : 1].takt
   const ingen = roll === 'skordare' ? 'Ingen skördare' : 'Ingen skotare'
 
   // Tre grupper i samma form: körs (behövs), saknar maskin (bara skotare) och behövs inte.
-  const tillTrakt = (t: TavlaBehov['behovs'][number] | TavlaSkot['rader'][number], flyttbar: boolean): PlaneraTrakt => ({ objekt_id: t.objekt_id, namn: t.namn, maskin: t.maskin, kvar: t.kvar, behovs: t.behovs, dagar: t.dagar, till: t.till, fast: t.fast, flyttbar })
+  const tillTrakt = (t: TavlaBehov['behovs'][number] | TavlaSkot['rader'][number], flyttbar: boolean): PlaneraTrakt => ({ objekt_id: t.objekt_id, namn: t.namn, maskin: t.maskin, kvar: t.kvar, behovs: t.behovs, dagar: t.dagar, till: t.till, fast: t.fast, pagar: t.pagar === true, flyttbar })
   const grupper: { koors: PlaneraTrakt[]; utan: PlaneraTrakt[]; inte: PlaneraTrakt[] } = roll === 'skordare'
     ? { koors: (behov?.behovs ?? []).map(t => tillTrakt(t, false)), utan: [], inte: (behov?.inte ?? []).map(t => tillTrakt(t, t.flyttbar)) }
-    : { koors: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => tillTrakt(t, false)), utan: (skot?.rader ?? []).filter(t => t.maskin == null).map(t => tillTrakt(t, false)), inte: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs <= 0).map(t => tillTrakt(t, false)) }
+    : { koors: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => tillTrakt(t, false)),
+        // Räcker trakterna med skotare till beställningen behövs en trakt utan skotare inte: den ligger under "Behövs inte" och är ingen uppgift.
+        utan: (skot?.saknas ?? 1) > 0 ? (skot?.rader ?? []).filter(t => t.maskin == null).map(t => tillTrakt(t, false)) : [],
+        inte: (skot?.rader ?? []).filter(t => (t.maskin != null && t.behovs <= 0) || (t.maskin == null && (skot?.saknas ?? 1) <= 0)).map(t => tillTrakt(t, false)) }
   const ordnade = [...grupper.koors, ...grupper.inte]
   const nr = new Map<string, number>([...ordnade.map((t, i) => [t.objekt_id, i + 1] as const), ...grupper.utan.map((t, i) => [t.objekt_id, i + 1] as const)])
-  const pilGrupp = (utanMaskin: boolean) => (utanMaskin ? grupper.utan : ordnade).filter(t => !t.fast).map(t => t.objekt_id)
+  const pilGrupp = (utanMaskin: boolean) => (utanMaskin ? grupper.utan : ordnade).filter(t => !t.fast && !t.pagar).map(t => t.objekt_id)
 
   const utanSumma = skot?.utanSumma ?? 0
   const gjort = roll === 'skordare' ? behov : skot
@@ -501,39 +518,32 @@ export function PlaneraSida({ spar, start, manadNamn, nastaNamn, kanFlytta, onFl
     else { setLage({ skickar: false, fel: null }); onKlart?.() }
   }
 
+  // Pilar bara när det finns något att byta plats med.
   const rad = (t: PlaneraTrakt, i: number, typ: 'koors' | 'utan' | 'inte', attr: string) => {
     const delvis = typ === 'koors' && t.behovs < t.kvar
-    const tid = t.dagar == null ? 'Tid saknas' : dagarText(delvis ? t.dagar * (t.behovs / t.kvar) : t.dagar)
+    const grupp = pilGrupp(typ === 'utan')
     return (
       <div key={t.objekt_id} style={{ borderTop: i > 0 ? LINJE : 'none' }} {...{ [attr]: t.objekt_id }}>
         <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? i + 1} namn={t.namn} maskin={t.maskin} ingen={ingen} ton={typ === 'inte' ? 'dampad' : 'full'}
           tal={typ === 'koors' ? t.behovs : t.kvar}
           onMaskin={onTrakt ? () => onTrakt({ objekt_id: t.objekt_id, roll }) : undefined}
-          under={[...(delvis ? [`Behövs ${fmt(t.behovs)} av ${fmt(t.kvar)} m³`] : []), ...(typ === 'utan' ? [] : [tid + (typ === 'koors' && !delvis && t.till ? ` · klar ${t.till}` : '')])]}
+          under={[...(t.pagar ? ['Körs nu'] : []), ...(delvis ? [`Bara ${fmt(t.behovs)} av ${fmt(t.kvar)} m³ behövs`] : [])]}
           kryss={roll === 'skordare' && typ === 'inte' && kanFlytta && t.flyttbar ? { pa: valda.has(t.objekt_id), onToggle: () => vaxla(t.objekt_id) } : null}
-          {...pilar(pilGrupp(typ === 'utan'), t.objekt_id, ordning)} />
+          {...(grupp.length >= 2 ? pilar(grupp, t.objekt_id, ordning) : {})} />
       </div>
     )
   }
 
   return (
-    <div data-planera={spar.typ}>
-      {visaNamn && <h2 style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.titel, color: FARG.text }}>{spar.namn}</h2>}
-      <div style={{ marginBottom: AVSTAND.l }}>
-        <Flikkontroll flikar={[['skordare', 'Skördare'], ['skotare', 'Skotare']] as const} aktiv={roll} onVal={setRoll} />
-      </div>
-
-      {/* Svaret först: vad som behövs, om det räcker, och om takten hålls. Tre korta rader. */}
-      <div style={{ marginBottom: AVSTAND.l }} data-planera-svar={roll}>
+    <div data-planera-svar={roll}>
+      {/* Svaret först: vad som behövs och om det räcker. Takt och datum står i Kalender och Hinner vi. */}
+      <div style={{ margin: `0 0 ${AVSTAND.l}px` }}>
         <h2 style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.rubrik, color: FARG.text }}>{rubrik}</h2>
         {svar && <div style={{ minHeight: AVSTAND.xl }} data-behov-under=""><StatusOrd bryt ton={svar.ton} ord={svar.ord} /></div>}
-        {takt && <div style={{ minHeight: AVSTAND.xl }} data-takt-ark=""><StatusOrd ton={taktText(takt).ton} ord={taktText(takt).ord} /></div>}
       </div>
 
-      {ordning && <OrdningsBar st={ordning} primar />}
-
       {grupper.koors.length > 0 && (
-        <Sektion rubrik="Körs i den här ordningen">
+        <Sektion rubrik="Behövs för beställningen">
           <div data-behovs="" data-skot-behovs="">{grupper.koors.map((t, i) => rad(t, i, 'koors', roll === 'skordare' ? 'data-behovs-rad' : 'data-skot-rad'))}</div>
         </Sektion>
       )}
@@ -574,7 +584,7 @@ export function PlaneraFlik({ tavla, typ, onTyp, start, ...rest }: {
           <Flikkontroll flikar={tavla.spar.map(s => [s.typ, s.namn] as const)} aktiv={spar.typ} onVal={onTyp} />
         </div>
       )}
-      <PlaneraSida key={`${spar.typ}:${start}`} spar={spar} start={start} visaNamn={tavla.spar.length === 1} {...rest} />
+      <PlaneraSida key={spar.typ} spar={spar} start={start} visaNamn={tavla.spar.length === 1} {...rest} />
     </>
   )
 }

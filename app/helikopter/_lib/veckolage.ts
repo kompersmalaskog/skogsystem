@@ -5,7 +5,7 @@
 import { PROGNOS_FRAN_ARBETSDAG, TYP_NAMN, landarRoller, raknaSpar, valjBas, type SparLage } from './berakningar'
 import { MANAD_NAMN, dagarText, fmt, fmtDag, kortNamn, saknarData, sedanText, veckodag } from './format'
 export { saknarData, sedanText, veckodag }
-import type { Arbetsdagar, MaskinManad, MaskinStopp, MaskinTakt, SparRad, Typ, VeckaRad } from './queries'
+import type { Arbetsdagar, BolagRad, MaskinManad, MaskinStopp, MaskinTakt, SparRad, Typ, VeckaRad } from './queries'
 
 // ── Payloaden ur SQL ────────────────────────────────────────────────────────
 export type VeckolageMaskin = MaskinManad & {
@@ -31,6 +31,8 @@ export type VeckolageData = {
   takt?: MaskinTakt[]
   /** Stopp per maskin, härledda ur ledighet + filer (helikopter_ny_stopp) — orsaken i notisen. Saknas i äldre payloads. */
   stopp?: MaskinStopp[]
+  /** Per bolag och spår (helikopter_ny_bolag): skördat och skotat MED egen skotning (på skördad volym), takt över senaste 5 arbetsdagarna. Samma tal som Veckor och Per bolag. Saknas i äldre köade payloads. */
+  bolag?: BolagRad[]
   /** Pågående vecka per spår (helikopter_ny_veckor, status 'pagar'). */
   veckor: Partial<Record<Typ, VeckaRad | null>>
   /** Antal objekt i månaden per spår (helikopter_ny_planering). */
