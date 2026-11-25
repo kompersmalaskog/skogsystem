@@ -79,11 +79,12 @@ describe('diagnos — appen är tyst när den inte har något att säga', () => 
   it('≥ 100: systematiken VÄXLAR tecken → tryck', () => {
     const d = diagnos(resp([klass({ klass: '250-299', traffPct: 66, n: 140, systMonthly: syst([1, -1, 1, -1]) })]));
     expect(d).toMatchObject({ status: 'diagnos', fel: 'tryck', bandZon: 1, mening1: 'Maskinen mäter ostadigt på 250-299 mm-bitar.' });
-    expect(d.mening3).toBe('Men känn efter: går det för trögt kostar det bränsle och produktion.');
+    expect(d.mening2).toBe('Felet byter håll mellan månaderna.');
+    expect(d.mening3).toBeUndefined();
   });
-  it('≥ 100: konsekvent tecken → kurva (kontakta tekniker)', () => {
+  it('≥ 100: konsekvent tecken → kurva', () => {
     const d = diagnos(resp([klass({ klass: '200-249', traffPct: 60, n: 120, systMonthly: syst([1, 1, 1, 1]) })]));
-    expect(d).toMatchObject({ fel: 'kurva', mening2: 'Diameterkurvan behöver ses över — kontakta tekniker.' });
+    expect(d).toMatchObject({ fel: 'kurva', mening2: 'Felet ligger åt samma håll varje månad.' });
     expect(d.mening3).toBeUndefined();
   });
   it('glesa månader (n < 20) och småsystematik (< 0,05) räknas inte som teckenväxling', () => {
@@ -114,15 +115,15 @@ describe('"Flaxar den?" — slutsatsen räknas ut', () => {
   it('allt under golvet → jämnt', () => {
     expect(flaxSlutsats([med('<150', 0, 3), med('300+', 300, 4)], 4.5, 1)).toMatchObject({ status: 'jamn', atgard: 'Inget att åtgärda.' });
   });
-  it('spridningen växer med grovleken → höj trycket', () => {
+  it('spridningen växer med grovleken → värst på grova, inget råd', () => {
     const s = flaxSlutsats([med('<150', 0, 3.1), med('250-299', 250, 5.2), med('300+', 300, 5.9)], 4.5, 1);
     expect(s.status).toBe('flaxar');
     expect(s.rubrik).toBe('Flaxar värst på grova bitar — spridningen växer med grovleken.');
-    expect(s.atgard).toMatch(/^Greppet räcker inte/);
+    expect(s.atgard).toBeNull();
   });
-  it('lika överallt → givare och bussningar; "ökar över tid" när sista halvan är ≥ 0,5 mm högre', () => {
+  it('lika överallt, inget råd; "ökar över tid" när sista halvan är ≥ 0,5 mm högre', () => {
     const jamn = [med('<150', 0, 5), med('300+', 300, 5.4)];
-    expect(flaxSlutsats(jamn, 4.5, 1).rubrik).toBe('Flaxar ungefär lika överallt.');
+    expect(flaxSlutsats(jamn, 4.5, 1)).toMatchObject({ rubrik: 'Flaxar ungefär lika överallt.', atgard: null });
     const stiger = med('300+', 300, 5.4, { spridMonthly: [{ manad: '2026-01', n: 40, sum: 0, sumsq: 40 * 9 }, { manad: '2026-02', n: 40, sum: 0, sumsq: 40 * 9 }, { manad: '2026-03', n: 40, sum: 0, sumsq: 40 * 36 }, { manad: '2026-04', n: 40, sum: 0, sumsq: 40 * 36 }] });
     expect(spridStiger(stiger)).toBe(true);
     expect(flaxSlutsats([med('<150', 0, 5), stiger], 4.5, 1).rubrik).toBe('Flaxar ungefär lika överallt, och spridningen ökar över tid.');
@@ -130,12 +131,22 @@ describe('"Flaxar den?" — slutsatsen räknas ut', () => {
   it('utan grova klasser får tryck inte skiljas från givarfel — säg bara vad som finns', () => {
     const s = flaxSlutsats([med('<150', 0, 5.5), med('150-199', 150, 5.1)], 4.5, 1);
     expect(s.rubrik).toBe('Spridningen ligger över kravet på klena bitar och 150-199 mm-bitar.');
-    expect(s.atgard).toBe('Underlaget saknar grova stammar — utan dem går tryck inte att skilja från givarfel.');
+    expect(s.atgard).toBe('Underlaget saknar grova stammar.');
   });
   it('rak men taggig: systematiken under målet → tillägg att det inte är kalibrering', () => {
     const v = med('300+', 300, 5.9, { systMonthly: [{ manad: '2026-01', systematik: 0.2, n: 50 }] });
     expect(systWin(v)).toBeCloseTo(0.2);
     expect(flaxSlutsats([med('<150', 0, 3.1), v], 4.5, 1).tillagg).toBe('Linjen är rak men taggig — det är inte kalibrering. Kalibrering rätar inte en taggig linje.');
     expect(flaxSlutsats([med('<150', 0, 3.1), v], 4.5, 0.1).tillagg).toBeNull();
+  });
+});
+
+describe('appen ger inga råd (Martin 2026-11-25)', () => {
+  it('diagnos.ts innehåller inga åtgärdsord', async () => {
+    const { readFileSync } = await import('node:fs');
+    const kod = readFileSync('lib/kalibrering/diagnos.ts', 'utf8').split('\n').filter(r => !r.trim().startsWith('//')).join('\n');
+    for (const ord of ['höj', 'Höj', 'sänk', 'Sänk', 'Byt ', 'byt ', 'kontakta', 'Kontakta', 'kontrollera', 'Kontrollera', 'verkstad', 'justera']) {
+      expect(kod, ord).not.toContain(ord);
+    }
   });
 });
