@@ -110,8 +110,17 @@ describe("ForarManadArk — Stefan september 2026", () => {
     expect(det).not.toContain("totalt");
     const milKnapp = Array.from(document.body.querySelectorAll("button")).find(b => /dagar över gränsen/.test(b.textContent || "")) as HTMLButtonElement;
     await act(async () => { milKnapp.click(); });
-    expect(text()).toContain("15 sep · Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
-    expect(text()).toContain("1 sep · Hem → Stänkelsmåla 2025 · 113 km beräknad · → 6 mil");
+    // Per trakt: trakten med sina mil, raderna under. Förarens 160 km mot appens 118 är mer än 10 % — appens värde i orange.
+    const akelius = q('[data-mil-trakt="400763 Akelius Tåget SA -26"]')!;
+    expect(akelius.textContent).toMatch(/400763 Akelius Tåget SA -26\d+ mil/);
+    const r15 = akelius.querySelector('[data-mil-rad="2026-09-15"]')!;
+    expect(r15.textContent).toContain("160 km egen");
+    expect(r15.querySelector("[data-appen-avviker]")!.textContent).toBe("appen 118 km");
+    expect(r15.textContent).not.toContain("Hem →");
+    expect(q('[data-mil-trakt="Stänkelsmåla 2025"]')!.textContent).toContain("113 km beräknad");
+    // Trakternas mil går ihop till månadens ersatta mil.
+    const summa = Array.from(document.body.querySelectorAll("[data-mil-trakt]")).reduce((s, el) => s + parseInt(el.firstElementChild!.lastElementChild!.textContent!), 0);
+    expect(summa).toBe(Number(m.kor_mil));
   });
 
   it("Lönekvot är en rad i arket, också för en förare utan maskinfiler ('–', aldrig 0 %)", async () => {

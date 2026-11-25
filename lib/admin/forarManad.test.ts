@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { stefanUnderlag, MASKIN } from "@/lib/lonesystem/testdata/stefanSep";
-import { byggForarManad, tidMedDecimal, kmKallaText } from "@/lib/admin/forarManadVy";
+import { milPerTrakt, byggForarManad, tidMedDecimal, kmKallaText } from "@/lib/admin/forarManadVy";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { summeraKvot, kvotVarde, kvotDetalj } from "@/lib/admin/lonekvot";
 
@@ -196,5 +196,43 @@ describe("minutskillnad mot maskinen visas bara från 15 min (Martin 2026-10-21)
     expect(d.detalj[0]).toBe("Maskin Giant");
     // Klockslag, total tid och trakten står redan på raden.
     for (const t of d.detalj) expect(t).not.toMatch(/^\d\d:\d\d–|^Tid |^Trakt: |totalt/);
+  });
+});
+
+describe("mil per trakt (Martin 2026-11-25: 17 rader blev 4 trakter)", () => {
+  const dag = (datum: string, trakt: string, km: number, kalla: string, mil: number, appen?: number) =>
+    ({ datum, km_totalt: km, km_kalla: kalla, ersattningsmil: mil, km_rutt: { forsta: trakt, sista: trakt, appen: appen == null ? null : { morgon: appen / 2, kvall: appen / 2, totalt: appen } } });
+  // Daniel oktober 2026, som i skärmbilden.
+  const H = "Hålabäck au 2025", O = "Östra-Hoka 17 A-C -25", B = "Bågskyttebanan RP J-Hus- 25", M = "Mölleryd RP J-Hus -25";
+  const DAGAR = [
+    dag("2026-10-01", H, 160, "forare", 10), dag("2026-10-02", H, 160, "forare", 10),
+    dag("2026-10-05", O, 164, "forare", 11),
+    ...["06", "07", "08", "09"].map(d => dag(`2026-10-${d}`, O, 184, "auto", 13)),
+    dag("2026-10-12", O, 194, "forare", 14, 191),
+    ...["13", "14", "15", "16"].map(d => dag(`2026-10-${d}`, B, 218, "forare", 16, 198)),
+    dag("2026-10-19", B, 208, "forare", 15, 198),
+    ...["20", "21", "22", "23"].map(d => dag(`2026-10-${d}`, M, 191, "auto", 14)),
+  ];
+
+  it("fyra trakter i ordning, med mil som går ihop till månadens", () => {
+    const t = milPerTrakt(DAGAR);
+    expect(t.map(x => [x.trakt, x.mil])).toEqual([[H, "20 mil"], [O, "77 mil"], [B, "79 mil"], [M, "56 mil"]]);
+    expect(t.reduce((s, x) => s + parseInt(x.mil), 0)).toBe(DAGAR.reduce((s, d) => s + d.ersattningsmil, 0));
+  });
+
+  it("dagar i följd med samma km är EN rad; appens km markeras bara när förarens är minst 10 % fler", () => {
+    const [h, o, b, m] = milPerTrakt(DAGAR);
+    expect(h.rader).toEqual([expect.objectContaining({ datum: "1–2 okt", dagar: 2, km: "160 km egen", appen: null, mil: "20 mil", perDag: "10 mil per dag" })]);
+    expect(o.rader.map(r => [r.datum, r.dagar, r.mil, r.appen, r.appenAvviker])).toEqual([
+      ["5 okt", 1, "11 mil", null, false], ["6–9 okt", 4, "52 mil", null, false], ["12 okt", 1, "14 mil", "appen 191 km", false]]);
+    expect(b.rader.map(r => [r.datum, r.dagar, r.km, r.appen, r.appenAvviker, r.mil])).toEqual([
+      ["13–16 okt", 4, "218 km egen", "appen 198 km", true, "64 mil"], ["19 okt", 1, "208 km egen", "appen 198 km", false, "15 mil"]]);
+    expect(m.rader).toHaveLength(1);
+    expect(m.rader[0].datum).toBe("20–23 okt");
+  });
+
+  it("samma trakt men inte i följd (en annan trakt emellan) blir två rader; över månadsskifte skrivs båda månaderna", () => {
+    const t = milPerTrakt([dag("2026-09-30", H, 160, "auto", 10), dag("2026-10-01", H, 160, "auto", 10), dag("2026-10-02", O, 184, "auto", 13), dag("2026-10-05", H, 160, "auto", 10)]);
+    expect(t[0].rader.map(r => r.datum)).toEqual(["30 sep–1 okt", "5 okt"]);
   });
 });
