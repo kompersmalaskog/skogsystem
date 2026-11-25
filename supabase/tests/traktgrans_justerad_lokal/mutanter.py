@@ -3,7 +3,7 @@
 import os, subprocess, sys
 rot = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
 os.chdir(rot)
-MIG = 'supabase/migrations/20261125150000_traktgrans_justerad.sql'
+MIG = 'supabase/migrations/20261125170026_traktgrans_justerad.sql'
 KOR = 'supabase/tests/traktgrans_justerad_lokal/kor.sh'
 orig = open(MIG, encoding='utf8').read()
 

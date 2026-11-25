@@ -6,7 +6,7 @@ import { PRICK_LAGER_SPEC } from './objektKarta';
 // EN sanning för traktgränsen (Martin 2026-11-25): justerade kopior gäller överallt där servern/översikten läser traktgränsen — via vyn objekt_traktgrans, aldrig via objekt_geometri.
 const rot = path.resolve(__dirname, '..');
 const las = (p: string) => fs.readFileSync(path.join(rot, p), 'utf8');
-const MIGRATION = 'supabase/migrations/20261125150000_traktgrans_justerad.sql';
+const MIGRATION = 'supabase/migrations/20261125170026_traktgrans_justerad.sql';
 
 describe('en sanning för traktgränsen — vakter', () => {
   it('objektlistan ("Här"), traktanalysen och skogsdatan läser traktgränsen BARA via vyn objekt_traktgrans', () => {
