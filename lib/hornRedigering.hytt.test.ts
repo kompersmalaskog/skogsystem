@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
 const CHROMIUM = hittaChromium(KARTA_ARGS);
@@ -129,6 +129,8 @@ async function tryck(pg: any, touch: boolean, x: number, y: number) {
 }
 
 describe.skipIf(!CHROMIUM)('Redigera hörn i riktig Chromium — två delar som sitter ihop', () => {
+  // Riktig Chromium startas per test; i CI körs ~35 filer med webbläsare samtidigt och standardens 5 s räcker inte (touch-testet gick ut på 5 000 ms i en körning på 410 s, 2 s lokalt). Samma tidsgräns som övriga *.hytt.test.ts.
+  vi.setConfig({ testTimeout: 90000 });
   for (const touch of [true, false]) {
     const namn = touch ? 'finger (touch)' : 'mus';
     it(`${namn}: utgångsläget — tre gemensamma hörn ritas EN gång (7 unika hörn, delarna har 5 + 5)`, async () => {
