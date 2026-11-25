@@ -322,9 +322,13 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   const tlMon = tidigarelagdMonster(tidigarelagdAlla);
   const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
 
-  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad, bara avvikelserna. */
+  /**
+   * Vart en rad leder. "Se dagen" i Förare · Månad öppnar just den dagen i SAMMA ark (man stannar i arket och fortsätter med nästa
+   * punkt); ett andra tryck på samma dag byter värde i adressen så att arket rullar dit igen. Utan dag: Dagar, bara avvikelserna.
+   */
   const gaMal = (mal: Mal) => {
-    if (mal.typ === "dagar") {
+    if (mal.typ === "dagar" && mal.datum && nav.params.forare) sattParam("dag", nav.params.dag === mal.datum ? `${mal.datum}!` : mal.datum);
+    else if (mal.typ === "dagar") {
       const nu = new Date();
       const [å, m] = arbetsManad.split("-").map(Number);
       gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: "1" } });

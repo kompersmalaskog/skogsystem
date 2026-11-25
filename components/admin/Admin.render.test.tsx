@@ -2319,11 +2319,40 @@ describe("Löneunderlag", () => {
     expect(cont.querySelector("[data-svar]")!.textContent).toContain("1 sak att kolla");
   });
 
-  it("'Se dagen' öppnar Dagar på SAMMA arbetsmånad med bara avvikelserna (arbetsmånad september = en månad bakåt från oktober)", async () => {
-    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], rast_langa: [{ datum: "2026-09-11", rast_min: 114, avbrott: [] }] }] };
+  it("'Se dagen' öppnar DAGEN i samma ark (man stannar kvar), 'Tillbaka till Att kolla' tar en tillbaka, och ett andra tryck öppnar den igen", async () => {
+    const dag = { datum: "2026-09-11", arbetad_min: 480, extra_min: 0, rast_min: 114, start_tid: "07:00", slut_tid: "17:00" };
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], dagar: [dag], rast_langa: [{ datum: "2026-09-11", rast_min: 114, avbrott: [] }] }] };
+    const rullat: string[] = [];
+    const orig = (Element.prototype as any).scrollIntoView;
+    (Element.prototype as any).scrollIntoView = function () { rullat.push(this.getAttribute("data-dag") ?? (this.hasAttribute("data-att-kolla-ankare") ? "att-kolla" : "?")); };
+    try {
+      await monter("flik=lon&forare=m1");
+      expect(arkText()).toContain("11 sep: rast 114 min");
+      await klick("Se dagen");
+      await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+      // Kvar i arket, på samma förare — inte till Dagar.
+      expect(window.location.search).toContain("forare=m1");
+      expect(window.location.search).not.toContain("underflik=dagar");
+      const rad = document.body.querySelector("[data-forare-manad] [data-dag='2026-09-11']")!;
+      expect(rad.querySelector("[data-dag-detalj]")).not.toBeNull();
+      expect(rullat).toContain("2026-09-11");
+      // Vägen tillbaka till Att kolla står i den öppna dagen.
+      const tillbaka = rad.querySelector("[data-tillbaka-att-kolla] button") as HTMLButtonElement;
+      expect(tillbaka.textContent).toBe("Tillbaka till Att kolla");
+      await act(async () => { tillbaka.click(); });
+      expect(rullat).toContain("att-kolla");
+      // Ett andra tryck på samma dag rullar dit igen.
+      rullat.length = 0;
+      await klick("Se dagen");
+      await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+      expect(rullat).toContain("2026-09-11");
+    } finally { (Element.prototype as any).scrollIntoView = orig; }
+  });
+
+  it("'Se dagarna' (obekräftade, ingen enskild dag) öppnar Dagar på SAMMA arbetsmånad med bara avvikelserna", async () => {
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], obekraftade: 2 }] };
     await monter("flik=lon&forare=m1");
-    expect(arkText()).toContain("11 sep: rast 114 min");
-    await klick("Se dagen");
+    await klick("Se dagarna");
     expect(window.location.search).toContain("underflik=dagar");
     expect(window.location.search).toContain("dagoff=-1");
     expect(window.location.search).toContain("avv=1");

@@ -17,7 +17,7 @@ const MAN_KORT = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep",
 export const dagText = (d: string) => `${Number(d.slice(8, 10))} ${MAN_KORT[Number(d.slice(5, 7)) - 1] || ""}`;
 
 export type Mal =
-  | { typ: "dagar" }
+  | { typ: "dagar"; datum?: string }
   | { typ: "maskin"; id: string }
   | { typ: "person"; id: string }
   | { typ: "personer" }
@@ -106,6 +106,8 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
   if (ledare) return kort;
 
   const dagar: Mal = { typ: "dagar" };
+  /** En punkt som gäller en dag leder till just den dagen (öppnas i Förare · Månad, man stannar i arket). */
+  const dag = (datum: string): Mal => ({ typ: "dagar", datum });
   const kvitterade = new Set(kvitteringar.filter(k => k.medarbetare_id === m.medarbetare_id).map(k => `${k.punkt}\u0000${k.text}`));
   const kolla = (id: string, text: string, mal?: Mal, knapp?: string) => {
     const rad: VyRad = { id, text, mal, knapp };
@@ -125,23 +127,23 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
     const tider = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}`;
     kolla(`orim-${o.datum}`, o.slag === "lang"
       ? `${dagText(o.datum)}: passet är ${tim(o.arbetad_min)} tim (${tider}) — stämmer det?`
-      : `${dagText(o.datum)}: rasten är längre än passet (${tider}, rast ${o.rast_min} min)`, dagar, "Se dagen");
+      : `${dagText(o.datum)}: rasten är längre än passet (${tider}, rast ${o.rast_min} min)`, dag(o.datum), "Se dagen");
   }
   for (const r of m.rast_langa || []) {
     const ovrigt = (r.avbrott || []).filter((a: any) => /övrigt|default/i.test(`${a.typ} ${a.kategori || ""}`));
     const stopp = ovrigt.length > 0 ? ` · maskinen stod still ${ovrigt.map((a: any) => `${a.minuter} min`).join(", ")} samtidigt` : "";
-    kolla(`rast-${r.datum}`, `${dagText(r.datum)}: rast ${r.rast_min} min${stopp}`, dagar, "Se dagen");
+    kolla(`rast-${r.datum}`, `${dagText(r.datum)}: rast ${r.rast_min} min${stopp}`, dag(r.datum), "Se dagen");
   }
-  for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)}: kortpass ${k.minuter} min · räknas inte som arbetsdag`, dagar, "Se dagen");
+  for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)}: kortpass ${k.minuter} min · räknas inte som arbetsdag`, dag(k.datum), "Se dagen");
   // Id:t följer DATUMET (inte ordningen i listan): en kvittering ska inte hoppa till en annan dag när listan ändras.
   // diff_min = förarens bekräftade tid − maskinens. Tiderna står i dagen ("Se dagen"), inte här.
-  (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)} · ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "mer" : "mindre"} än maskinen`, dagar, "Se dagen"));
-  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dagar, "Se dagen"));
+  (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)} · ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "mer" : "mindre"} än maskinen`, dag(s.datum), "Se dagen"));
+  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dag(k.datum), "Se dagen"));
   if ((m.obekraftade || 0) > 0) kolla("obekr", `${m.obekraftade} obekräftad${m.obekraftade === 1 ? "" : "e"} arbetsdag${m.obekraftade === 1 ? "" : "ar"}`, dagar, "Se dagarna");
   (m.byten || []).forEach((b: any, i: number) => {
     const text = `Bytesdag: ${dagText(b.ledig)} ersätter ${b.ersatterNamn} ${dagText(b.ersatter)}`
       + (b.ledigArbetad ? " — men den lediga dagen har arbete" : !b.ersatterArbetad ? " — men ingen arbetstid den röda dagen" : "");
-    if (b.ledigArbetad || !b.ersatterArbetad) kolla(`byte-${b.ledig}`, text, dagar, "Se dagen"); else info(`byte-${i}`, text);
+    if (b.ledigArbetad || !b.ersatterArbetad) kolla(`byte-${b.ledig}`, text, dag(b.ledig), "Se dagen"); else info(`byte-${i}`, text);
   });
 
   // Hemskickad: betald tid (timlön + premie), ingen frånvaro. Antalet timmar per förare och månad — det Admin ska kunna se.

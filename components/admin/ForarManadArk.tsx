@@ -34,7 +34,7 @@ function Bitar({ delar }: { delar: string[] }) {
 }
 
 /** En dag: datum och tid överst (hela bredden), tider och plats/km på egna rader under, varningen i orange. Hela raden är en knapp. */
-function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: () => void; sista: boolean }) {
+function DagRad({ d, oppen, onVal, sista, onTillbaka }: { d: VyDag; oppen: boolean; onVal: () => void; sista: boolean; onTillbaka?: () => void }) {
   return (
     <div data-dag={d.datum} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
       <button type="button" onClick={onVal} aria-expanded={oppen}
@@ -56,6 +56,7 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
               Extra tid {e.tid} · {e.text.split(" · ").slice(1).join(" · ")}{e.kommentar ? ` · ${e.kommentar}` : ""}
             </p>
           ))}
+          {onTillbaka && <div data-tillbaka-att-kolla="" style={{ marginTop: AVSTAND.s }}><Lank smal onClick={onTillbaka}>Tillbaka till Att kolla</Lank></div>}
         </div>
       )}
     </div>
@@ -95,16 +96,19 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
     return byggForarManad(m, { rodaDagar: { ...getRödaDagar(ar - 1), ...getRödaDagar(ar) }, maskinNamn });
   }, [m, arbetsManad, maskinNamn]);
 
-  // En dag som angetts utifrån (?dag=) står öppen och rullas fram — en gång, så att ett eget tryck sedan gäller.
+  // En dag som angetts utifrån (?dag=) står öppen och rullas fram — en gång per värde, så att ett eget tryck sedan gäller.
+  // "Se dagen" i Att kolla sätter värdet; ett andra tryck på samma dag har ett "!" efter datumet så att arket rullar dit igen.
   const [dagVald, setDagVald] = useState<string | null>(null);
+  const dagDatum = dag ? dag.slice(0, 10) : null;
   useEffect(() => {
-    if (!dag || dagVald === dag) return;
-    const rad = vy.dagar.find(d => d.datum === dag);
+    if (!dag || !dagDatum || dagVald === dag) return;
+    const rad = vy.dagar.find(d => d.datum === dagDatum);
     if (!rad) return;
     setDagVald(dag);
     setOppenDag(rad.nyckel);
-    setTimeout(() => document.querySelector(`[data-dag="${dag}"]`)?.scrollIntoView?.({ block: "center" }), 50);
-  }, [dag, dagVald, vy.dagar]);
+    setTimeout(() => document.querySelector(`[data-dag="${dagDatum}"]`)?.scrollIntoView?.({ block: "center" }), 50);
+  }, [dag, dagDatum, dagVald, vy.dagar]);
+  const tillAttKolla = () => document.querySelector("[data-att-kolla-ankare]")?.scrollIntoView?.({ block: "start" });
 
   const u = vy.utrakning;
   const forNamn = vy.namn.split(" ")[0];
@@ -164,7 +168,7 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
         </>
       )}
 
-      {attKolla}
+      {attKolla && <div data-att-kolla-ankare="">{attKolla}</div>}
 
       {!vy.foretagsledare && (
         <>
@@ -229,7 +233,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
       ) : (
         <Lista>
           {vy.dagar.map((d, i) => (
-            <DagRad key={d.nyckel} d={d} oppen={oppenDag === d.nyckel} onVal={() => setOppenDag(o => (o === d.nyckel ? null : d.nyckel))} sista={i === vy.dagar.length - 1} />
+            <DagRad key={d.nyckel} d={d} oppen={oppenDag === d.nyckel} onVal={() => setOppenDag(o => (o === d.nyckel ? null : d.nyckel))} sista={i === vy.dagar.length - 1}
+              onTillbaka={attKolla && dagVald && dagDatum === d.datum ? tillAttKolla : undefined} />
           ))}
         </Lista>
       )}

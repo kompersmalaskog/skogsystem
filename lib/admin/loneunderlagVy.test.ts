@@ -23,7 +23,7 @@ describe("Löneunderlaget per förare: en sak per rad, samma sak aldrig två gå
 
   it("lång rast: en kort rad med knapp till dagen, utan paragrafcitatet", () => {
     const k = byggForarKort(forare({ rast_langa: [{ datum: "2026-08-11", rast_min: 114, avbrott: [] }] }));
-    expect(k.kolla).toEqual([{ id: "rast-2026-08-11", text: "11 aug: rast 114 min", mal: { typ: "dagar" }, knapp: "Se dagen" }]);
+    expect(k.kolla).toEqual([{ id: "rast-2026-08-11", text: "11 aug: rast 114 min", mal: { typ: "dagar", datum: "2026-08-11" }, knapp: "Se dagen" }]);
     expect(alltText(k)).not.toMatch(/§5|Skogsavtalet|Redigera|lunch/i);
   });
 
