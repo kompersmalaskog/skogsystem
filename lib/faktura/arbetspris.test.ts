@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { byggArbetsrader, arbetsprisNot, timmar, type Arbetspost, type Timprisrad } from './arbetspris'
-import { lasDebiterbartArbete, tillArbetsposter } from './lasManuellt'
+import { lasDebiterbartArbete, tillArbetsposter, segmentMinuter } from './lasManuellt'
 
 /** Den enda sats Martin bekräftat (2026-11-16). */
 const PRISER: Timprisrad[] = [{ nyckel: 'manuellt', timpris: 490 }]
@@ -162,7 +162,7 @@ describe('frågan mot databasen — FÄLLAN som tappade 2 034 av 2 687 minuter',
   // Bågskyttebanan (11271849) nås via 11166440, Skälviken (11271860) via
   // 11161397. Läses bara traktens eget nummer försvinner timmarna TYST.
   // Därför provas den faktiska frågan, inte bara att koden ser rätt ut.
-  const fake = (alt: string[], rader: any[], fel: string | null = null) => {
+  const fake = (alt: string[], rader: any[], fel: string | null = null, segment: any[] = []) => {
     const sett: { tabell: string; eq: [string, unknown][]; in: [string, unknown[]][] } = {
       tabell: '', eq: [], in: [],
     }
@@ -171,6 +171,7 @@ describe('frågan mot databasen — FÄLLAN som tappade 2 034 av 2 687 minuter',
         select: () => svar,
         order: () => (tabell === 'extra_tid'
           ? { data: fel ? null : rader, error: fel ? { message: fel } : null }
+          : tabell === 'arbetsdag_segment' ? { data: segment, error: null }
           : { data: [], error: null }),
         limit: () => (tabell === 'objekt'
           ? { data: [{ id: 'obj-1' }], error: null }
@@ -192,9 +193,27 @@ describe('frågan mot databasen — FÄLLAN som tappade 2 034 av 2 687 minuter',
     const { sb, sett } = fake(['11166440'], [])
     const svar = await lasDebiterbartArbete(sb as any, '11271849')
     expect(svar.status).toBe('ok')
-    expect(sett.in).toHaveLength(1)
-    expect(sett.in[0][0]).toBe('objekt_id')
-    expect(sett.in[0][1]).toEqual(['11271849', '11166440'])
+    // extra_tid OCH dagsegmenten läser samma nummer.
+    expect(sett.in).toHaveLength(2)
+    for (const [kol, v] of sett.in) {
+      expect(kol).toBe('objekt_id')
+      expect(v).toEqual(['11271849', '11166440'])
+    }
+  })
+
+  it('debiterbar tid INOM passet (dagsegment) räknas också — flyttrader aldrig', async () => {
+    const { sb } = fake([], [
+      { datum: '2026-11-02', minuter: 60, aktivitet_typ: 'planering', aktivitet_text: null, kommentar: null, medarbetare: { namn: 'Stefan Ek' } },
+    ], null, [
+      { datum: '2026-11-01', start_tid: '05:30:00', slut_tid: '06:30:00', aktivitet_typ: 'manuellt', kommentar: 'fällde', kalla: 'forare', medarbetare: { namn: 'Oskar Nilsson' } },
+      { datum: '2026-11-01', start_tid: '12:00:00', slut_tid: '13:00:00', aktivitet_typ: 'flytt', kommentar: null, kalla: 'flytt', medarbetare: { namn: 'Oskar Nilsson' } },
+    ])
+    const svar = await lasDebiterbartArbete(sb as any, '11271849')
+    if (svar.status !== 'ok') throw new Error('läsningen felade')
+    expect(svar.poster.map(p => [p.datum, p.typ, p.minuter, p.forare])).toEqual([
+      ['2026-11-01', 'manuellt', 60, 'Oskar'],
+      ['2026-11-02', 'planering', 60, 'Stefan'],
+    ])
   })
 
   it('bara DEBITERBART arbete läses', async () => {
@@ -245,5 +264,13 @@ describe('mappningen ManuellPost → Arbetspost', () => {
     expect(rader[0].etikett).toBe('Röjning av stickväg')
     expect(rader[0].etikett).not.toBe('Arbete')
     expect(rader[0].timpris).toBeNull()
+  })
+})
+
+describe('segmentMinuter', () => {
+  it('klockslag till minuter, trasigt = 0', () => {
+    expect(segmentMinuter('05:30:00', '06:45')).toBe(75)
+    expect(segmentMinuter('06:00', '05:00')).toBe(0)
+    expect(segmentMinuter(null, '06:00')).toBe(0)
   })
 })

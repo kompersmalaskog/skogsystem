@@ -6,8 +6,8 @@
 export type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'brandkontroll'|'reparation'|'planering'|'restid'|'manuellt';
 
 export const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
-  { typ:'rotben',       label:'Kapa rotben',        icon:'content_cut',          debDefault:false },
-  { typ:'reservdelar',  label:'Hämta reservdelar',  icon:'build',                debDefault:false },
+  { typ:'rotben',       label:'Rotben och travbrickor', icon:'content_cut',          debDefault:false },
+  { typ:'reservdelar',  label:'Hämtade grejer',    icon:'build',                debDefault:false },
   { typ:'service',      label:'Service',            icon:'engineering',          debDefault:false },
   { typ:'reparation',   label:'Reparation',         icon:'handyman',             debDefault:false },
   { typ:'utbildning',   label:'Utbildning',         icon:'school',               debDefault:false },
@@ -35,7 +35,10 @@ export const objektKravs = (typ: AktivitetTyp | null | undefined) => !!typ && OB
 
 /** Typer föraren kan välja för extra arbete och perioder. `mote` låg i
  *  domänen men gick inte att välja — bifynd 2026-09-26. */
-export const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['planering','restid','manuellt','mote','markagare','flytt','reservdelar','service','reparation','utbildning','brandkontroll','annat'];
+export const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['service','reparation','reservdelar','rotben','planering','flytt','manuellt','restid','mote','markagare','utbildning','brandkontroll','annat'];
+
+/** Aktiviteter som ofta tar hela dagen — formuläret har en "Hela dagen"-knapp för dem. */
+export const HELA_DAGEN_TYPER: AktivitetTyp[] = ['mote','utbildning'];
 
 /**
  * Faktureringsetiketten på en periodrad — i TEXT, aldrig bara färg (grönt betyder
