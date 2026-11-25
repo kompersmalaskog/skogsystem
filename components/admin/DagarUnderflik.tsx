@@ -11,11 +11,14 @@ import { getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useAdminNav } from "./nav";
 import { Ikon, Sektion } from "./ui";
 import { synkVisas } from "@/lib/admin/loneunderlagVy";
+import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gpsStart";
 
 /**
- * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, en rad per
- * person och dag, grupperade på datum. Martin skannar efter det som ser fel ut:
- * det normala är tyst grått, avvikelsen står i orange i objektets ställe.
+ * Lön → Dagar — KONTROLLVYN. Alla förares dagar för en arbetsmånad, EN FÖRARE I
+ * TAGET (Martin 2026-11-25: "jag granskar en förare i taget"): en rad per förare
+ * med hur mycket som finns att kolla, ett tryck visar hans dagar att kolla. Det
+ * normala är tyst grått, avvikelsen står i orange. Vyn per datum togs bort samma
+ * dag — den användes inte, och allt den visade finns under föraren.
  *
  * ENDA KÄLLAN är samma dry_run som löneunderlaget (/api/fortnox/salary-export)
  * — vyn kan aldrig säga något annat än lönen. Larmen är de regler som redan
@@ -28,19 +31,19 @@ import { synkVisas } from "@/lib/admin/loneunderlagVy";
  *
  * LÖNEKVOTEN (Martin 2026-10-02): hur mycket av betald tid som blir maskintid,
  * G15 per betald timme — bara här i admin, aldrig i förarens vy. Per dagrad
- * "Maskintid X av Y betald · Z %", per förare och för månaden bara över dagar
+ * "Av Y lön arbetade maskinen X · Z %" (dagens rad; Martin 2026-11-25), per förare och för månaden bara över dagar
  * där maskinen skickar filer, med antalet dagar bredvid. Filfri maskin (810E)
  * = "ingen maskintid rapporteras", aldrig 0 %. Täljaren är G15, inte branschens
  * G0 — docs/lonesystem/lonekvot.md.
  *
  * SAMMANSTÄLLNINGEN PER FÖRARE (betalt · maskin · lönekvot) står ÖVERST och visas
- * alltid — den räknas över ALLA månadens dagar, inte över filtret "bara avvikelser".
+ * alltid — den räknas över ALLA månadens dagar, inte bara de som har något att kolla.
  * Uppställningen är lib/admin/lonekvot, densamma som Förare · Månad, så samma
  * förare och månad ger samma tal på båda ställena.
  */
 
 /** Neutral information i dagens detalj när ett långt pass saknar rast: ingen varning, bara hur tiden räknas. */
-export const RAST_SAKNAS_INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
+export const RAST_SAKNAS_INFO = "Ingen rast registrerad i maskinen – hela passet räknas som arbetstid";
 
 /** Larmordet i förarens/avtalets ord; i kontrollvyn säger vi trakt, inte objekt. */
 const avvOrd = (a: string) => (a === "utan objekt" ? "ingen trakt" : a === "utan maskin" ? "ingen maskin" : a);
@@ -63,7 +66,7 @@ type Medarbetare = {
   ledighetskollision: { datum: string; typ: string }[];
   vilobrott: { datum: string; typ: string; vila_h: number; krav_h: number }[];
 };
-type Rad = { nyckel: string; datum: string; id: string; namn: string; d: Dag; min: number; avv: string[] };
+type Rad = { nyckel: string; datum: string; id: string; namn: string; d: Dag; min: number; avv: string[]; gps?: ReturnType<typeof gpsStartForPass> };
 
 const stega = (ym: string, delta: number) => { const [å, m] = ym.split("-").map(Number); const d = new Date(å, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 /** Löneperiod = arbetsmånad + 1 (samma regel som /api/lon/min-manad). */
@@ -112,7 +115,7 @@ const KOL_BREDD = { betalt: 60, maskin: 60, kvot: 72 } as const;
 const kolumner = (oppnabar: boolean) => `minmax(0, 1fr) ${KOL_BREDD.betalt}px ${KOL_BREDD.maskin}px ${KOL_BREDD.kvot}px${oppnabar ? ` ${IKON.text}px` : ""}`;
 
 export default function DagarUnderflik() {
-  // Översiktens länk "Se dagarna" öppnar rätt period och bara avvikelserna (?dagper=M&dagoff=-1&avv=1).
+  // Översiktens länk "Se dagarna" öppnar rätt period (?dagper=M&dagoff=-1). ?dagperson=<id> öppnar en förare.
   const { nav, gaTill } = useAdminNav();
   const startPeriod: DagarPeriod = nav.params.dagper === "K" || nav.params.dagper === "Å" ? nav.params.dagper : "M";
   const [period, setPeriod] = useState<DagarPeriod>(startPeriod);
@@ -122,11 +125,14 @@ export default function DagarUnderflik() {
   const [data, setData] = useState<{ medarbetare: Medarbetare[] } | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
-  // Förvalt: bara avvikelserna (svaret först). "Visa alla" är ett val man gör; ?avv=0 öppnar med alla.
-  const [baraAvv, setBaraAvv] = useState(nav.params.avv !== "0");
   const [oppen, setOppen] = useState<string | null>(null);
+  // En förare öppen åt gången. Tillbaka från Förare · Månad öppnar samma förare (?dagperson).
+  const [oppenPerson, setOppenPerson] = useState<string | null>(nav.params.dagperson || null);
+  const [allaFor, setAllaFor] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
+  // "GPS i hytten från …" per maskin och dag (RPC hyttspar_starter). Bara visning: ett läsfel ger inga GPS-rader, aldrig ett fel i vyn.
+  const [gpsStarter, setGpsStarter] = useState<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     supabase.from("dim_maskin").select("maskin_id, visningsnamn, modell").then(({ data }) => {
@@ -135,6 +141,25 @@ export default function DagarUnderflik() {
       setMaskinNamn(m);
     });
   }, []);
+
+  useEffect(() => {
+    let avbruten = false;
+    setGpsStarter(new Map());
+    // Bara visning: går det inte att läsa står inga GPS-rader, aldrig ett fel i vyn.
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc("hyttspar_starter", { p_fran: range.start, p_till: range.end });
+        if (avbruten) return;
+        if (error) { console.warn("[Dagar] GPS i hytten kunde inte läsas", error.message); return; }
+        const m = new Map<string, string[]>();
+        for (const r of (data || []) as { maskin_id: string; datum: string; starter: string[] }[]) m.set(`${r.maskin_id}|${r.datum}`, r.starter || []);
+        setGpsStarter(m);
+      } catch (e) {
+        console.warn("[Dagar] GPS i hytten kunde inte läsas", e);
+      }
+    })();
+    return () => { avbruten = true; };
+  }, [range.start, range.end, forsok]);
 
   useEffect(() => {
     let avbruten = false;
@@ -190,15 +215,27 @@ export default function DagarUnderflik() {
         });
         // En rad utan någon tid alls är också något att titta på (tom skalrad).
         if (min === 0) avv.unshift("ingen tid");
-        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, id: m.medarbetare_id, namn: m.namn, d, min, avv });
+        const gps = d.maskin_id ? gpsStartForPass(d.datum, d.start_tid, gpsStarter.get(`${d.maskin_id}|${d.datum}`)) : null;
+        const gpsAvv = gps ? gpsStartAvvikelse(gps) : null;
+        if (gpsAvv) avv.push(gpsAvv);
+        ut.push({ nyckel: `${m.medarbetare_id}|${d.datum}`, datum: d.datum, id: m.medarbetare_id, namn: m.namn, d, min, avv, gps });
       }
     }
     return ut.sort((a, b) => a.datum.localeCompare(b.datum) || a.namn.localeCompare(b.namn, "sv"));
-  }, [data, roda]);
+  }, [data, roda, gpsStarter]);
 
-  const antalForare = new Set(rader.map(r => r.namn)).size;
-  const medAvv = rader.filter(r => r.avv.length > 0);
-  const visade = baraAvv ? medAvv : rader;
+  // En post per förare: den med flest dagar att kolla först, sedan namn. Raderna i datumordning.
+  const personer = useMemo(() => {
+    const m = new Map<string, { id: string; namn: string; rader: Rad[]; attKolla: number }>();
+    for (const r of rader) {
+      const p = m.get(r.id) || { id: r.id, namn: r.namn, rader: [], attKolla: 0 };
+      p.rader.push(r);
+      if (r.avv.length) p.attKolla++;
+      m.set(r.id, p);
+    }
+    return Array.from(m.values()).sort((a, b) => b.attKolla - a.attKolla || a.namn.localeCompare(b.namn, "sv"));
+  }, [rader]);
+  const personerAttKolla = personer.filter(p => p.attKolla > 0).length;
   const arNu = offset >= 0;
   const periodLabel = range.label;
 
@@ -227,11 +264,63 @@ export default function DagarUnderflik() {
   // Förare · Månad finns för arbetsmånader t.o.m. den pågående (den granskas men skickas inte) och
   // bara för EN månad — en rad över ett kvartal eller ett år har ingen enskild månad att öppna.
   const manadAttOppna = period === "M" && range.start.slice(0, 7) <= idagISO().slice(0, 7);
-  // Dagarnas läge (period, månad, filter) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
+  // Dagarnas läge (period, månad, öppen förare) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
   const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: {
     period: loneperiodFor(range.start.slice(0, 7)), forare: id,
-    dagper: period, dagoff: String(offset), avv: baraAvv ? "1" : "0",
+    dagper: period, dagoff: String(offset), ...(oppenPerson ? { dagperson: oppenPerson } : {}),
   } });
+
+  /** EN dagrad under föraren: raden heter datumet. */
+  const dagRad = (r: Rad) => {
+    const dt = new Date(`${r.datum}T12:00:00`);
+    const ärOppen = oppen === r.nyckel;
+    const objekt = r.d.objekt.join(", ");
+    const detaljer = [
+      r.d.maskin_id ? `Maskin ${maskinNamn[r.d.maskin_id] || r.d.maskin_id}` : (r.d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin"),
+      r.d.start_tid || r.d.slut_tid
+        ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : ""}`
+        : "Inga klockslag, tiden ligger i perioder",
+      r.gps ? gpsStartText(r.gps) : null,
+      // Rast noll på ett långt pass är ingen varning (skotarna loggar ingen rast): bara information om hur tiden räknas.
+      rastSaknas(r.d.arbetad_min, r.d.rast_min) ? RAST_SAKNAS_INFO : null,
+      r.d.extra_min > 0 ? `Betald ${minText(r.d.arbetad_min)} vid maskinen + extra tid ${minText(r.d.extra_min)}` : null,
+      // Lönekvot per dag: maskinens G15 under förarens inloggning mot betald tid.
+      r.d.maskintid?.kalla === "fil" && r.min > 0
+        ? (r.d.maskintid.min > 0
+            ? `Av ${minText(r.min)} lön arbetade maskinen ${minText(r.d.maskintid.min)} · ${pct(r.d.maskintid.min, r.min)} %`
+            : (r.d.maskintid.maskinens_min > 0
+                ? `Ingen maskintid på förarens inloggning — maskinen gick ${minText(r.d.maskintid.maskinens_min)} under annan inloggning`
+                : "Ingen maskintid den dagen"))
+        : r.d.maskintid?.kalla === "ingen_fil" ? "Maskinen rapporterar ingen maskintid (skickar inga filer)" : null,
+      objekt ? `Trakt: ${objekt}` : "Ingen trakt",
+      r.d.km_totalt ? `${Math.round(r.d.km_totalt)} km${r.d.ersattningsmil ? ` · ${r.d.ersattningsmil} mil reseersättning` : ""}` : null,
+      r.d.ob_min > 0 ? `OB ${minText(r.d.ob_min)}` : null,
+      r.d.traktamente ? "Traktamente" : null,
+      r.d.bekraftad ? "Bekräftad av föraren" : "Inte bekräftad",
+    ].filter(Boolean) as string[];
+    return (
+      <div key={r.nyckel} style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+        <button type="button" onClick={() => setOppen(ärOppen ? null : r.nyckel)} aria-expanded={ärOppen}
+          style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{`${DAG[dt.getDay()]} ${datumLang(r.datum)}`}</span>
+            {/* Avvikelserna står EN gång: avkortade på en rad när dagen är stängd, hela (radbrutna) när den är öppen. */}
+            <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, ...(ärOppen ? {} : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }) }}>
+              {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
+            </span>
+          </span>
+          <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(r.min)}</span>
+          <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, transform: ärOppen ? "rotate(90deg)" : "none", transition: `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
+        </button>
+        {ärOppen && (
+          <div className="tona-in" style={{ paddingBottom: AVSTAND.m }}>
+            {detaljer.map((t, j) => <p key={j} style={{ margin: j ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, ...TNUM, color: FARG.text2 }}>{t}</p>)}
+            <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Rättas av {r.namn.split(" ")[0]} i Redigera.</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ color: FARG.text }}>
@@ -342,96 +431,53 @@ export default function DagarUnderflik() {
             </div>
           )}
 
-          {/* Svaret först: hur många dagar som avviker. "Bara avvikelser" är förvalt; alla dagar ligger bakom "Visa alla". */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
-            <span style={{ ...TYP.meta, ...TNUM, color: medAvv.length ? FARG.orange : FARG.text2 }}>
-              {baraAvv
-                ? `${medAvv.length} ${medAvv.length === 1 ? "dag" : "dagar"} med avvikelse`
-                : `${antalForare} förare · ${rader.length} ${rader.length === 1 ? "rad" : "rader"} · ${medAvv.length} med avvikelse`}
-            </span>
-            {!baraAvv && (
-              <button onClick={() => setBaraAvv(true)} aria-pressed={false}
-                style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px` }}>
-                Bara avvikelser
-              </button>
-            )}
-          </div>
-
           {rader.length === 0 && (
             <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {periodLabel}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
           )}
-          {rader.length > 0 && visade.length === 0 && (
-            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga avvikelser i {periodLabel}.</p></div>
-          )}
 
-          {visade.length > 0 && (
-            <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
-              {visade.map((r, i) => {
-                const nyttDatum = i === 0 || visade[i - 1].datum !== r.datum;
-                const dt = new Date(`${r.datum}T12:00:00`);
-                const ärOppen = oppen === r.nyckel;
-                const objekt = r.d.objekt.join(", ");
-                const detaljer = [
-                  r.d.maskin_id ? `Maskin ${maskinNamn[r.d.maskin_id] || r.d.maskin_id}` : (r.d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin"),
-                  r.d.start_tid || r.d.slut_tid
-                    ? `${(r.d.start_tid || "").slice(0, 5) || "–"}–${(r.d.slut_tid || "").slice(0, 5) || "–"}${r.d.rast_min ? ` · rast ${minText(r.d.rast_min)}` : ""}`
-                    : "Inga klockslag, tiden ligger i perioder",
-                  // Rast noll på ett långt pass är ingen varning (skotarna loggar ingen rast): bara information om hur tiden räknas.
-                  rastSaknas(r.d.arbetad_min, r.d.rast_min) ? RAST_SAKNAS_INFO : null,
-                  r.d.extra_min > 0 ? `Betald ${minText(r.d.arbetad_min)} vid maskinen + extra tid ${minText(r.d.extra_min)}` : null,
-                  // Lönekvot per dag: maskinens G15 under förarens inloggning mot betald tid.
-                  r.d.maskintid?.kalla === "fil" && r.min > 0
-                    ? (r.d.maskintid.min > 0
-                        ? `Maskintid ${minText(r.d.maskintid.min)} av ${minText(r.min)} betald · ${pct(r.d.maskintid.min, r.min)} %`
-                        : (r.d.maskintid.maskinens_min > 0
-                            ? `Ingen maskintid på förarens inloggning — maskinen gick ${minText(r.d.maskintid.maskinens_min)} under annan inloggning`
-                            : "Ingen maskintid den dagen"))
-                    : r.d.maskintid?.kalla === "ingen_fil" ? "Maskinen rapporterar ingen maskintid (skickar inga filer)" : null,
-                  objekt ? `Trakt: ${objekt}` : "Ingen trakt",
-                  r.d.km_totalt ? `${Math.round(r.d.km_totalt)} km${r.d.ersattningsmil ? ` · ${r.d.ersattningsmil} mil reseersättning` : ""}` : null,
-                  r.d.ob_min > 0 ? `OB ${minText(r.d.ob_min)}` : null,
-                  r.d.traktamente ? "Traktamente" : null,
-                  r.d.bekraftad ? "Bekräftad av föraren" : "Inte bekräftad",
-                ].filter(Boolean) as string[];
-                return (
-                  <React.Fragment key={r.nyckel}>
-                    {nyttDatum && (
-                      <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                        {DAG[dt.getDay()]} {datumLang(r.datum)}
-                      </p>
-                    )}
-                    <div style={{ borderBottom: `1px solid ${FARG.linje}` }}>
-                      <button type="button" onClick={() => setOppen(ärOppen ? null : r.nyckel)} aria-expanded={ärOppen}
-                        style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
+          {/* PER PERSON: en rad per förare med hur mycket som finns att kolla. Ett tryck fäller ut BARA hans dagar som
+              behöver kollas; resten av hans dagar ligger bakom "Visa alla N dagar". */}
+          {personer.length > 0 && (
+            <>
+              <p data-person-svar="" style={{ margin: `0 0 ${AVSTAND.l}px`, ...TYP.meta, ...TNUM, color: personerAttKolla ? FARG.orange : FARG.text2 }}>
+                {personerAttKolla
+                  ? `${personerAttKolla} av ${personer.length} förare har något att kolla`
+                  : `Inget att kolla i ${periodLabel}`}
+              </p>
+              <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
+                {personer.map(p => {
+                  const oppnad = oppenPerson === p.id;
+                  const allaHans = allaFor === p.id;
+                  const hansRader = allaHans ? p.rader : p.rader.filter(r => r.avv.length > 0);
+                  return (
+                    <div key={p.id} data-person={p.id} style={{ borderBottom: `1px solid ${FARG.linje}` }}>
+                      <button type="button" onClick={() => { setOppenPerson(oppnad ? null : p.id); setAllaFor(null); setOppen(null); }} aria-expanded={oppnad} data-person-rad=""
+                        style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: `${AVSTAND.s}px 0`, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{r.namn.split(" ")[0]}</span>
-                          <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
+                          <span style={{ display: "block", ...TYP.listtitel, color: FARG.text }}>{p.namn}</span>
+                          <span style={{ display: "block", ...TYP.meta, ...TNUM, color: p.attKolla ? FARG.orange : FARG.text2 }}>
+                            {p.attKolla ? `${p.attKolla} ${p.attKolla === 1 ? "dag" : "dagar"} att kolla` : "Inget att kolla"}
+                            <span style={{ color: FARG.text2 }}> · {p.rader.length} {p.rader.length === 1 ? "dag" : "dagar"}</span>
                           </span>
                         </span>
-                        <span style={{ ...TYP.text, ...TNUM, color: FARG.text, whiteSpace: "nowrap" }}>{minText(r.min)}</span>
-                        <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, transform: ärOppen ? "rotate(90deg)" : "none", transition: `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, transform: oppnad ? "rotate(90deg)" : "none", transition: `transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>chevron_right</span>
                       </button>
-                      {ärOppen && (
+                      {oppnad && (
                         <div className="tona-in" style={{ paddingBottom: AVSTAND.m }}>
-                          {r.avv.length > 0 && <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{r.avv.map(avvOrd).join(" · ")}</p>}
-                          {detaljer.map((t, j) => <p key={j} style={{ margin: j ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, ...TNUM, color: FARG.text2 }}>{t}</p>)}
-                          <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Rättas av {r.namn.split(" ")[0]} i Redigera.</p>
+                          {hansRader.length === 0 && <p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Alla dagar stämmer.</p>}
+                          {hansRader.map(r => dagRad(r))}
+                          {!allaHans && p.rader.length > hansRader.length && (
+                            <button onClick={() => setAllaFor(p.id)} data-person-alla="" style={{ ...KNAPP.tertiar, marginTop: AVSTAND.s }}>
+                              Visa alla {p.rader.length} dagar
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
-                  </React.Fragment>
-                );
-              })}
-              <div style={{ height: AVSTAND.s }} />
-            </div>
-          )}
-
-          {baraAvv && rader.length > visade.length && (
-            <button onClick={() => setBaraAvv(false)} data-visa-alla=""
-              style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>
-              Visa alla {rader.length}
-            </button>
+                  );
+                })}
+              </div>
+            </>
           )}
 
         </>
