@@ -41,7 +41,7 @@ import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gp
  */
 
 /** Neutral information i dagens detalj när ett långt pass saknar rast: ingen varning, bara hur tiden räknas. */
-export const RAST_SAKNAS_INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
+export const RAST_SAKNAS_INFO = "Ingen rast registrerad i maskinen – hela passet räknas som arbetstid";
 
 /** Larmordet i förarens/avtalets ord; i kontrollvyn säger vi trakt, inte objekt. */
 const avvOrd = (a: string) => (a === "utan objekt" ? "ingen trakt" : a === "utan maskin" ? "ingen maskin" : a);
@@ -308,7 +308,8 @@ export default function DagarUnderflik() {
           style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{perPerson ? `${DAG[dt.getDay()]} ${datumLang(r.datum)}` : r.namn.split(" ")[0]}</span>
-            <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {/* Avvikelserna står EN gång: avkortade på en rad när dagen är stängd, hela (radbrutna) när den är öppen. */}
+            <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, ...(ärOppen ? {} : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }) }}>
               {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
             </span>
           </span>
@@ -317,7 +318,6 @@ export default function DagarUnderflik() {
         </button>
         {ärOppen && (
           <div className="tona-in" style={{ paddingBottom: AVSTAND.m }}>
-            {r.avv.length > 0 && <p style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange }}>{r.avv.map(avvOrd).join(" · ")}</p>}
             {detaljer.map((t, j) => <p key={j} style={{ margin: j ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, ...TNUM, color: FARG.text2 }}>{t}</p>)}
             <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Rättas av {r.namn.split(" ")[0]} i Redigera.</p>
           </div>

@@ -4379,13 +4379,13 @@ describe("Lön → Dagar: svaret först", () => {
 
   it("rast noll på ett långt pass är ingen varning: bara en neutral rad i dagens detalj", async () => {
     await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0", [dag("2026-09-01", { rast_min: 0, arbetad_min: 480 }), dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
-    const INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
+    const INFO = "Ingen rast registrerad i maskinen – hela passet räknas som arbetstid";
     expect(text()).not.toContain(INFO);                       // hopfälld: inget syns
     expect(text()).not.toMatch(/utan rast|ingen rast/i);        // och ingen varning, varken på raden eller i listan
     expect(text()).toContain("1 förare · 3 rader · 0 med avvikelse"); // en dag utan rast är inte en avvikelse
     await klick("8 tim"); // dag 1 (480 min)
     expect(text()).toContain(INFO);
-    expect((text().match(/Inget stopp över 15 min/g) || []).length).toBe(1);
+    expect((text().match(/Ingen rast registrerad i maskinen/g) || []).length).toBe(1);
     expect(text()).not.toContain("ingen rast");
   });
 
@@ -4404,6 +4404,8 @@ describe("Lön → Dagar: svaret först", () => {
       const dagKnappar = () => Array.from(cont.querySelectorAll<HTMLElement>("button[aria-expanded]"));
       await act(async () => { dagKnappar()[0].click(); }); // tis 1 sep (rader i datumordning)
       expect(text()).toContain("Appen i hytten startade 06:25 · 25 min efter starttiden");
+      // Avvikelsen står EN gång också när dagen är öppen (Martin 2026-11-25 såg den två gånger).
+      expect((text().match(/appen startade 25 min sent/g) || []).length).toBe(1);
       await act(async () => { dagKnappar()[1].click(); }); // ons 2 sep — en dag öppen åt gången
       expect(text()).toContain("Appen i hytten startade 06:03");
       expect(text()).not.toContain("06:03 · ");
@@ -4580,7 +4582,7 @@ describe("Lön → Dagar: svaret först", () => {
     await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0", [dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
     await klick("9 tim");
     await klick("5 tim");
-    expect(text()).not.toContain("Inget stopp över 15 min");
+    expect(text()).not.toContain("Ingen rast registrerad i maskinen");
   });
 });
 
