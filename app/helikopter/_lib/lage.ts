@@ -133,6 +133,12 @@ function dagEtikett(iso: string, forra: string | null): { dag: string; vdag: str
   return { dag: ny && forra != null ? `${d.getUTCDate()} ${MAN[d.getUTCMonth()]}` : `${d.getUTCDate()}`, vdag: VDAG[d.getUTCDay()] }
 }
 
+/** Maskinen kör annat i ALLA spår där den har trakter (GROT, energiklippning, annan trakt): ingen kö, ingen prognos. */
+export function arKorAnnat(tavla: Tavla, m: { roll: KlarRoll; namn: string }): boolean {
+  const mx = tavla.spar.flatMap(s => s.block).filter(b => b.roll === m.roll).flatMap(b => b.maskiner).filter(x => x.namn === m.namn)
+  return mx.length > 0 && mx.every(x => x.korAnnat)
+}
+
 export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
   const klar = d.klar
   if (!klar || d.status !== 'pagaende') return null
@@ -158,8 +164,7 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
   for (const m of [...klar.maskiner].sort((a, b) => Number(b.roll === 'skotare') - Number(a.roll === 'skotare'))) {
     const ko = koer.get(m.maskin_id) ?? []
     // Kör annat i alla spår där maskinen har trakter: kortet visar bara vad den kör, inte en kö som prognosen ändå inte räknar på.
-    const mx = tavla.spar.flatMap(s => s.block).filter(b => b.roll === m.roll).flatMap(b => b.maskiner).filter(x => x.namn === m.namn)
-    if (mx.length > 0 && mx.every(x => x.korAnnat)) { rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer: [], not: null, korAnnat: true }); continue }
+    if (arKorAnnat(tavla, m)) { rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer: [], not: null, korAnnat: true }); continue }
     const barer: TidsBar[] = []
     const efterOkand: string[] = []
     let start = 0

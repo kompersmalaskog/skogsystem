@@ -179,14 +179,14 @@ describe('/helikopter — tavlan', () => {
     expect(sektion('Mer')!.textContent).toContain('Månadsfacit')
   })
 
-  it('menyn: fyra sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
+  it('menyn: fem sidor, Läget nu vald som standard, och ett tryck byter adress med månaden kvar', async () => {
     q.params = 'ar=2026&manad=10'
     await monter()
     const meny = Array.from(cont.querySelectorAll('[data-meny]')) as HTMLButtonElement[]
-    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Hinner vi?', 'Planera', 'Månader'])
+    expect(meny.map(b => b.querySelector('.hk-nav-text')!.textContent)).toEqual(['Läget nu', 'Kalender', 'Hinner vi?', 'Planera', 'Månader'])
     expect(meny[0].getAttribute('aria-current')).toBe('page')
     expect(cont.querySelector('[data-sida="laget"]')).not.toBeNull()
-    await act(async () => { meny[3].click() })
+    await act(async () => { meny[4].click() })
     expect(q.replace).toHaveBeenLastCalledWith('/helikopter?ar=2026&manad=10&sida=manader', { scroll: false })
     await ritaOm()
     expect(cont.querySelector('[data-meny="manader"]')!.getAttribute('aria-current')).toBe('page')

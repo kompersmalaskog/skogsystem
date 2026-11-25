@@ -17,7 +17,8 @@ export type RutnatSegment = {
   till: string
   /** Text i blocket (TYP.meta, kapas). Utelämna på fortsättningsbitar. */
   text?: string
-  ton?: 'normal' | 'orange'
+  /** plan = prognos (streckat block), till skillnad från mätt (heldraget). */
+  ton?: 'normal' | 'orange' | 'plan'
   ariaLabel?: string
   onKlick?: () => void
 }
@@ -94,12 +95,13 @@ export default function Rutnat({ dagar, idagIso, rader, tonadDag, avdelare, minD
     const synligLeft = sIdx * dagBredd + 2
     const synligBredd = (eIdx - sIdx + 1) * dagBredd - 4
     const orange = s.ton === 'orange'
+    const plan = s.ton === 'plan'
     const synligt = (
       <span aria-hidden style={{
         position: 'absolute', top: AVSTAND.xs, bottom: AVSTAND.xs, left: 0, width: synligBredd,
-        background: orange ? FARG.orange : FARG.upphojt, borderRadius: RADIE.stapel,
+        background: orange ? FARG.orange : plan ? 'transparent' : FARG.upphojt, border: plan ? `1px dashed ${FARG.text3}` : undefined, borderRadius: RADIE.stapel,
         display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.xs}px`, boxSizing: 'border-box', overflow: 'hidden',
-        ...TYP.meta, color: orange ? FARG.bg : FARG.text, whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+        ...TYP.meta, color: orange ? FARG.bg : plan ? FARG.text2 : FARG.text, whiteSpace: 'nowrap', textOverflow: 'ellipsis',
       }}>{s.text}</span>
     )
     const traffBredd = Math.max(synligBredd, TRAFFYTA.min)
