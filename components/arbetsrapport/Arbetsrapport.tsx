@@ -904,6 +904,17 @@ export default function Arbetsrapport() {
   // beräkningen. Tills BÅDA är lästa (eller om läsningen faller) visas ingen siffra — en övertid räknad utan dem vore för låg, inte noll.
   const [årsFranvaro, setÅrsFranvaro] = useState<FranvaroRad[] | null>(null);
   const [årsUtjamning, setÅrsUtjamning] = useState<{ startdatum: string; slutdatum: string }[] | null>(null);
+  // Förarens egna arbetstidsgränser (50 tim övertid/månad, 250/år, 48 tim/vecka i snitt) — SAMMA räkning som Admin › Arbetstid
+  // (/api/lon/arbetstid?mig=1). null = läses/kunde inte läsas: då visas årets övertid som förut.
+  const [minaGranser, setMinaGranser] = useState<any[] | null>(null);
+  useEffect(() => {
+    if (steg !== "mintid" || !medarbetare?.id || medarbetare?.foretagsledare === true) return;
+    let avbruten = false;
+    fetch("/api/lon/arbetstid?mig=1", { cache: "no-store" })
+      .then(async r => { const j = await r.json().catch(() => ({})); if (!avbruten) setMinaGranser(r.ok && j.ok && Array.isArray(j.forare?.[0]?.granser) ? j.forare[0].granser : null); })
+      .catch(() => { if (!avbruten) setMinaGranser(null); });
+    return () => { avbruten = true; };
+  }, [steg, medarbetare?.id, medarbetare?.foretagsledare]);
   useEffect(() => {
     if (steg !== "mintid" || !medarbetare?.id) return;
     let avbruten = false;
@@ -4453,8 +4464,46 @@ export default function Arbetsrapport() {
           </>}
 
           {minTidFlik==='översikt'&&!arForetagsledare&&<>
-          {/* Övertid året — taket ur avtalet; färgen förstärker ett ord. */}
-          <section style={{ marginBottom:AVSTAND.xl }}>
+          {/* Arbetstidens gränser — det föraren själv ska hålla koll på (Martin 2026-11-25: "medarbetaren måste ju se det").
+              Samma tal som Admin › Arbetstid. Faller läsningen står årets övertid kvar som förut. */}
+          {minaGranser && (()=>{
+            const ordning = ["overtid_manad","allman_overtid_ar","extra_overtid_ar","snitt_48"];
+            const manNamn = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'][nu.getMonth()];
+            const rubrik: Record<string,[string,string]> = {
+              overtid_manad: [`Övertid i ${manNamn}`, "t.o.m. igår"],
+              allman_overtid_ar: [`Övertid ${nu.getFullYear()}`, ""],
+              extra_overtid_ar: ["Extra övertid", "över årets tak"],
+              snitt_48: ["Snitt per vecka", "senaste 4 månaderna"],
+            };
+            const rader = ordning.map(id => minaGranser.find((g:any)=>g.id===id)).filter((g:any)=>g && !(g.id==="extra_overtid_ar" && !(g.varde>0)));
+            return (
+              <section data-arbetstid-granser="" style={{ marginBottom:AVSTAND.xl }}>
+                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Arbetstid</h3>
+                <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
+                  {rader.map((g:any, i:number) => {
+                    const farg = g.niva==="rod" ? FARG.rod : g.niva==="gul" ? FARG.orange : FARG.text;
+                    const [namn, under] = rubrik[g.id];
+                    const enhet = g.id==="snitt_48" ? "tim/v" : "tim";
+                    return (
+                      <div key={g.id} data-grans={g.id} style={{ padding:`${AVSTAND.m}px 0`, borderBottom: i < rader.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m }}>
+                          <span style={{ ...TYP.meta, color:FARG.text }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}</span>
+                          <span style={{ ...TYP.listtitel, ...TNUM, color:farg, whiteSpace:"nowrap" }}>
+                            {g.varde==null ? "–" : `${Number(g.varde).toLocaleString('sv-SE')} ${enhet}`}
+                            <span style={{ ...TYP.meta, color:FARG.text2 }}> av {Number(g.grans).toLocaleString('sv-SE')}</span>
+                          </span>
+                        </div>
+                        {(g.niva!=="lugn" || g.varde==null) && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color: g.niva==="lugn" ? FARG.text2 : farg }}>{g.mening}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Övertid räknas per månad, som lönen. 48 tim är ett snitt — en enskild vecka får vara längre.</p>
+              </section>
+            );
+          })()}
+          {/* Övertid året — taket ur avtalet; färgen förstärker ett ord. Visas bara när gränserna inte gick att läsa. */}
+          {!minaGranser && <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Övertid {nu.getFullYear()}</h3>
             <div style={KORT}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:AVSTAND.s }}>
@@ -4468,7 +4517,7 @@ export default function Arbetsrapport() {
               {årsOrd && <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color:årsFarg }}>{årsOrd}</p>}
               <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>{årsÖvH == null ? "Räknas när frånvaro och utjämningsperioder är lästa" : "Räknat per månad, som lönen: först när månadens timmar är fyllda. Pågående månad t.o.m. igår."}</p>
             </div>
-          </section>
+          </section>}
 
           </>}
 
