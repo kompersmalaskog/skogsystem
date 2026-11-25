@@ -73,6 +73,8 @@ export type Gransstatus = {
   varfor: string;
   /** Talet är räknat/uppskattat/en tolkning — syns som etikett. */
   markning?: "räknat" | "uppskattad" | "tolkning";
+  /** Det admin måste göra (orange rad under meningen), t.ex. att extra övertid kräver beslut eller dispens. */
+  atgard?: string;
 };
 
 export type ArbetstidDag = { datum: string; arbetad_min: number | null; start_tid?: string | null; slut_tid?: string | null };
@@ -408,6 +410,8 @@ export function byggArbetstid(i: ArbetstidIndata): ArbetstidForare {
     granser.push({
       id: "extra_overtid_ar", namn: "Extra övertid per år", niva, varde: extra, grans: G, enhet: "tim", andel: Math.min(1, extra / G), markning: "räknat",
       mening: extra === 0 ? `Ingen extra övertid — allt över ${tim(tak)} tim räknas som extra` : `${tim(extra)} av ${tim(G)} tim extra övertid${suffix(niva, "närmar sig taket", "taket är passerat")}`,
+      // Martin 2026-11-25: extra övertid får inte bara tas ut — det ska stå på raden, inte bara under "Varför?".
+      ...(extra > 0 ? { atgard: extra > G ? "Över 150 tim krävs dispens från Arbetsmiljöverket" : "Extra övertid kräver särskilda skäl — kontrollera att det är beslutat" } : {}),
       varfor: VARFOR.extra_overtid_ar,
     });
   }
