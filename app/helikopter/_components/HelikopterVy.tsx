@@ -10,7 +10,8 @@
 // så sidan och flyttförslaget räknar på samma tal.
 //
 // Bredd: korten ligger i ett rutnät med CONTAINER QUERIES (sidans egen bredd): 1 kolumn, 2 från 640 px, 3 från 960 px.
-// Från 1100 px står månaderna som sidokolumn till vänster (Manadssida), som markägarrapportens lista. Ark underifrån under 600 px, panel från höger annars.
+// MENY (2026-11-19, Prognos 2026-11-20): fyra sidor, var och en svarar på en fråga — Läget nu (ligger vi bra till?), Prognos (hinner vi?), Planera (vilka trakter, i vilken ordning?), Månader (hur gick det?).
+// Sidomeny från 1000 px, fyra flikar i botten under det (HelikopterMeny). Sidan ligger i adressen (?sida=). Ark underifrån under 600 px, panel från höger annars.
 //
 // Data i lager, varje med eget fel (ett fel är ett fel, aldrig tomt):
 //   fast — maskiner, senaste importtid, bolagshistorik (en gång) · manadsdata — spår, arbetsdagar, planering, stopp (vid månadsbyte) ·
@@ -20,7 +21,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { SheetLageContext } from '@/components/Sheet'
 import { Sheet } from '@/components/Sheet'
-import Svarsrad from '@/components/design/Svarsrad'
 import Sektion from '@/components/design/Sektion'
 import Ikon from '@/components/design/Ikon'
 import { RadGrupp, RadLank } from '@/components/ui/RadGrupp'
@@ -28,13 +28,15 @@ import { AVSTAND, FARG, FONT, KNAPP, KOLUMN, KOLUMN_CSS, LAYOUT, ROT_MIN_HOJD, T
 import { ymdLokal } from '@/lib/datumLokal'
 import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import {
-  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
+  hamtaBolag, hamtaEgenSkotningTrakter, hamtaEgetSkordat, hamtaMaskinObjekt, hamtaSenasteArbete, type SenasteArbete, hamtaKorNu, type KorNu, type MaskinObjektRad, sattEgenSkotning, hamtaFast, hamtaManadsdata, hamtaMaskinLage, hamtaPrognosUtfall, hamtaSkogKort, tilldelaMaskin,
   type BolagRad, type FastData, type Manadsdata, type MaskinLage, type Typ,
 } from '../_lib/queries'
 import { TYPER, TYP_NAMN, globalaArbetsdagar, manadStatus, maskinNamn, planeringStoppText, raknaSpar, sparTakter, valjBas, type SparLage } from '../_lib/berakningar'
 import { MANAD_NAMN, fmt, manadRubrik, relativTid } from '../_lib/format'
 import { medPrognoser } from '../_lib/klar'
+import Kalender from './Kalender'
 import type { SkogKort } from '@/lib/skogsdata/las'
+import { byggTidslinje } from '../_lib/lage'
 import { EGEN_SKOTNING, byggTavla, flyttVal, slutordning, utanforBestallning, type TavlaIndata, type TavlaUtfall } from '../_lib/tavla'
 import type { UtfallRad } from '@/lib/g15Forslag'
 import { facitHref } from '../_lib/manadsfacit'
@@ -44,19 +46,18 @@ import { useFonsterBredd } from '../_lib/useFonsterBredd'
 import { Fel, Laddar } from './Tillstand'
 import { HK_CSS } from './Lista'
 import { PanelContext, type PanelPost } from './PanelVal'
-import Tavla, { FlyttaSheet, PlaneraSida, type OrdningsStyrning, type TraktVal } from './Tavla'
+import Lage from './Lage'
+import { FlyttaSheet, GorKort, PlaneraFlik, type PlaneraRoll, type OrdningsStyrning, type TraktVal } from './Tavla'
 import { flyttaObjekt, sattOrdning } from '@/lib/objekt/data'
 import { stegaManad } from '@/lib/objekt/manad'
 import { DinMaskinSektion, VeckoNotisSektion } from './MaskinSektion'
-import Manadssida, { helikopterHref } from './Manadssida'
+import HelikopterMeny, { MENY_CSS } from './HelikopterMeny'
+import { helikopterHref, tolkaSida, type Sida } from '../_lib/meny'
 import HistorikInnehall from './HistorikInnehall'
 import UtanTypSheet from './UtanTypSheet'
 import BolagSheet from './BolagSheet'
 import TraffsakerhetSheet from './TraffsakerhetSheet'
 
-/** Från denna bredd står månaderna som sidokolumn. Samma som markägarrapporten. */
-export const SIDOKOLUMN_FRAN_PX = 1100
-const SIDOKOLUMN_BREDD_PX = 360
 /** Under detta är ett ark underifrån; från det en panel från höger. */
 export const ARK_MAX_PX = 600
 /** Rutnätets brytpunkter, på SIDANS bredd (container queries), inte fönstrets. */
@@ -65,19 +66,14 @@ export const TRE_KOLUMNER_PX = 960
 
 const css = `
 .hk-ram { display: flex; min-height: ${ROT_MIN_HOJD}; background: ${FARG.bg}; color: ${FARG.text}; -webkit-font-smoothing: antialiased; }
-.hk-sida { display: none; }
 .hk-innehall { flex: 1; min-width: 0; }
 .hk-sidan { container-type: inline-size; max-width: ${KOLUMN.bred + 2 * AVSTAND.sidmarginal}px; margin: 0 auto; box-sizing: border-box; padding: 0 ${AVSTAND.sidmarginal}px ${AVSTAND.xxl * 2}px; }
 .hk-rutnat { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: ${AVSTAND.xl}px; align-items: start; }
 @container (min-width: ${TVA_KOLUMNER_PX}px) { .hk-rutnat { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (min-width: ${TRE_KOLUMNER_PX}px) { .hk-rutnat { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (min-width: ${SIDOKOLUMN_FRAN_PX}px) {
-  .hk-sida { display: block; width: ${SIDOKOLUMN_BREDD_PX}px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid ${FARG.linje};
-    padding: ${AVSTAND.l}px ${AVSTAND.sidmarginal}px ${AVSTAND.xxl}px; position: sticky; top: ${LAYOUT.topbar}; height: ${ROT_MIN_HOJD}; overflow-y: auto; }
-}
 `
 
-type Ark = `behov:${Typ}` | `skot:${Typ}` | 'traffsakerhet' | 'utan' | 'historik' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
+type Ark = 'traffsakerhet' | 'utan' | 'veckor' | 'bolagval' | 'notis' | `bolag:${Typ}` | `flytta:${string}`
 
 export default function HelikopterVy() {
   const sp = useSearchParams()
@@ -95,9 +91,14 @@ export default function HelikopterVy() {
   const manadNamn = MANAD_NAMN[manad - 1]
 
   // Gamla adresser med ?flik= (Läge/Planering/Uppföljning/Historik) landar på samma sida — fliken finns inte längre.
+  const sida = tolkaSida(sp.get('sida'))
   const satt = useCallback((n: { ar: number; manad: number }) => {
-    router.replace(helikopterHref(n.ar, n.manad), { scroll: false })
-  }, [router])
+    router.replace(helikopterHref(n.ar, n.manad, sida), { scroll: false })
+  }, [router, sida])
+  const valjSida = (s: Sida) => router.replace(helikopterHref(ar, manad, s), { scroll: false })
+  // Planera öppnas ur Läget nu med spåret och rollen man tryckte på; öppnas sidan direkt är det första spåret och skördaren.
+  const [planera, setPlanera] = useState<{ typ: Typ | null; roll: PlaneraRoll }>({ typ: null, roll: 'skordare' })
+  const tillPlanera = (typ: Typ, roll: PlaneraRoll) => { setPlanera({ typ, roll }); valjSida('planera') }
   const bytManad = (steg: number) => {
     const d = new Date(ar, manad - 1 + steg, 1)
     satt({ ar: d.getFullYear(), manad: d.getMonth() + 1 })
@@ -113,6 +114,8 @@ export default function HelikopterVy() {
   // Arket som öppnade "Vem ska ta den?": dit går man tillbaka efteråt.
   const [fran, setFran] = useState<Ark | null>(null)
   useEffect(() => { setPanel(null); setNyOrdning(null) }, [ar, manad])
+  // En förhandsvisad ordning som inte sparats får aldrig följa med till en annan sida och se ut som verklig.
+  useEffect(() => { setNyOrdning(null) }, [sida])
   const panelStyrning = useMemo(() => ({ panel, satt: setPanel }), [panel])
 
   const { medarbetare } = useCurrentMedarbetare()
@@ -251,6 +254,35 @@ export default function HelikopterVy() {
     return () => { avbruten = true }
   }, [ar, manad, version])
 
+  // Var maskinerna arbetat de senaste 3 dagarna: bara i pågående månad, och först när köerna finns. Ett fel säger ingenting — prognosen som förut.
+  const [senaste, setSenaste] = useState<SenasteArbete[] | null>(null)
+  const koIds = klarData && status === 'pagaende' ? klarData.trakter.map(t => t.objekt_id).join(',') : ''
+  useEffect(() => {
+    setSenaste(null)
+    if (!koIds) return
+    let avbruten = false
+    const fran = new Date(); fran.setDate(fran.getDate() - 3)
+    hamtaSenasteArbete(ymdLokal(fran), koIds.split(',')).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] senaste arbete', r.error); else setSenaste(r.data)
+    })
+    return () => { avbruten = true }
+  }, [koIds, version])
+
+  // Vad varje maskin senast gjorde, rakt ur data (visas på Läget nu). Ett fel säger ingenting — raden uteblir.
+  const [korNu, setKorNu] = useState<KorNu[] | null>(null)
+  useEffect(() => {
+    setKorNu(null)
+    if (status !== 'pagaende') return
+    let avbruten = false
+    const fran = new Date(); fran.setDate(fran.getDate() - 7)
+    hamtaKorNu(ymdLokal(fran)).then(r => {
+      if (avbruten) return
+      if (r.error != null) console.error('[helikopter] kör nu', r.error); else setKorNu(r.data)
+    })
+    return () => { avbruten = true }
+  }, [status, version])
+
   // ── Räkningen (allt som står på sidan) ──
   const dagar = useMemo(() => (manadsdata ? globalaArbetsdagar(manadsdata.arbetsdagar) : null), [manadsdata])
   const spar: SparLage[] = useMemo(() => {
@@ -283,9 +315,11 @@ export default function HelikopterVy() {
       if (sp.bestallt > 0 && !sp.bolag.some(b => b.toLowerCase() === (e.bolag ?? '').toLowerCase())) return []
       return [{ typ: sp.typ, maskin_id: r.maskin_id, volym: r.volym }]
     })
-    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
-  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, nyOrdning])
+    return { status, spar, utfall: maskinUtfall, klar: klarKlar ? klarData : null, egna: egna ?? new Set(), egetSkordat, stopp, senaste: senaste ?? undefined, utanfor: maskinObjekt ? utanforBestallning(maskinObjekt, spar) : undefined, ordning: nyOrdning ?? undefined }
+  }, [manadsdata, spar, maskinUtfall, status, klarData, egna, egetRader, maskinObjekt, senaste, nyOrdning])
   const tavla = useMemo(() => (tavlaIn ? byggTavla(tavlaIn) : null), [tavlaIn])
+  // Tidslinjen på Läget nu: vem gör vad dag för dag. Bara i en pågående månad med köunderlag.
+  const tidslinje = useMemo(() => (tavla && tavlaIn ? byggTidslinje(tavlaIn, tavla) : null), [tavla, tavlaIn])
   const utanTypSumma = Math.round((manadsdata?.utanTyp ?? []).reduce((a, r) => a + r.volym, 0))
 
   const underrad = !dagar
@@ -357,17 +391,7 @@ export default function HelikopterVy() {
   const stangArk = () => { setNyOrdning(null); setFran(null); setArk(null) }
   // Byt maskin på en trakt ur ett ark: "Vem ska ta den?" öppnas och du kommer tillbaka till arket.
   const bytMaskin = kanFlytta ? (v: TraktVal) => { setFran(ark); setArk(`flytta:${v.roll}:${v.objekt_id}`) } : undefined
-  // Vilka trakter som behövs (skördarens rad i "Räcker trakterna?"). Flytten gäller trakten som helhet och skrivs till objektets planerade månad,
-  // samma fält som Objekt-vyn — så ändringen syns i båda.
-  const behovTyp = ark && ark.startsWith('behov:') ? (ark.slice(6) as Typ) : null
-  const behovSpar = behovTyp && tavla ? tavla.spar.find(x => x.typ === behovTyp) ?? null : null
-  const behov = behovSpar?.racker.find(r => r.roll === 'skordare')?.behov ?? null
-  const skotTyp = ark && ark.startsWith('skot:') ? (ark.slice(5) as Typ) : null
-  const skotSpar = skotTyp && tavla ? tavla.spar.find(x => x.typ === skotTyp) ?? null : null
-  const skot = skotSpar?.racker.find(r => r.roll === 'skotare')?.skot ?? null
-  // Skördarens och skotarens rad öppnar SAMMA sida: Planera för spåret.
-  const planeraTyp = behovTyp ?? skotTyp
-  const planeraSpar = planeraTyp && tavla ? tavla.spar.find(x => x.typ === planeraTyp) ?? null : null
+  // Flytten gäller trakten som helhet och skrivs till objektets planerade månad, samma fält som Objekt-vyn — så ändringen syns i båda.
   const nastaManad = stegaManad({ ar, manad }, 1)
   const flyttaTillNasta = async (ids: string[]): Promise<string | null> => {
     let flyttade = 0
@@ -417,39 +441,49 @@ export default function HelikopterVy() {
       <SheetLageContext.Provider value={sheetLage}>
         {/* Typsnittet inline: FONT har citattecken, och React escapar dem i en <style> vid serverrendering. */}
         <div className="hk-ram" style={{ fontFamily: FONT }} data-helikopter="">
-          <style>{designCss + KOLUMN_CSS + HK_CSS + css}</style>
-          <aside className="hk-sida" aria-label="Månader">
-            <Manadssida ar={ar} manad={manad} nuAr={nuAr} nuManad={nuManad} />
-          </aside>
+          <style>{designCss + KOLUMN_CSS + HK_CSS + css + MENY_CSS}</style>
+          <HelikopterMeny aktiv={sida} onVal={valjSida} />
           <main className="hk-innehall">
             <div className="hk-sidan">
+              {sida === 'manader' ? (
+                // Månader: hur gick det? Ingen månadsrubrik — sidan gäller alla månader, och varje rad öppnar månadens facit.
+                <div data-sida="manader">
+                  <h1 style={{ margin: 0, padding: `${AVSTAND.l}px 0 ${AVSTAND.s}px`, ...TYP.titel, color: FARG.text }}>Månader</h1>
+                  <HistorikInnehall />
+                </div>
+              ) : (
+              <>
               {manadsHuvud}
               {!klart ? (
                 fel ? <Fel onRetry={() => setVersion(v => v + 1)} /> : <Laddar vad={manadNamn} />
               ) : (
                 <>
-                  {!planeraSpar && <Svarsrad rubrik={tavla.svar.rubrik} avvikelse={tavla.svar.avvikelse} />}
                   {status !== 'avslutad' && klar.fel && (
                     <RadGrupp><RadLank orange text="Kunde inte läsa maskinernas trakter" smakprov="försök igen" onClick={() => void klar.ladda()} sista /></RadGrupp>
                   )}
-                  {planeraSpar ? (
-                    <PlaneraSida key={ark} start={behovTyp ? 'skordare' : 'skotare'} spar={planeraSpar} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} onTillbaka={stangArk} />
+                  {sida === 'kalender' ? (
+                    <div data-sida="kalender">
+                      <Kalender tidslinje={tidslinje} korNu={korNu} onPlanera={kanFlytta ? () => valjSida('planera') : undefined} manadNamn={MANAD_NAMN[manad - 1]} ar={ar} />
+                    </div>
+                  ) : sida === 'planera' ? (
+                    <div data-sida="planera">
+                      <PlaneraFlik tavla={tavla} typ={planera.typ} onTyp={typ => setPlanera({ typ, roll: 'skordare' })} start={planera.roll} manadNamn={MANAD_NAMN[manad - 1].toLowerCase()} nastaNamn={MANAD_NAMN[nastaManad.manad - 1].toLowerCase()} kanFlytta={kanFlytta} onFlytta={flyttaTillNasta} ordning={ordningSt} onTrakt={bytMaskin} />
+                    </div>
                   ) : (
-                  <div className="hk-rutnat">
-                    <Tavla tavla={tavla} onTrakt={kanFlytta ? v => setArk(`flytta:${v.roll}:${v.objekt_id}`) : undefined} onBehov={typ => setArk(`behov:${typ}`)} onSkot={typ => setArk(`skot:${typ}`)} />
+                  <div className="hk-rutnat" data-sida="laget">
+                    {tavla && tavla.gor.length > 0 && <div style={{ gridColumn: '1 / -1' }}><GorKort gor={tavla.gor} onTrakt={bytMaskin} /></div>}
+                    <Lage tavla={tavla} status={status} onSpar={tillPlanera} tidslinje={tidslinje} korNu={korNu} />
                     {dinMaskin && <DinMaskinSektion maskinNamn={maskinNamn(dinMaskin)} lage={maskinLage} fel={maskinLageFel} onRetry={() => setVersion(v => v + 1)} />}
                     <Sektion rubrik="Mer" kort={false}>
                       <RadGrupp marginBottom={0}>
                         {manadsdata.utanTyp == null && <RadLank orange text="Objekt utan typ kunde inte läsas" smakprov="ladda om" onClick={() => setVersion(v => v + 1)} />}
                         {utanTypSumma > 0 && <RadLank orange text={`${fmt(utanTypSumma)} m³fub saknar typ`} smakprov="räknas inte" onClick={() => setArk('utan')} />}
-                        <RadLank text="Träffsäkerhet" onClick={() => setArk('traffsakerhet')} />
-                        <RadLank text="Veckor" onClick={() => setArk('veckor')} />
-                        <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
+                        <RadLank text="Hade vi rätt?" onClick={() => setArk('traffsakerhet')} />
+                        <RadLank text="Hur gick veckorna?" onClick={() => setArk('veckor')} />
+                        <RadLank text="Hur går det per bolag?" onClick={() => setArk('bolagval')} />
                         {status !== 'avslutad' && <RadLank text="Månadsplan" href={planHref(ar, manad)} />}
                         {status === 'avslutad' && <RadLank text="Månadsfacit" href={facitHref(ar, manad)} />}
                         {arAdmin && <RadLank text="Onsdagsnotis" onClick={() => setArk('notis')} />}
-                        {/* Från 1100 px står månaderna i sidokolumnen; under det nås de här. */}
-                        {fonsterBredd < SIDOKOLUMN_FRAN_PX && <RadLank text="Tidigare månader" onClick={() => setArk('historik')} />}
                       </RadGrupp>
                     </Sektion>
                   </div>
@@ -458,7 +492,7 @@ export default function HelikopterVy() {
                   <TraffsakerhetSheet open={ark === 'traffsakerhet'} onClose={stang} />
                   {/* Veckor och Per bolag: ett spår i taget — valet i ett litet ark så Mer inte blir en lång lista. */}
                   {(ark === 'veckor' || ark === 'bolagval') && (
-                    <Sheet open onClose={stang} title={ark === 'veckor' ? 'Veckor' : 'Per bolag'}>
+                    <Sheet open onClose={stang} title={ark === 'veckor' ? 'Hur gick veckorna?' : 'Hur går det per bolag?'}>
                       <RadGrupp bakgrund={FARG.upphojt}>
                         {spar.map(s => ark === 'veckor'
                           ? <RadLank key={s.typ} text={TYP_NAMN[s.typ]} href={`/helikopter/veckor?typ=${s.typ}&ar=${ar}&manad=${manad}`} />
@@ -480,12 +514,9 @@ export default function HelikopterVy() {
                       ar={ar} manad={manad}
                     />
                   )}
-                  {ark === 'historik' && (
-                    <Sheet open onClose={stang} title="Tidigare månader">
-                      <HistorikInnehall yta={FARG.upphojt} />
-                    </Sheet>
-                  )}
                 </>
+              )}
+              </>
               )}
             </div>
           </main>

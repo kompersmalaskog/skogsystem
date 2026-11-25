@@ -1,10 +1,14 @@
 'use client'
 
-// Bolagsrader för ett spår: lovat / skördat / skotat / prognos — och CSV på exakt samma tal.
+// "Hur går det per bolag?": ett kort per bolag — skotat av beställt, en stapel och ett ord. CSV:n har fortfarande alla fyra talen (lovat, skördat, skotat, prognos).
 import { Sheet } from '@/components/Sheet'
-import { AVSTAND, FARG, KNAPP, RAD, TNUM, TYP } from '@/lib/design/tokens'
+import { AVSTAND, FARG, KNAPP, TNUM, TYP } from '@/lib/design/tokens'
+import Rad from '@/components/design/Rad'
+import Sektion from '@/components/design/Sektion'
 import { TYP_NAMN, prognosPerBolag } from '../_lib/berakningar'
-import { MANAD_NAMN, fmt } from '../_lib/format'
+import { MANAD_NAMN } from '../_lib/format'
+import { bolagVy } from '../_lib/bolagText'
+import { Matare } from './Lista'
 import type { BolagRad, Typ } from '../_lib/queries'
 
 type Props = {
@@ -63,13 +67,8 @@ export default function BolagSheet({ open, onClose, typ, rader, laddar, fel, onR
     URL.revokeObjectURL(url)
   }
 
-  const kolumner = '1.4fr 1fr 1fr 1fr 1fr'
-  const tal = { ...TYP.text, ...TNUM, textAlign: 'right' } as const
   return (
     <Sheet open={open} onClose={onClose} title={`${TYP_NAMN[typ]} · ${MANAD_NAMN[manad - 1]}`}>
-      <div style={{ display: 'grid', gridTemplateColumns: kolumner, gap: AVSTAND.s, ...TYP.micro, color: FARG.text2, paddingBottom: AVSTAND.s }}>
-        <span>Bolag</span><span style={{ textAlign: 'right' }}>Lovat</span><span style={{ textAlign: 'right' }}>Skördat</span><span style={{ textAlign: 'right' }}>Skotat</span><span style={{ textAlign: 'right' }}>Prognos</span>
-      </div>
       {fel ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, textAlign: 'center', padding: `${AVSTAND.m}px 0` }}>
           <div style={{ ...TYP.listtitel, color: FARG.text }}>Kunde inte läsa bolag – försök igen</div>
@@ -77,19 +76,29 @@ export default function BolagSheet({ open, onClose, typ, rader, laddar, fel, onR
         </div>
       ) : laddar ? (
         <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Laddar bolag…</div>
-      ) : lista.length === 0 && <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga bolag med produktion eller beställning den här månaden.</div>}
-      <div className="hk-grupp">
-        {lista.map(r => (
-          <div key={r.bolag} className="hk-rad" style={{ ...RAD, display: 'grid', gridTemplateColumns: kolumner, gap: AVSTAND.s }}>
-            <span style={{ ...TYP.listtitel, color: FARG.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.bolag}</span>
-            <span style={{ ...tal, color: FARG.text2 }}>{r.lovat > 0 ? fmt(r.lovat) : '–'}</span>
-            <span style={{ ...tal, color: FARG.text2 }}>{fmt(r.skordat)}</span>
-            <span style={{ ...tal, color: FARG.text }}>{fmt(r.skotat)}</span>
-            <span style={{ ...tal, color: FARG.text2 }}>{harPrognos ? fmt(r.prognos) : '–'}</span>
-          </div>
-        ))}
-      </div>
-      <div style={{ ...TYP.meta, color: FARG.text3, marginTop: AVSTAND.m }}>m³fub. Prognos = bolagets skotat + bolagets takt × arbetsdagar kvar.</div>
+      ) : lista.length === 0 ? (
+        <div style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.m}px 0` }}>Inga bolag med produktion eller beställning den här månaden.</div>
+      ) : (
+        <Sektion rubrik={`Skotat av beställt i ${MANAD_NAMN[manad - 1]}`} kort={false} not={`m³fub. Beställt = det bolaget bett oss leverera.${harPrognos ? ' "Ser ut att bli" = skotat hittills + bolagets takt × arbetsdagar kvar.' : ''}`}>
+          {lista.map((r, i) => {
+            const v = bolagVy(r, harPrognos)
+            const farg = v.ton === 'brist' ? FARG.orange : v.ton === 'bra' ? FARG.gron : FARG.text2
+            return (
+              <Rad
+                key={r.bolag}
+                titel={r.bolag}
+                hoger={<span style={TNUM}>{v.hoger}</span>}
+                under={<>
+                  {v.andel != null && <div style={{ marginBottom: AVSTAND.s }}><Matare andel={v.andel} prognosAndel={v.prognosAndel} farg={FARG.text} /></div>}
+                  <span style={{ color: farg, fontWeight: v.ton === 'neutral' ? 400 : 600 }}>{v.ord}</span>
+                </>}
+                sista={i === lista.length - 1}
+                attr={{ 'data-bolag': r.bolag }}
+              />
+            )
+          })}
+        </Sektion>
+      )}
       <button type="button" onClick={exportera} style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>Ladda ner CSV</button>
     </Sheet>
   )

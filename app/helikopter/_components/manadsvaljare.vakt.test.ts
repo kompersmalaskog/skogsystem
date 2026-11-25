@@ -39,9 +39,9 @@ describe('månadsväljaren i HelikopterVy', () => {
     expect(tavla).not.toMatch(/fontWeight: VIKT\.fet, color: FARG\.(orange|gron)/)
   })
 
-  it('sidan räknar inget själv: tavlan byggs i _lib/tavla.ts och ritas av Tavla', () => {
+  it('sidan räknar inget själv: tavlan byggs i _lib/tavla.ts och ritas av Lage', () => {
     expect(kalla).toContain('byggTavla(')
-    expect(kalla).toContain('<Tavla ')
+    expect(kalla).toContain('<Lage ')
     expect(kalla).not.toContain('<MaskinSektion')
   })
 })
