@@ -454,7 +454,7 @@ function pilar(grupp: string[], id: string, st?: OrdningsStyrning) {
  *  Skördare | Skotare är en växel (samma trakter, två vinklar). Listan står i den ordning trakterna körs;
  *  rubriken "Behövs inte i <månad>" är linjen där beställningen är full. Pilarna ändrar ordning, tryck på maskinen byter den. */
 export type PlaneraRoll = 'skordare' | 'skotare'
-type PlaneraTrakt = { objekt_id: string; namn: string; maskin: string | null; kvar: number; behovs: number; dagar: number | null; till: string | null; flyttbar: boolean; fast: boolean }
+type PlaneraTrakt = { objekt_id: string; namn: string; maskin: string | null; kvar: number; behovs: number; dagar: number | null; till: string | null; flyttbar: boolean; fast: boolean; pagar: boolean }
 
 type PlaneraProps = {
   spar: TavlaSpar; manadNamn: string; nastaNamn: string; kanFlytta: boolean
@@ -485,13 +485,13 @@ function PlaneraRollAvsnitt({ spar, roll, manadNamn, nastaNamn, kanFlytta, onFly
   const ingen = roll === 'skordare' ? 'Ingen skördare' : 'Ingen skotare'
 
   // Tre grupper i samma form: körs (behövs), saknar maskin (bara skotare) och behövs inte.
-  const tillTrakt = (t: TavlaBehov['behovs'][number] | TavlaSkot['rader'][number], flyttbar: boolean): PlaneraTrakt => ({ objekt_id: t.objekt_id, namn: t.namn, maskin: t.maskin, kvar: t.kvar, behovs: t.behovs, dagar: t.dagar, till: t.till, fast: t.fast, flyttbar })
+  const tillTrakt = (t: TavlaBehov['behovs'][number] | TavlaSkot['rader'][number], flyttbar: boolean): PlaneraTrakt => ({ objekt_id: t.objekt_id, namn: t.namn, maskin: t.maskin, kvar: t.kvar, behovs: t.behovs, dagar: t.dagar, till: t.till, fast: t.fast, pagar: t.pagar === true, flyttbar })
   const grupper: { koors: PlaneraTrakt[]; utan: PlaneraTrakt[]; inte: PlaneraTrakt[] } = roll === 'skordare'
     ? { koors: (behov?.behovs ?? []).map(t => tillTrakt(t, false)), utan: [], inte: (behov?.inte ?? []).map(t => tillTrakt(t, t.flyttbar)) }
     : { koors: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => tillTrakt(t, false)), utan: (skot?.rader ?? []).filter(t => t.maskin == null).map(t => tillTrakt(t, false)), inte: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs <= 0).map(t => tillTrakt(t, false)) }
   const ordnade = [...grupper.koors, ...grupper.inte]
   const nr = new Map<string, number>([...ordnade.map((t, i) => [t.objekt_id, i + 1] as const), ...grupper.utan.map((t, i) => [t.objekt_id, i + 1] as const)])
-  const pilGrupp = (utanMaskin: boolean) => (utanMaskin ? grupper.utan : ordnade).filter(t => !t.fast).map(t => t.objekt_id)
+  const pilGrupp = (utanMaskin: boolean) => (utanMaskin ? grupper.utan : ordnade).filter(t => !t.fast && !t.pagar).map(t => t.objekt_id)
 
   const utanSumma = skot?.utanSumma ?? 0
   const gjort = roll === 'skordare' ? behov : skot
@@ -524,7 +524,7 @@ function PlaneraRollAvsnitt({ spar, roll, manadNamn, nastaNamn, kanFlytta, onFly
         <OrdnadTraktRad id={t.objekt_id} nr={nr.get(t.objekt_id) ?? i + 1} namn={t.namn} maskin={t.maskin} ingen={ingen} ton={typ === 'inte' ? 'dampad' : 'full'}
           tal={typ === 'koors' ? t.behovs : t.kvar}
           onMaskin={onTrakt ? () => onTrakt({ objekt_id: t.objekt_id, roll }) : undefined}
-          under={delvis ? [`Bara ${fmt(t.behovs)} av ${fmt(t.kvar)} m³ behövs`] : []}
+          under={[...(t.pagar ? ['Körs nu'] : []), ...(delvis ? [`Bara ${fmt(t.behovs)} av ${fmt(t.kvar)} m³ behövs`] : [])]}
           kryss={roll === 'skordare' && typ === 'inte' && kanFlytta && t.flyttbar ? { pa: valda.has(t.objekt_id), onToggle: () => vaxla(t.objekt_id) } : null}
           {...(grupp.length >= 2 ? pilar(grupp, t.objekt_id, ordning) : {})} />
       </div>

@@ -236,6 +236,19 @@ describe('räcker trakterna', () => {
     expect(sk.utanSumma).toBe(221)
     expect(rad('slutavverkning', 'skordare').skot).toBeNull()
   })
+  it('skotare: trakten maskinen arbetar på just nu räknas först och behövs, hur ordningen än ser ut', () => {
+    const d = bas({
+      spar: [spar('slutavverkning', { bestallt: 5000 })],
+      utfall: [{ typ: 'slutavverkning', maskin_id: 'Elefant', roll: 'skotare', volym: 4000 }],
+      klar: klar([...maskiner, maskin('Skotare810', 'skotare')], [trakt('A', 'skotare', 'Elefant', { rest_volym: 1000 }), trakt('B', 'skotare', 'Skotare810', { rest_volym: 120 })]),
+      senaste: [{ maskin_id: 'Skotare810', pa: ['B'] }],
+    })
+    const sk = byggTavla(d).spar[0].racker.find(r => r.roll === 'skotare')!.skot!
+    // B står sist i ordningen men 810:an kör där nu: den räknas först (120 behövs) och resten (880) går till A.
+    expect(sk.rader.map(r => r.namn)).toEqual(['B', 'A'])
+    expect(sk.rader[0]).toMatchObject({ pagar: true, behovs: 120 })
+    expect(sk.rader[1]).toMatchObject({ pagar: false, behovs: 880 })
+  })
   it('skotare: en trakt utan skotare täcker inte behovet — saknas räknas bara på trakter med skotare', () => {
     const d = bas({
       spar: [spar('slutavverkning', { bestallt: 5000 })],
