@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { valjHandtag, HORN_REGLER } from './hornRedigering';
+import { valjHandtag, narmastaKant, HORN_REGLER } from './hornRedigering';
 
 const sida = fs.readFileSync(path.join(process.cwd(), 'app/planering/page.tsx'), 'utf8');
 
@@ -102,3 +102,42 @@ describe('Redigera hörn och traktanalys — kopplingen i planeringssidan', () =
     expect(sida).toMatch(/casingColor = isBoundary \? TRAKTGRANS_KANT_FARG/);
   });
 });
+
+describe('narmastaKant — tryck på gränslinjen', () => {
+  const kanter = [{ id: 'a', a: { x: 0, y: 0 }, b: { x: 200, y: 0 } }, { id: 'b', a: { x: 200, y: 0 }, b: { x: 200, y: 100 } }];
+  it('ger punkten PÅ linjen närmast trycket (inte själva trycket)', () => {
+    const r = narmastaKant(kanter, 120, 7, 20)!;
+    expect(r.id).toBe('a'); expect(r.pt).toEqual({ x: 120, y: 0 }); expect(r.d).toBeCloseTo(7);
+  });
+  it('utanför träffytan → null', () => {
+    expect(narmastaKant(kanter, 120, 25, 20)).toBeNull();
+    expect(narmastaKant(kanter, 120, 25, 30)?.id).toBe('a');
+  });
+  it('närmaste av flera kanter vinner, också nära ett hörn', () => {
+    expect(narmastaKant(kanter, 195, 12, 30)?.id).toBe('b');   // 5 px från b, 12 px från a
+    expect(narmastaKant(kanter, 190, 4, 30)?.id).toBe('a');
+    expect(narmastaKant(kanter, 206, 40, 30)?.id).toBe('b');
+  });
+  it('klämmer mot kantens ändar (ingen punkt utanför kanten) och hoppar över kanter utan längd', () => {
+    expect(narmastaKant([{ id: 'x', a: { x: 0, y: 0 }, b: { x: 50, y: 0 } }], 70, 0, 25)?.pt).toEqual({ x: 50, y: 0 });
+    expect(narmastaKant([{ id: 'n', a: { x: 5, y: 5 }, b: { x: 5, y: 5 } }], 5, 5, 25)).toBeNull();
+  });
+  it('mus har smalare träffyta än finger', () => {
+    expect(HORN_REGLER.traffKant.mus).toBeLessThan(HORN_REGLER.traffKant.touch);
+  });
+});
+
+describe('tryck på linjen = nytt hörn — kopplingen i sidan', () => {
+  it('hjälptexten säger "dra hörn · tryck på linjen = nytt hörn" och sidan ger kopplingen kanterna och en valfri plats för det nya hörnet', () => {
+    expect(sida).toContain('· dra hörn · tryck på linjen = nytt hörn`');
+    expect(sida).not.toContain('dra mittpunkt = nytt');
+    expect(sida).toMatch(/kanter: \(\) => \{ const t = hornTopRef\.current; return t \? unikaKanter\(t\)\.map\(\(q\) => \(\{ id: q\.id, a: t\.horn\[q\.a\], b: t\.horn\[q\.b\] \}\)\) : \[\]; \}/);
+    expect(sida).toMatch(/laggTill: \(kantId, pt\) => \{ const r = hornTopRef\.current \? topLaggTill\(hornTopRef\.current, kantId, pt\)/);
+  });
+  it('mittpunkterna är tydliga handtag (inte de gamla 3,5 px / 35 % vita)', () => {
+    const rad = sida.split('\n').find((l) => l.includes("id: 'hornedit-mid', type: 'circle'")) || '';
+    expect(rad).toContain("'circle-radius': 6");
+    expect(rad).not.toContain('3.5');
+  });
+});
+

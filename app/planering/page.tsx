@@ -2281,8 +2281,8 @@ export default function PlannerPage() {
     map.addLayer({ id: 'hornedit-base', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.fara, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'hornedit-stripe', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.gul, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addSource('hornedit-pts-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    // Mittpunkterna är små, svaga handtag (dra ett för att göra ett nytt hörn); hörnen är vita med snitselfärgad kant. Markerat hörn = större med mörk ring; det dragna = störst.
-    map.addLayer({ id: 'hornedit-mid', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 3.5, 'circle-color': 'rgba(255,255,255,0.35)', 'circle-stroke-color': 'rgba(0,0,0,0.35)', 'circle-stroke-width': 1 } });
+    // Mittpunkterna är tydliga (men mindre än hörnen) på alla segment, också långa — dra en för ett nytt hörn, eller tryck var som helst på linjen; hörnen är vita med snitselfärgad kant. Markerat hörn = större med mörk ring; det dragna = störst.
+    map.addLayer({ id: 'hornedit-mid', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 6, 'circle-color': 'rgba(255,255,255,0.85)', 'circle-stroke-color': 'rgba(0,0,0,0.75)', 'circle-stroke-width': 1.5 } });
     map.addLayer({ id: 'hornedit-stem', type: 'line', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'stem'], paint: { 'line-color': 'rgba(255,255,255,0.7)', 'line-width': 1.5, 'line-dasharray': [2, 2] } });
     map.addLayer({ id: 'hornedit-vertex', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'vertex'], paint: {
       'circle-radius': ['case', ['==', ['get', 'drag'], true], 11, ['==', ['get', 'sel'], true], 10, 7],
@@ -6566,8 +6566,8 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // === "Redigera hörn": pekar-handtag på hörnen (lib/hornRedigering — Pointer Events, ett tryck räknas EN gång). Dra ett hörn = flytta, dra en mittpunkt = nytt
-  // hörn, tryck på ett hörn = markera det ("Ta bort hörn" vid det). Ett tryck på en mittpunkt gör ingenting. Snitsel + siffra uppdateras live ur ringen (ritaHornEdit).
+  // === "Redigera hörn": pekar-handtag på hörnen (lib/hornRedigering — Pointer Events, ett tryck räknas EN gång). Dra ett hörn = flytta, tryck på linjen (eller dra en mittpunkt) = nytt
+  // hörn där, tryck på ett hörn = markera det ("Ta bort hörn" vid det). Snitsel + siffra uppdateras live ur ringen (ritaHornEdit).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !hornEditActive) return;
@@ -6580,7 +6580,8 @@ export default function PlannerPage() {
       horn: () => (hornTopRef.current ? unikaHorn(hornTopRef.current) : []),
       mitt: () => (hornTopRef.current ? unikaKanter(hornTopRef.current).map((k) => ({ id: k.id, pt: k.pt })) : []),
       flytta: (id, pt) => { if (hornTopRef.current) { hornTopRef.current = topFlytta(hornTopRef.current, id, pt); ritaHornEdit(); } },
-      laggTill: (kantId) => { const r = hornTopRef.current ? topLaggTill(hornTopRef.current, kantId) : null; if (!r) return null; hornTopRef.current = r.t; ritaHornEdit(); return r.id; },
+      kanter: () => { const t = hornTopRef.current; return t ? unikaKanter(t).map((q) => ({ id: q.id, a: t.horn[q.a], b: t.horn[q.b] })) : []; },
+      laggTill: (kantId, pt) => { const r = hornTopRef.current ? topLaggTill(hornTopRef.current, kantId, pt) : null; if (!r) return null; hornTopRef.current = r.t; ritaHornEdit(); return r.id; },
       fore: () => hornSkjutInAngra(),
       valj: (id) => hornValj(id),
       hamtaValt: () => hornValRef.current,
@@ -17231,7 +17232,7 @@ export default function PlannerPage() {
         <KorvyNertillList
           testid="hornedit-list"
           smal={smalSkarm}
-          text={`${hornAntal} hörn${hornDelarAntal > 1 ? ` · ${hornDelarAntal} delar` : ''} · dra hörn · dra mittpunkt = nytt`}
+          text={`${hornAntal} hörn${hornDelarAntal > 1 ? ` · ${hornDelarAntal} delar` : ''} · dra hörn · tryck på linjen = nytt hörn`}
           knappar={[
             { etikett: 'Ångra', onClick: hornAngra, av: hornAngraAntal === 0, testid: 'hornedit-angra' },
             { etikett: 'Spara', onClick: () => avslutaHornEdit(true), gron: true, testid: 'hornedit-spara' },
