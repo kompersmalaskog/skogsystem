@@ -478,7 +478,7 @@ export default function HelikopterVy() {
                       <RadGrupp marginBottom={0}>
                         {manadsdata.utanTyp == null && <RadLank orange text="Objekt utan typ kunde inte läsas" smakprov="ladda om" onClick={() => setVersion(v => v + 1)} />}
                         {utanTypSumma > 0 && <RadLank orange text={`${fmt(utanTypSumma)} m³fub saknar typ`} smakprov="räknas inte" onClick={() => setArk('utan')} />}
-                        <RadLank text="Träffsäkerhet" onClick={() => setArk('traffsakerhet')} />
+                        <RadLank text="Hade vi rätt?" onClick={() => setArk('traffsakerhet')} />
                         <RadLank text="Veckor" onClick={() => setArk('veckor')} />
                         <RadLank text="Per bolag" onClick={() => setArk('bolagval')} />
                         {status !== 'avslutad' && <RadLank text="Månadsplan" href={planHref(ar, manad)} />}

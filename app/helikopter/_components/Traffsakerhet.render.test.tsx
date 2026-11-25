@@ -27,13 +27,14 @@ describe('Träffsäkerhet', () => {
   it('bara planerarens prognoser (före första frysta trakten): planerarens tal, appen "–" med en ärlig rad, ingen "närmast"', async () => {
     await montera(async () => ({ data: [rad({ objekt_id: 'a' }), rad({ objekt_id: 'b', klart: '2026-09-01T00:00:00Z' })], error: null }))
     const t = el.textContent!
-    expect(el.querySelector('[data-kalla="planeraren"]')!.textContent).toContain('inom')
-    expect(el.querySelector('[data-kalla="appen"]')!.textContent).toContain('Inga trakter än')
-    expect(t).toContain('Appens prognos fryses på varje ny trakt')
-    expect(el.querySelector('[data-narmast]')).toBeNull()
+    expect(el.querySelector('[data-kalla="planeraren"]')!.textContent).toMatch(/\d+ %/)
+    expect(el.querySelector('[data-kalla="appen"]')!.textContent).toContain('Ingen klar trakt än')
+    expect(t).toContain('Appens första jämförelse kommer')
+    expect(el.querySelector('[data-svar]')).toBeNull()
     expect(el.querySelectorAll('[data-trakt]')).toHaveLength(2)
-    expect(t).toContain('Skördaren blev 48,8 tim · planeraren 56 tim')
-    expect(t).not.toContain('appen –')
+    expect(t).toContain('Skördaren blev 48,8 tim')
+    expect(t).toContain('Planeraren sa 56')
+    expect(t).not.toContain('Appen sa')
   })
   it('med appens prognos: båda talen, vem som låg närmast, och störst skillnad först efter ett tryck', async () => {
     const rader = [
@@ -42,11 +43,11 @@ describe('Träffsäkerhet', () => {
       rad({ objekt_id: 'c', namn: 'Mellan', klart: '2026-09-01T00:00:00Z', skotare_g15: null, app_prognos: { skordare: 60 } }),
     ]
     await montera(async () => ({ data: rader, error: null }))
-    expect(el.querySelector('[data-narmast]')!.textContent).toBe('Appen låg närmast 2 av 3 gånger · planeraren 1')
-    expect(el.querySelector('[data-kalla="appen"]')!.textContent).toContain('inom')
-    const namn = () => Array.from(el.querySelectorAll('[data-trakt]')).map(x => x.textContent!.split('Sk')[0])
+    expect(el.querySelector('[data-svar]')!.textContent).toBe('Appen hade oftast rättNärmast på 2 av 3 trakter')
+    expect(el.querySelector('[data-kalla="appen"]')!.textContent).toMatch(/\d+ %/)
+    const namn = () => Array.from(el.querySelectorAll('[data-trakt]')).map(x => x.textContent!.split('Skördaren')[0])
     expect(namn()[0]).toContain('Liten')
-    const knapp = Array.from(el.querySelectorAll('button')).find(b => b.textContent === 'Störst skillnad')!
+    const knapp = Array.from(el.querySelectorAll('button')).find(b => b.textContent === 'Mest fel')!
     await act(async () => { knapp.click() })
     expect(namn()[0]).toContain('Stor')   // 30 mot 56: 46 %
   })

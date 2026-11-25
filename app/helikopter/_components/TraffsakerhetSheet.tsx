@@ -1,7 +1,8 @@
 'use client'
 
-// Arket "Träffsäkerhet" (ur Mer): hur nära prognoserna låg utfallet på klara trakter — planerarens och appens, var för sig.
-// Överst ETT tal per källa ("inom 12 %"), sedan vem som låg närmast, sedan trakterna. Modellen är ren (_lib/traffsakerhet.ts);
+// Arket "Hade vi rätt?" (ur Mer, förut Träffsäkerhet): hur nära prognoserna låg utfallet på klara trakter — planerarens och appens, var för sig.
+// Överst svaret i en mening ("Appen hade oftast rätt"), sedan ETT tal per källa ("8 %"), sedan trakterna med vad var och en sa.
+// Så lite text som möjligt (Martin 2026-11-25: "så lätt att ett barn förstår direkt"). Modellen är ren (_lib/traffsakerhet.ts);
 // här ritas bara. Underlaget läses när arket öppnas (inte med sidan) och ett läsfel är ett fel med Försök igen, aldrig en tom lista.
 // Appens frysta prognos finns bara på trakter importerade från 2026-10-24 — tills den första blir klar står appens tal som "–"
 // med en ärlig rad, aldrig ett påhittat tal.
@@ -14,9 +15,9 @@ import { RadLank } from '@/components/ui/RadGrupp'
 import { AVSTAND, FARG, TNUM, TYP } from '@/lib/design/tokens'
 import { hamtaPrognosFacit } from '../_lib/queries'
 import { fmtDag } from '../_lib/format'
-import { KALLA_ORD, byggPar, grupperaTrakter, kallaText, narmastText, ordna, parNarmastText, parText, summera, type FacitRad, type Ordning } from '../_lib/traffsakerhet'
+import { KALLA_ORD, blevText, byggPar, grupperaTrakter, kallaText, ordna, parRader, summera, svarRubrik, type FacitRad, type Ordning } from '../_lib/traffsakerhet'
 
-const ORDNINGAR = [['senaste', 'Senaste'], ['skillnad', 'Störst skillnad']] as const
+const ORDNINGAR = [['senaste', 'Senaste'], ['skillnad', 'Mest fel']] as const
 
 export default function TraffsakerhetSheet({ open, onClose, hamta = hamtaPrognosFacit }: { open: boolean; onClose: () => void; hamta?: () => Promise<{ data: FacitRad[] | null; error: string | null }> }) {
   const [rader, setRader] = useState<FacitRad[] | null>(null)
@@ -37,7 +38,7 @@ export default function TraffsakerhetSheet({ open, onClose, hamta = hamtaPrognos
   }, [open, rader, version, hamta])
 
   return (
-    <Sheet open={open} onClose={onClose} title="Träffsäkerhet">
+    <Sheet open={open} onClose={onClose} title="Hade vi rätt?">
       {fel ? (
         <Sektion rubrik="Prognos mot utfall" kort={false}>
           <RadLank orange text="Kunde inte läsa trakterna" smakprov="försök igen" onClick={() => { setRader(null); setVersion(v => v + 1) }} sista />
@@ -54,29 +55,29 @@ export default function TraffsakerhetSheet({ open, onClose, hamta = hamtaPrognos
 export function Innehall({ rader, ordning, onOrdning }: { rader: FacitRad[]; ordning: Ordning; onOrdning: (o: Ordning) => void }) {
   const alla = byggPar(rader)
   const s = summera(alla)
-  const narmast = narmastText(s)
+  const svar = svarRubrik(s)
   const grupper = grupperaTrakter(ordna(alla, ordning))
   const appenSaknas = s.kallor.appen.antal === 0
 
   return (
     <>
-      {/* Svaret först: ett tal per källa. Talet färgas aldrig — orden säger allt. */}
-      <Sektion rubrik="Hur nära låg prognosen?" kort={false}
-        not={appenSaknas ? 'Appens prognos fryses på varje ny trakt innan maskinen börjat. Den första jämförelsen kommer när en sådan trakt är klar.' : 'Inom N % = hälften av trakterna låg närmare än så. Räknat på G15-timmar.'}>
-        {(['planeraren', 'appen'] as const).map((k, i) => {
+      {/* Svaret först, i en mening. */}
+      {svar && (
+        <div data-svar="1" style={{ marginBottom: AVSTAND.l }}>
+          <div style={{ ...TYP.titel, color: FARG.text }}>{svar.rubrik}</div>
+          {svar.under && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>{svar.under}</div>}
+        </div>
+      )}
+
+      <Sektion rubrik="Hur mycket missar de?" kort={false} not={appenSaknas ? 'Appens första jämförelse kommer när en ny trakt är klar.' : undefined}>
+        {(['appen', 'planeraren'] as const).map((k, i) => {
           const t = kallaText(s.kallor[k])
           return <Rad key={k} titel={KALLA_ORD[k]} under={t.under} hoger={<span style={TNUM}>{t.tal}</span>} dampad={t.tal === '–'} sista={i === 1} attr={{ 'data-kalla': k }} />
         })}
       </Sektion>
 
-      {narmast && (
-        <Sektion rubrik="Vem låg närmast?" kort={false}>
-          <Rad titel={narmast} sista attr={{ 'data-narmast': '1' }} />
-        </Sektion>
-      )}
-
       {alla.length > 0 && (
-        <Sektion rubrik="Trakterna" kort={false} not="Blev = uppmätt G15-tid på trakten. En trakt utan appens prognos visar bara planerarens.">
+        <Sektion rubrik="Trakt för trakt" kort={false}>
           <div style={{ marginBottom: AVSTAND.m }}>
             <Flikkontroll flikar={ORDNINGAR} aktiv={ordning} onVal={onOrdning} />
           </div>
@@ -85,7 +86,17 @@ export function Innehall({ rader, ordning, onOrdning }: { rader: FacitRad[]; ord
               key={g.objekt_id}
               titel={g.namn}
               hoger={g.klart ? <span style={{ ...TYP.meta, color: FARG.text2 }}>{fmtDag(g.klart.slice(0, 10))}</span> : undefined}
-              under={g.par.map(p => { const n = parNarmastText(p); return <div key={p.roll}>{parText(p)}{n ? ` · ${n}` : ''}</div> })}
+              under={g.par.map(p => (
+                <div key={p.roll} style={{ marginBottom: AVSTAND.s }}>
+                  <div>{blevText(p)}</div>
+                  {parRader(p).map(r => (
+                    <div key={r.kalla} style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: AVSTAND.xs, ...TYP.text, color: r.narmast ? FARG.text : FARG.text2, fontWeight: r.narmast ? 600 : 400 }}>
+                      <span>{r.narmast ? '✓ ' : ''}{r.text}{r.narmast ? ' · närmast' : ''}</span>
+                      <span style={TNUM}>{r.hoger}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
               sista={gi === grupper.length - 1}
               attr={{ 'data-trakt': g.objekt_id }}
             />

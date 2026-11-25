@@ -129,7 +129,7 @@ describe('/helikopter — tavlan', () => {
     expect(cont.querySelector('[role="tablist"]')).toBeNull()
     // Mer: det som är kvar.
     const mer = sektion('Mer')!
-    for (const n of ['Träffsäkerhet', 'Veckor', 'Per bolag', 'Månadsplan', 'Onsdagsnotis']) expect(mer.textContent).toContain(n)
+    for (const n of ['Hade vi rätt?', 'Veckor', 'Per bolag', 'Månadsplan', 'Onsdagsnotis']) expect(mer.textContent).toContain(n)
     const plan = Array.from(mer.querySelectorAll('a')).find(a => a.textContent?.includes('Månadsplan'))
     expect(plan?.getAttribute('href')).toBe('/helikopter/manadsplan?ar=2026&manad=10')
   })
