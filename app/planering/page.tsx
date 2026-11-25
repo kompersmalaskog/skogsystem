@@ -142,6 +142,8 @@ import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
 import { slutRing, ringMitt, ringAvtryck } from '../../lib/ringEdit'
+import { byggJusteradeDelar } from '../../lib/justeradGrans'
+import { synkaJusteradGrans, raknaOmEfterGransandring } from '../../lib/justeradGransSynk'
 import { byggTopologi, justeraDelar, ringar as topRingar, unikaHorn, unikaKanter, flyttaHorn as topFlytta, laggTillHorn as topLaggTill, taBortHorn as topTaBort, skjutInSteg, angraSteg, antalHorn, type Topologi } from '../../lib/traktTopologi'
 import { kopplaHornRedigering } from '../../lib/hornRedigering'
 import { valjKlickKategori, kategoriForLager, bastaKategoriFeatures, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
@@ -8454,6 +8456,26 @@ export default function PlannerPage() {
     const lat = mapCenter.lat + dyMeters / mPerDegLat;
     return { lat, lon };
   };
+
+  // EN SANNING FÖR TRAKTGRÄNSEN (lib/justeradGrans, Martin 2026-11-25): de justerade kopiorna (boundary-markörer med fromVidaTd) räknas om till lng/lat med sidans egen svgToLatLon och skickas
+  // till servern (objekt_traktgrans_justerad), så att vyn objekt_traktgrans — objektlistans "Här", traktanalysen och skogsdatan — ger den justerade gränsen i stället för Vidas original.
+  // Härleds ur markörerna varje gång (aldrig för hand): ändras kopiorna ändras signaturen, raderas de töms servern. Bara riktig admin, inte medan hörn redigeras (då är markörerna gamla)
+  // och inte förrän markörer, Vidas delar och origot hör till det här objektet (annars vägrar byggaren: hörn långt från Vida = fel origo → inget skrivs).
+  const [justeradRetry, setJusteradRetry] = useState(0);
+  useEffect(() => { const f = () => setJusteradRetry((n) => n + 1); window.addEventListener('online', f); return () => window.removeEventListener('online', f); }, []);
+  useEffect(() => {
+    const oid = valtObjekt?.id ? String(valtObjekt.id) : null;
+    if (!oid || !isAdminRiktig || testlage || maskinlage) return;
+    if (!markersLoaded || markersObjektIdRef.current !== oid || traktGeoHamtadFor !== oid || traktdelDelar.length === 0) return;
+    if (hornEditActive || redigeraGransIdn.length > 0) return;
+    const bygg = byggJusteradeDelar(markers as any[], traktdelDelar, svgToLatLon);
+    if (!bygg.ok) { console.warn('Justerad traktgräns skickas inte:', bygg.skal); return; }
+    const t = setTimeout(async () => {
+      const svar = await synkaJusteradGrans(supabase as any, oid, bygg.delar);
+      if (svar === 'skickad') raknaOmEfterGransandring();   // traktanalys + skogsdata räknar om på den nya gränsen direkt (annars vid nästa timkörning)
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [markers, markersLoaded, valtObjekt?.id, isAdminRiktig, testlage, maskinlage, traktGeoHamtadFor, traktdelDelar, hornEditActive, redigeraGransIdn, mapCenter, mapZoom, justeradRetry]); // eslint-disable-line react-hooks/exhaustive-deps -- svgToLatLon läser mapCenter/mapZoom som är med
 
   // Per område (ⓘ-kortet, lib/omradeFramsteg): kartans numrerade ytor — Vidas traktdelar (en "Justera gräns"-kopia ersätter sin del) + egna traktgränser.
   // En ensam yta heter "Trakten". Läses av raknaAvverkat via ref; nyckeln nedan räknar om när områdena eller markeringarna ändras.
