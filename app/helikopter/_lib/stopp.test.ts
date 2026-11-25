@@ -280,7 +280,7 @@ describe('notiserna: samma prognos, stopp som orsak i klartext', () => {
   it('onsdagsnotisen räknar landar med maskinernas takt och nämner stoppen under spåret', () => {
     const t = formateraVeckoNotis(data)
     const slutBlock = t.split('\n\n')[0].split('\n')
-    expect(slutBlock[1]).toBe(`Skördat landar ${n(6167)} · skotat landar ${n(5662)} av ${n(5000)}`)
+    expect(slutBlock[1]).toBe(`Skördat landar ${n(6167)} · skotat landar ${n(5662)} av ${n(5000)} · om takten håller`)
     expect(slutBlock).toContain('Giant stod 3 dagar (Stefan ledig) · Elefant 26 står 26–30 okt (Daniel ledig)')
     // Gallringens maskiner har inga stopp: inga stopprader i det blocket.
     expect(t.split('\n\n')[1]).not.toContain('stod')
@@ -290,7 +290,7 @@ describe('notiserna: samma prognos, stopp som orsak i klartext', () => {
     const t = formateraVeckoNotis(gammal as VeckoNotisData)
     expect(t).not.toContain('stod')
     // Spårets takt × globala dagar kvar: skördat 2 499 + 366,8 × 10 = 6 167, skotat 3 236 + 374,6 × 10 kapas vid skördat-prognosen.
-    expect(t.split('\n')[1]).toBe(`Skördat landar ${n(6167)} · skotat landar ${n(6167)} av ${n(5000)}`)
+    expect(t.split('\n')[1]).toBe(`Skördat landar ${n(6167)} · skotat landar ${n(6167)} av ${n(5000)} · om takten håller`)
   })
   it('månadsnotisen: procenten som förut, stoppen som egen rad', () => {
     const payload = { ar: 2026, manad: 10, totalt: { procent: 102.4 }, stopp: oktStopp.map(s => ({ ...s })) }

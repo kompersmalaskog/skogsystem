@@ -213,6 +213,24 @@ describe('medUppskattadPrognos — en trakt utan prognos får G15-förslaget, da
     const rad = klarRader(d2, raknaAlla(d2), null).find(r => r.maskin_id === utan!.maskin_id)!
     if (!p.saknar) expect(rad.hoger).toMatch(/^ca /)
   })
+  it('bär det uppmätta felet som timmar_spann (lag ≤ timmar ≤ hog, skalat med det som är kvar); för få mätningar ger inget spann', () => {
+    const d0 = prodKlar()
+    const matt = d0.maskiner.find(m => !m.manuell)!
+    const gor = (utf: UtfallRad[], rest: number | null) => {
+      const d: KlarData = { ...d0, trakter: d0.trakter.map((t, i) => (i === 0 ? { ...t, typ: 'slutavverkning', maskin_id: matt.maskin_id, roll: 'skotare', timmar: null, saknar_prognos: true, volym: 800, rest_volym: rest, medelstam: null } : t)) }
+      return medUppskattadPrognos(d, utf).trakter[0]
+    }
+    // Skotartakten varierar mellan trakterna → ett uppmätt fel finns.
+    const varierad: UtfallRad[] = Array.from({ length: 8 }, (_, i) => ({ typ: 'slutavverkning', volymObjekt: 1000, skordadM3: 1000, stammar: 1200, skordareG15: 25, skotareG15: 30 + i * 6 }))
+    const hel = gor(varierad, null)
+    expect(hel.timmar_spann).toBeDefined()
+    expect(hel.timmar_spann!.lag).toBeLessThan(hel.timmar!)
+    expect(hel.timmar_spann!.hog).toBeGreaterThan(hel.timmar!)
+    const halv = gor(varierad, 400)
+    expect(halv.timmar_spann!.hog).toBeCloseTo(hel.timmar_spann!.hog / 2, 0)
+    // Under G15_MIN_FEL mätningar: ingen uppmätt osäkerhet → inget spann (förslaget står som punkt).
+    expect(gor(varierad.slice(0, 4), null).timmar_spann).toBeUndefined()
+  })
   it('utan utfall ändras inget; GROT får inget förslag', () => {
     const d = prodKlar()
     expect(medUppskattadPrognos(d, null)).toBe(d)
