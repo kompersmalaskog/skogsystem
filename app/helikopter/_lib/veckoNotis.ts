@@ -8,7 +8,7 @@
 //
 // Format per spår med beställning (fem rader, inget mer):
 //   Vecka 37 · Slutavverkning · 5 000 till Vida
-//   Skördat landar 2 400 · skotat landar 2 000 av 5 000      (prognos mot beställt per roll; före arbetsdag 4: hittills)
+//   Skördat landar 2 400 · skotat landar 2 000 av 5 000 · om takten håller   (prognos mot beställt per roll; före arbetsdag 4: hittills)
 //   Veckan hittills: plan 682, skördat 697, skotat 374        (plan = veckoplan × gångna/arbetsdagar i veckan)
 //   Kör 184/dag · behöver 287                                 (skotarens takt och behov; var det landar står på rad 2)
 //   Giant stod 3 dagar (Stefan ledig) · Elefant 26 står 26–30 okt (Daniel ledig)   (bara när en av spårets maskiner har ett stopp)
@@ -36,7 +36,7 @@ function sparRader(s: SparLage, d: VeckoNotisData): string[] {
   // Rad 2: var spåret landar, per roll (prognos = hittills + takt × dagar kvar) — "av 1 000" en gång. Före arbetsdag 4 finns ingen prognos: hittills.
   const roller = landarRoller(s)
   rader.push(roller
-    ? `Skördat landar ${fmt(roller[0].landar)} · skotat landar ${fmt(roller[1].landar)} av ${fmt(s.bestallt)}`
+    ? `Skördat landar ${fmt(roller[0].landar)} · skotat landar ${fmt(roller[1].landar)} av ${fmt(s.bestallt)} · om takten håller`
     : `Skördat ${fmt(s.skordat)} · skotat ${fmt(s.skotat)} · prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`)
 
   // Rad 3: veckan hittills. Plan = veckoplan × (arbetsdagar gångna i veckan / arbetsdagar i veckan).
@@ -88,4 +88,82 @@ export function formateraVeckoNotis(d: VeckoNotisData): string {
     mal.rader.push(utanDataRad(m, d.idag, manadNamn))
   }
   return block.map(b => b.rader.join('\n')).join('\n\n')
+}
+
+// ── Kort version till alla (Martin 2026-11-25) ─────────────────────────────
+// Onsdagsnotisen går till ALLA aktiva medarbetare, inte bara admin. Lagets läge, inga namn: ingen maskin, ingen förare, ingen frånvaro,
+// ingen "inga lass sedan" (det är ett larm till admin, och pekar ut en förare). Per spår: räcker eller fattas, och per ROLL (skördare/skotare)
+// takt mot behov — rollens takt är summan av maskinerna i den. Titeln är läget i några ord så det syns utan att öppna.
+//
+//   Gallring släpar                                  (titel)
+//   Slutavverkning · Vida: ✓ räcker
+//   Skördare 203/dag · behövs 0 ✓
+//   Skotare 310/dag · behövs 250 ✓
+//   Gallring · Vida: ● fattas 120
+//   Skördare 95/dag · behövs 94 ✓
+//   Skotare 65/dag · behövs 94 ●
+//   Räknat på takten senaste 5 arbetsdagarna.        (bara när en prognos finns)
+//
+// Prognosen räknar med nuvarande takt — byter maskinerna trakt kan den ändras (planeringen har inget datum för trakbyte att skriva ut).
+// Därför står raden om takten sist. Ingen beställning: "Ingen beställning inlagd i <månad>".
+export type NotisVersion = 'full' | 'kort'
+
+type KortBlock = { typ: Typ; rader: string[]; fattas: number; prognos: boolean }
+
+/** Takten är medeltalet av maskinens senaste 5 arbetsdagar med körning (takt_fonster). */
+const TAKT_ARBETSDAGAR = 5
+
+function rollNamn(roll: 'skordat' | 'skotat'): string {
+  return roll === 'skordat' ? 'Skördare' : 'Skotare'
+}
+
+function kortBlock(s: SparLage, d: VeckoNotisData): KortBlock {
+  const bolag = s.bolag.map(b => b.trim()).filter(Boolean).join(' och ')
+  const namn = `${TYP_NAMN[s.typ]}${bolag ? ` · ${bolag}` : ''}`
+  if ((d.planerade[s.typ] ?? 0) === 0) return { typ: s.typ, rader: [`${namn}: inga objekt planerade`], fattas: 0, prognos: false }
+
+  const roller = landarRoller(s)
+  if (!roller) {
+    return { typ: s.typ, rader: [`${namn}: prognos från arbetsdag ${PROGNOS_FRAN_ARBETSDAG}`, `Skördat ${fmt(s.skordat)} · skotat ${fmt(s.skotat)} av ${fmt(s.bestallt)}`], fattas: 0, prognos: false }
+  }
+  // Fattas = hur mycket den sämsta rollen landar under beställt (avrundade tal, som i vyn).
+  const fattas = Math.max(0, ...roller.map(r => (r.under ? s.bestallt - Math.round(r.landar) : 0)))
+  const rader = [`${namn}: ${fattas > 0 ? `● fattas ${fmt(fattas)}` : '✓ räcker'}`]
+  for (const r of roller) {
+    const tecken = r.under ? '●' : '✓'
+    if (r.framme) rader.push(`${rollNamn(r.roll)} klar ✓`)
+    else if (r.takt == null || r.behov == null) rader.push(`${rollNamn(r.roll)} ${tecken}`)
+    else rader.push(`${rollNamn(r.roll)} ${fmt(r.takt)}/dag · behövs ${fmt(r.behov)} ${tecken}`)
+  }
+  return { typ: s.typ, rader, fattas, prognos: true }
+}
+
+function kortBlockAlla(d: VeckoNotisData): KortBlock[] {
+  const dagar = d.dagar ?? TOM_DAGAR
+  const block: KortBlock[] = []
+  for (const typ of ORDNING) {
+    const bas = valjBas(d.spar, typ)
+    if (!bas || bas.bestallt <= 0) continue
+    block.push(kortBlock(raknaSpar(bas, dagar, d.takt), d))
+  }
+  return block
+}
+
+/** Titeln: läget i några ord. */
+export function veckoNotisTitel(d: VeckoNotisData, version: NotisVersion): string {
+  if (version === 'full') return 'Veckoläge'
+  const block = kortBlockAlla(d)
+  if (block.length === 0) return 'Veckoläge'
+  const under = block.filter(b => b.fattas > 0)
+  if (under.length === 0) return block.some(b => b.prognos) ? 'Vi hänger med' : 'Veckoläge'
+  if (under.length === 1) return `${TYP_NAMN[under[0].typ]} släpar`
+  return 'Båda spåren släpar'
+}
+
+export function formateraVeckoNotisKort(d: VeckoNotisData): string {
+  const manadNamn = MANAD_NAMN[d.manad - 1] ?? ''
+  const block = kortBlockAlla(d)
+  if (block.length === 0) return `Ingen beställning inlagd i ${manadNamn}`
+  const text = block.map(b => b.rader.join('\n')).join('\n\n')
+  return block.some(b => b.prognos) ? `${text}\n\nRäknat på takten senaste ${TAKT_ARBETSDAGAR} arbetsdagarna.` : text
 }

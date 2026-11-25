@@ -2,7 +2,7 @@
 // Fixtur: september 2026 ur prod-RPC:erna 2026-09-12, flyttad till onsdag 2026-09-16
 // (vecka 38, arbetsdag 12 av 22: 11 gångna, 11 kvar, tre veckodagar t.o.m. onsdag).
 import { describe, it, expect } from 'vitest'
-import { bolagText, ca, formateraVeckoNotis, saknarData, sedanText, type VeckoNotisData, type VeckoNotisMaskin } from './veckoNotis'
+import { bolagText, ca, formateraVeckoNotis, formateraVeckoNotisKort, veckoNotisTitel, saknarData, sedanText, type VeckoNotisData, type VeckoNotisMaskin } from './veckoNotis'
 import type { SparRad, VeckaRad } from './queries'
 
 const n = (x: number) => x.toLocaleString('sv-SE')
@@ -47,7 +47,7 @@ describe('formateraVeckoNotis', () => {
     // Veckoplan 1 136 × 3/5 = 682. Behöver (5 000 − 1 265) / 11 = 340.
     expect(slut.split('\n')).toEqual([
       `Vecka 38 · Slutavverkning · ${n(5000)} till Vida`,
-      `Skördat landar ${n(5727)} · skotat landar ${n(3287)} av ${n(5000)}`,
+      `Skördat landar ${n(5727)} · skotat landar ${n(3287)} av ${n(5000)} · om takten håller`,
       `Veckan hittills: plan 682, skördat 697, skotat 374`,
       `Kör 184/dag · behöver 340`,
       `Skotaren är flaskhals: Elephant King 2026 184/dag på Rövemåla AU · Wisent 53/dag på Rössmåla Ga`,
@@ -60,7 +60,7 @@ describe('formateraVeckoNotis', () => {
     // gallring: skördat landar 239 + 27,3 × 11 = 539 (< 1 000). Skotat 486,5 + 53,3 × 11 = 1 073 (≥ 1 000). Behöver (1 000 − 487) / 11 = 47.
     expect(gall.split('\n')).toEqual([
       `Vecka 38 · Gallring · ${n(1000)} till Vida`,
-      `Skördat landar 539 · skotat landar ${n(1073)} av ${n(1000)}`,
+      `Skördat landar 539 · skotat landar ${n(1073)} av ${n(1000)} · om takten håller`,
       'Veckan hittills: plan 136, skördat 88, skotat 171',
       'Kör 53/dag · behöver 47',
       'Skördaren är flaskhals: Ponsse Scorpion 277/dag på Hallaslätt AU · Rottne H8E -26 27/dag på Betet gallring',
@@ -70,7 +70,7 @@ describe('formateraVeckoNotis', () => {
   it('båda roller når beställt: ingen flaskhalsrad, ingen "dagar efter plan" någonstans', () => {
     const bra = { ...bas, spar: [spar('slutavverkning', { skordat: 4600, skotat: 4000, takt_skordat: 100, takt_skotat: 120 })] }
     const text = formateraVeckoNotis(bra)
-    expect(text.split('\n')[1]).toBe(`Skördat landar ${n(5700)} · skotat landar ${n(5320)} av ${n(5000)}`)
+    expect(text.split('\n')[1]).toBe(`Skördat landar ${n(5700)} · skotat landar ${n(5320)} av ${n(5000)} · om takten håller`)
     expect(text).not.toContain('flaskhals')
     expect(formateraVeckoNotis(bas)).not.toMatch(/dagar? (efter|före) plan|på plan/)
   })
@@ -143,5 +143,47 @@ describe('hjälpfunktioner', () => {
     // Maskin i stopp 15–16 sep: dess egna dagar slutar 14 sep → data 11 sep räcker.
     expect(saknarData({ senast_datum: '2026-09-11', dagar_tom_idag: sept.slice(0, 10) }, sept)).toBe(false)
     expect(saknarData({ senast_datum: null, dagar_tom_idag: ['2026-09-01'] }, ['2026-09-01'])).toBe(false)
+  })
+})
+
+describe('kort version till alla', () => {
+  it('lagets läge per roll: räcker/fattas, takt mot behov, titel — inga maskinnamn, förare eller stopp', () => {
+    const d: VeckoNotisData = { ...bas, stopp: [{ maskin_id: 'A030353', namn: 'Wisent', fran: '2026-09-14', till: '2026-09-15', dagar: 2, orsak: 'ledig', forare: 'Stefan' } as never] }
+    const text = formateraVeckoNotisKort(d)
+    expect(text).toBe([
+      `Slutavverkning · Vida: ● fattas ${n(1713)}`,
+      `Skördare 277/dag · behövs 211 ✓`,
+      `Skotare 184/dag · behövs 340 ●`,
+      '',
+      'Gallring · Vida: ● fattas 461',
+      'Skördare 27/dag · behövs 69 ●',
+      'Skotare 53/dag · behövs 47 ✓',
+      '',
+      'Räknat på takten senaste 5 arbetsdagarna.',
+    ].join('\n'))
+    for (const förbjudet of ['Wisent', 'Elephant', 'Scorpion', 'Rottne', 'Stefan', 'ledig', 'inga lass']) expect(text).not.toContain(förbjudet)
+    expect(text.endsWith('Räknat på takten senaste 5 arbetsdagarna.')).toBe(true)
+    expect(veckoNotisTitel(d, 'kort')).toBe('Båda spåren släpar')
+    expect(veckoNotisTitel(d, 'full')).toBe('Veckoläge')
+  })
+
+  it('allt räcker: titeln säger det', () => {
+    const d: VeckoNotisData = { ...bas, spar: bas.spar.map(s => ({ ...s, skotat: s.bestallt, skordat: s.bestallt })) }
+    expect(veckoNotisTitel(d, 'kort')).toBe('Vi hänger med')
+    expect(formateraVeckoNotisKort(d)).toContain('✓ räcker')
+    expect(formateraVeckoNotisKort(d)).toContain('Skotare klar ✓')
+  })
+
+  it('en spår under: titeln nämner spåret; före arbetsdag 4 ingen prognos och ingen takt-rad', () => {
+    const d: VeckoNotisData = { ...bas, spar: bas.spar.map(s => ({ ...s, takt_dagar: 2 })) }
+    const text = formateraVeckoNotisKort(d)
+    expect(text).toContain('prognos från arbetsdag 4')
+    expect(text).not.toContain('Räknat på takten')
+    expect(veckoNotisTitel(d, 'kort')).toBe('Veckoläge')
+  })
+
+  it('ingen beställning: samma text som full', () => {
+    const d = { ...bas, spar: bas.spar.map(s => ({ ...s, bestallt: 0 })) }
+    expect(formateraVeckoNotisKort(d)).toBe('Ingen beställning inlagd i september')
   })
 })
