@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { hittaChromium, KARTA_ARGS } from './testStod/chromium';
 
 const CHROMIUM = hittaChromium(KARTA_ARGS);
