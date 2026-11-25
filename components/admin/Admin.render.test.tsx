@@ -4322,7 +4322,7 @@ describe("Lön → Dagar: svaret först", () => {
   });
 
   it("förvalt: bara avvikelserna, med antalet överst och 'Visa alla N' längst ned — den vanliga dagen syns inte", async () => {
-    await oppna();
+    await oppna("flik=lon&underflik=dagar&dagvy=datum");
     expect(text()).toContain("3 dagar med avvikelse");
     expect(rubrik()).toBe("Visa alla 4");
     expect(blad("Bara avvikelser").length).toBe(0); // förvalt = inget val att göra
@@ -4333,7 +4333,7 @@ describe("Lön → Dagar: svaret först", () => {
   });
 
   it("'Visa alla' öppnar alla dagar, med summeringen, och 'Bara avvikelser' tar tillbaka filtret", async () => {
-    await oppna();
+    await oppna("flik=lon&underflik=dagar&dagvy=datum");
     await klick("Visa alla 4");
     expect(text()).toContain("1 förare · 4 rader · 3 med avvikelse");
     expect(text()).toContain("tis 1 september");
@@ -4344,12 +4344,12 @@ describe("Lön → Dagar: svaret först", () => {
   });
 
   it("?avv=0 öppnar med alla dagar (länken 'Se alla')", async () => {
-    await oppna("flik=lon&underflik=dagar&avv=0");
+    await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0");
     expect(text()).toContain("1 förare · 4 rader · 3 med avvikelse");
   });
 
   it("inga avvikelser: det står, och alla dagar går att öppna", async () => {
-    await oppna("flik=lon&underflik=dagar", [dag("2026-09-01"), dag("2026-09-02")]);
+    await oppna("flik=lon&underflik=dagar&dagvy=datum", [dag("2026-09-01"), dag("2026-09-02")]);
     expect(text()).toContain("0 dagar med avvikelse");
     expect(text()).toContain("Inga avvikelser i September 2026");
     expect(rubrik()).toBe("Visa alla 2");
@@ -4372,13 +4372,13 @@ describe("Lön → Dagar: svaret först", () => {
   });
 
   it("tekniska ord byts mot förarens: 'ingen trakt', aldrig 'utan objekt'", async () => {
-    await oppna();
+    await oppna("flik=lon&underflik=dagar&dagvy=datum");
     expect(text()).toContain("ingen trakt");
     expect(text()).not.toContain("utan objekt");
   });
 
   it("rast noll på ett långt pass är ingen varning: bara en neutral rad i dagens detalj", async () => {
-    await oppna("flik=lon&underflik=dagar&avv=0", [dag("2026-09-01", { rast_min: 0, arbetad_min: 480 }), dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
+    await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0", [dag("2026-09-01", { rast_min: 0, arbetad_min: 480 }), dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
     const INFO = "Inget stopp över 15 min – räknas som arbetstid med måltidsuppehåll (G15)";
     expect(text()).not.toContain(INFO);                       // hopfälld: inget syns
     expect(text()).not.toMatch(/utan rast|ingen rast/i);        // och ingen varning, varken på raden eller i listan
@@ -4396,7 +4396,7 @@ describe("Lön → Dagar: svaret först", () => {
       { maskin_id: "R64101", datum: "2026-09-02", starter: ["2026-09-02T04:03:00Z"] },
     ];
     try {
-      await oppna("flik=lon&underflik=dagar", [dag("2026-09-01"), dag("2026-09-02")]);
+      await oppna("flik=lon&underflik=dagar&dagvy=datum", [dag("2026-09-01"), dag("2026-09-02")]);
       expect(text()).toContain("1 dag med avvikelse");
       expect(text()).toContain("appen startade 25 min sent");
       await klick("Visa alla 2");
@@ -4410,20 +4410,30 @@ describe("Lön → Dagar: svaret först", () => {
     } finally { delete g.__gpsStarter; }
   });
 
-  it("listan delas upp per datum (förvalt) eller per person — personen med flest avvikelser först, rubriken säger antal dagar (2026-11-25)", async () => {
-    const a = forare([dag("2026-09-01"), dag("2026-09-02", { slut_tid: null })], "Anna Ek");
-    const b = { ...forare([dag("2026-09-01", { id: "b1", objekt: [] }), dag("2026-09-02", { id: "b2", objekt: [] }), dag("2026-09-03", { id: "b3", objekt: [] })], "Bo Ek"), medarbetare_id: "m2" };
+  it("PER PERSON är förvalt (2026-11-25): en rad per förare med hur mycket som finns att kolla, flest först; ett tryck visar bara hans dagar att kolla, resten bakom 'Visa alla'", async () => {
+    const a = forare([dag("2026-09-01"), dag("2026-09-02")], "Anna Ek");
+    const b = { ...forare([dag("2026-09-01", { id: "b1", objekt: [] }), dag("2026-09-02", { id: "b2", objekt: [] }), dag("2026-09-03", { id: "b3" })], "Bo Ek"), medarbetare_id: "m2" };
     g.__salary = { ...SALARY, medarbetare: [a, b] };
-    await monter("flik=lon&underflik=dagar&avv=0");
-    const rubriker = () => Array.from(cont.querySelectorAll("[data-grupp-rubrik]")).map(e => e.textContent);
-    expect(rubriker()[0]).toMatch(/1 september/);
-    const vaxla = cont.querySelector("[data-dag-grupp]")!;
-    await act(async () => { (Array.from(vaxla.querySelectorAll("button")).find(b => b.textContent === "Person") as HTMLElement).click(); });
-    expect(rubriker()).toEqual(["Bo Ek · 3 dagar", "Anna Ek · 2 dagar"]);
-    // Raden heter datumet, inte namnet, när listan står per person.
-    const forstaRad = cont.querySelector("button[aria-expanded]")!.textContent!;
-    expect(forstaRad).toContain("1 september");
-    expect(forstaRad).not.toContain("Bo");
+    await monter("flik=lon&underflik=dagar");
+    expect(cont.querySelector("[data-person-svar]")!.textContent).toBe("1 av 2 förare har något att kolla");
+    const personRader = () => Array.from(cont.querySelectorAll("[data-person-rad]")).map(e => e.textContent);
+    expect(personRader()[0]).toContain("Bo Ek");
+    expect(personRader()[0]).toContain("2 dagar att kolla");
+    expect(personRader()[1]).toContain("Anna Ek");
+    expect(personRader()[1]).toContain("Inget att kolla");
+    // Inga dagar syns förrän man trycker på en förare.
+    expect(cont.querySelectorAll("button[aria-expanded]").length).toBe(2);
+    await act(async () => { (cont.querySelector("[data-person='m2'] [data-person-rad]") as HTMLElement).click(); });
+    const bo = cont.querySelector("[data-person='m2']")!;
+    expect(bo.textContent).toContain("1 september");
+    expect(bo.textContent).toContain("2 september");
+    expect(bo.textContent).not.toContain("3 september");
+    expect(bo.textContent).not.toContain("Bo Ek ·"); // raden heter datumet
+    await act(async () => { (bo.querySelector("[data-person-alla]") as HTMLElement).click(); });
+    expect(cont.querySelector("[data-person='m2']")!.textContent).toContain("3 september");
+    // Datum är kvar som val.
+    await act(async () => { (Array.from(cont.querySelectorAll("[data-dag-grupp] button")).find(e => e.textContent === "Datum") as HTMLElement).click(); });
+    expect(cont.querySelector("[data-grupp-rubrik]")!.textContent).toMatch(/1 september/);
   });
 
   // ── Lönekvot per förare överst (2026-10-23) ──
@@ -4437,7 +4447,7 @@ describe("Lön → Dagar: svaret först", () => {
 
   it("lönekvoten står överst och syns i det filtrerade läget — en rad per förare, 'Alla' sist, Betalt · Maskin · Lönekvot", async () => {
     tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
-    await monter("flik=lon&underflik=dagar");
+    await monter("flik=lon&underflik=dagar&dagvy=datum");
     expect(text()).toContain("dagar med avvikelse");
     const t = tabell();
     expect(t.textContent).toContain("Betalt");
@@ -4459,7 +4469,7 @@ describe("Lön → Dagar: svaret först", () => {
 
   it("samma tabell i 'Visa alla' — inte en andra summering och inte en annan siffra", async () => {
     tva(FEM.map(d => filDag(d, 270)), FEM.map(d => filDag(d, 360)));
-    await monter("flik=lon&underflik=dagar");
+    await monter("flik=lon&underflik=dagar&dagvy=datum");
     const fore = tabell().textContent;
     await klick("Visa alla 10");
     expect(tabell().textContent).toBe(fore);
@@ -4567,7 +4577,7 @@ describe("Lön → Dagar: svaret först", () => {
   });
 
   it("rast noll på ett kort pass (under sex timmar) eller med rast: ingen rad om stopp", async () => {
-    await oppna("flik=lon&underflik=dagar&avv=0", [dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
+    await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0", [dag("2026-09-02", { rast_min: 30 }), dag("2026-09-03", { rast_min: 0, arbetad_min: 300 })]);
     await klick("9 tim");
     await klick("5 tim");
     expect(text()).not.toContain("Inget stopp över 15 min");
@@ -4823,7 +4833,7 @@ describe("Hemskickad i Admin", () => {
       maskin_id: "R64101", km_totalt: 0, ersattningsmil: 0, traktamente: false, bekraftad: true, ob_min: 0,
     });
     g.__salary = { ...SALARY, medarbetare: [{ ...hemMed(), dagar: [dag("2026-09-07", 360), dag("2026-09-08", 480)], deldagar: [] }] };
-    await monter("flik=lon&underflik=dagar&period=2026-10");
+    await monter("flik=lon&underflik=dagar&dagvy=datum&period=2026-10");
     const t = text();
     expect(t).toContain("hemskickad 2:00 – betalas");
     expect(t).toContain("1 dag med avvikelse");
