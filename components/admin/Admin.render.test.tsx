@@ -2321,7 +2321,8 @@ describe("Löneunderlag", () => {
 
   it("'Se dagen' öppnar DAGEN i samma ark (man stannar kvar), 'Tillbaka till Att kolla' tar en tillbaka, och ett andra tryck öppnar den igen", async () => {
     const dag = { datum: "2026-09-11", arbetad_min: 480, extra_min: 0, rast_min: 114, start_tid: "07:00", slut_tid: "17:00" };
-    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], dagar: [dag], rast_langa: [{ datum: "2026-09-11", rast_min: 114, avbrott: [] }] }] };
+    g.__salary = { ...SALARY, medarbetare: [{ ...SALARY.medarbetare[0], dagar: [dag], rast_langa: [{ datum: "2026-09-11", rast_min: 114, avbrott: [] }],
+      synk: [{ datum: "2026-09-11", diff_min: 27, bekraftat: "07:00-17:00 rast 114", maskinen: "07:00:00-16:33:00 rast 114" }] }] };
     const rullat: string[] = [];
     const orig = (Element.prototype as any).scrollIntoView;
     (Element.prototype as any).scrollIntoView = function () { rullat.push(this.getAttribute("data-dag") ?? (this.hasAttribute("data-att-kolla-ankare") ? "att-kolla" : "?")); };
@@ -2336,6 +2337,8 @@ describe("Löneunderlag", () => {
       const rad = document.body.querySelector("[data-forare-manad] [data-dag='2026-09-11']")!;
       expect(rad.querySelector("[data-dag-detalj]")).not.toBeNull();
       expect(rullat).toContain("2026-09-11");
+      // Det man ska jämföra med står överst i dagen, i orange: vad maskinen loggade.
+      expect(rad.querySelector("[data-maskin-logg]")!.textContent).toBe("Maskinen loggade 07:00–16:33 · rast 1 tim 54 min – 27 min kortare");
       // Vägen tillbaka till Att kolla står i den öppna dagen.
       const tillbaka = rad.querySelector("[data-tillbaka-att-kolla] button") as HTMLButtonElement;
       expect(tillbaka.textContent).toBe("Tillbaka till Att kolla");

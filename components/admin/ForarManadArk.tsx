@@ -50,6 +50,7 @@ function DagRad({ d, oppen, onVal, sista, onTillbaka }: { d: VyDag; oppen: boole
       </button>
       {oppen && (
         <div data-dag-detalj="" style={{ paddingTop: AVSTAND.s }}>
+          {d.maskinLogg && <p data-maskin-logg="" style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange, ...TNUM }}>{d.maskinLogg}</p>}
           {d.detalj.map((t, i) => <p key={i} style={{ margin: i ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, color: t.includes("ingen uppgift") ? FARG.text3 : FARG.text2, ...TNUM }}>{t}</p>)}
           {d.extra.map(e => (
             <p key={e.nyckel} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>

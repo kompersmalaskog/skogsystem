@@ -39,6 +39,8 @@ export type VyDag = {
   tid: string;
   avvikelser: string[];
   detalj: string[];
+  /** Vad maskinen loggade när föraren skrev en annan tid (orange i den utfällda dagen). */
+  maskinLogg: string | null;
   extra: VyExtra[];
 };
 
@@ -95,28 +97,36 @@ function extraRad(e: ExtraPost, i: number): VyExtra {
   };
 }
 
+/**
+ * Den utfällda dagen säger BARA det som inte redan står på dagens rad (klockslag, tid, hem → trakt, km och mil står där).
+ * Det nya: maskinen och rasten, vad maskinen loggade när den skiljer sig (orange, `maskinLogg`), km per väg, OB, traktamente
+ * och om föraren bekräftat dagen.
+ */
 function dagDetaljer(d: any, maskinNamn: Record<string, string>): string[] {
   const ut: string[] = [];
-  ut.push(d.maskin_id ? `Maskin ${maskinNamn[d.maskin_id] || d.maskin_id}` : d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin");
-  ut.push(d.start_tid || d.slut_tid ? `${hm(d.start_tid) || "–"}–${hm(d.slut_tid) || "–"}${d.rast_min ? ` · rast ${minText(d.rast_min)}` : " · ingen rast"}` : "Inga klockslag, tiden ligger i perioder");
-  ut.push(d.extra_min > 0 ? `Maskintid ${minText(d.arbetad_min)} + extra tid ${minText(d.extra_min)}` : `Tid ${minText((d.arbetad_min || 0) + (d.extra_min || 0))}`);
-  ut.push((d.objekt || []).length ? `Trakt: ${d.objekt.join(", ")}` : "Ingen trakt");
-  // Km: källan alltid med, och trakterna benen gick mellan på ALLA dagar (härledda ur dagens trakter, samma funktion som räknade km). Är km förarens
-  // egen står också vad appen hade fått bredvid — bara visning.
-  const appen = d.km_kalla === "forare" ? d.km_rutt?.appen : null;
-  const ben = (km: number, appenKm: number | undefined) => (km > 0 ? ` · ${kmText(km)}${appenKm != null ? ` (appen: ${kmText(appenKm)})` : ""}` : "");
-  if (d.km_rutt) {
-    ut.push(`Hem → ${d.km_rutt.forsta}${ben(d.km_morgon, appen?.morgon)}`);
-    ut.push(`${d.km_rutt.sista} → Hem${ben(d.km_kvall, appen?.kvall)}`);
+  const maskin = d.maskin_id ? `Maskin ${maskinNamn[d.maskin_id] || d.maskin_id}` : d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin";
+  const harTider = !!(d.start_tid || d.slut_tid);
+  ut.push(harTider ? `${maskin}${d.rast_min ? "" : " · ingen rast"}` : `${maskin} · inga klockslag, tiden ligger i perioder`);
+  if (d.extra_min > 0) ut.push(`Maskintid ${minText(d.arbetad_min)} + extra tid ${minText(d.extra_min)}`);
+  if ((d.objekt || []).length > 1) ut.push(`Trakter: ${d.objekt.join(", ")}`);
+  // Km per väg. Är km förarens egen står vad appen hade fått inom parentes — bara visning.
+  if (d.km_rutt && (d.km_morgon > 0 || d.km_kvall > 0)) {
+    const appen = d.km_kalla === "forare" ? d.km_rutt.appen : null;
+    const hem = d.km_rutt.sista === d.km_rutt.forsta ? "hem" : `hem från ${d.km_rutt.sista}`;
+    ut.push(`Dit ${kmText(d.km_morgon)} · ${hem} ${kmText(d.km_kvall)}${appen ? ` (appen ${kmText(appen.morgon)} + ${kmText(appen.kvall)})` : ""}`);
   }
-  const mil = d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : "";
-  if (d.km_kalla === "auto") ut.push(`Beräknad · ${kmText(d.km_totalt)} totalt${mil}`);
-  else if (d.km_kalla === "forare") ut.push(`Egen · ${kmText(d.km_totalt)} totalt${appen ? ` (appen: ${kmText(appen.totalt)})` : ""}${mil}`);
-  else ut.push(d.km_totalt ? `${kmText(d.km_totalt)} · ingen uppgift om källa${mil}` : "Ingen uppgift om km");
   if (d.ob_min > 0) ut.push(`OB ${minText(d.ob_min)}`);
   if (d.traktamente) ut.push("Traktamente");
   ut.push(d.bekraftad ? "Bekräftad av föraren" : "Inte bekräftad");
   return ut;
+}
+
+/** "Maskinen loggade 07:34–15:53 – 27 min kortare". Ur synkraden ("07:34-15:53 rast 0"); null när skillnaden inte visas. */
+function maskinLoggText(s: { diff_min: number; maskinen: string } | undefined): string | null {
+  if (!s || !synkVisas(s.diff_min)) return null;
+  const m = /^(\S+)-(\S+) rast (\d+)/.exec(s.maskinen || "");
+  const tider = m ? `${hm(m[1]) || m[1]}–${hm(m[2]) || m[2]}${Number(m[3]) > 0 ? ` · rast ${minText(Number(m[3]))}` : ""}` : s.maskinen;
+  return `Maskinen loggade ${tider} – ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "kortare" : "längre"}`;
 }
 
 export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>; maskinNamn: Record<string, string> }): ForarManadVy {
@@ -216,6 +226,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       tid: minText(min),
       avvikelser: avv,
       detalj: dagDetaljer(d, ctx.maskinNamn),
+      maskinLogg: maskinLoggText(((m.synk || []) as any[]).find(x => x.datum === d.datum)),
       extra: extraPerDatum.get(d.datum) || [],
     };
   });

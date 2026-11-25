@@ -71,8 +71,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     // Flyttobjektet (dagens första) har ingen plats — SAMMA funktion som räknade km hoppar över det, så benet går till Hålabäck.
     expect(d.km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hallaslätt AU 2026", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-14")!;
-    expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
-    expect(v.detalj).toContain("Hallaslätt AU 2026 → Hem · 7 km");
+    expect(v.detalj).toContain("Dit 34 km · hem från Hallaslätt AU 2026 7 km");
     expect(v.rad).toContain("41 km beräknad");
   });
 
@@ -80,8 +79,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { m, vy } = await stefan(d => (d.datum === "2026-09-15" ? { ...d, km_kalla: "forare" } : d));
     expect(m.dagar.find((x: any) => x.datum === "2026-09-15").km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hålabäck au 2025", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-15")!;
-    expect(v.detalj.some(t => t.startsWith("Egen · 68 km totalt"))).toBe(true);
-    expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
+    expect(v.detalj).toContain("Dit 34 km · hem 34 km");
     expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km egen · → 1 mil");
     expect(v.rad).not.toContain("appen");
   });
@@ -90,7 +88,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { vy } = await stefan(d => (d.datum === "2026-09-16" ? { ...d, km_kalla: null } : d));
     const v = vy.dagar.find(x => x.datum === "2026-09-16")!;
     expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km ingen uppgift");
-    expect(v.detalj).toContain("68 km · ingen uppgift om källa · 1 mil ersätts");
+    expect(v.detalj.join(" ")).not.toMatch(/uppgift|ersätts/);
     expect(v.avvikelser.join(" ")).not.toMatch(/km|källa|uppgift/);
     expect(kmKallaText(null)).toBe("ingen uppgift");
   });
@@ -185,5 +183,18 @@ describe("minutskillnad mot maskinen visas bara från 15 min (Martin 2026-10-21)
     expect((await dagen(-14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
     expect((await dagen(15)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
     expect((await dagen(-20)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
+  });
+
+  it("den utfällda dagen säger vad maskinen loggade (bara när skillnaden visas) och upprepar inte dagens rad", async () => {
+    const { m } = await stefan();
+    const synk = (diff_min: number) => [{ medarbetare_id: m.medarbetare_id, datum: "2026-09-02", diff_min, bekraftat: "07:34-16:20 rast 0", maskinen: "07:34:00-15:53:00 rast 0" }];
+    const bygg = (diff: number) => byggForarManad({ ...m, synk: synk(diff) }, { rodaDagar: getRödaDagar(2026), maskinNamn: { [MASKIN]: "Giant" } }).dagar.find(x => x.datum === "2026-09-02")!;
+    expect(bygg(27).maskinLogg).toBe("Maskinen loggade 07:34–15:53 – 27 min kortare");
+    expect(bygg(-20).maskinLogg).toBe("Maskinen loggade 07:34–15:53 – 20 min längre");
+    expect(bygg(14).maskinLogg).toBeNull();
+    const d = bygg(27);
+    expect(d.detalj[0]).toBe("Maskin Giant");
+    // Klockslag, total tid och trakten står redan på raden.
+    for (const t of d.detalj) expect(t).not.toMatch(/^\d\d:\d\d–|^Tid |^Trakt: |totalt/);
   });
 });

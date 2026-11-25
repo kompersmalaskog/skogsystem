@@ -78,8 +78,7 @@ describe("ForarManadArk — Stefan september 2026", () => {
     expect(d14.querySelector("[data-dag-detalj]")).toBeNull();
     await act(async () => { (d14.querySelector("button") as HTMLButtonElement).click(); });
     const det = d14.querySelector("[data-dag-detalj]")!.textContent!;
-    expect(det).toContain("Hem → Hålabäck au 2025 · 34 km");
-    expect(det).toContain("Hallaslätt AU 2026 → Hem · 7 km");
+    expect(det).toContain("Dit 34 km · hem från Hallaslätt AU 2026 7 km");
     expect(det).toContain("Maskin Giant");
   });
 
@@ -89,7 +88,7 @@ describe("ForarManadArk — Stefan september 2026", () => {
     expect(q('[data-dag="2026-09-16"]')!.textContent).toContain("68 km ingen uppgift");
     expect(q('[data-dag="2026-09-16"] [data-dag-varning]')).toBeNull();
     await act(async () => { (q('[data-dag="2026-09-15"] button') as HTMLButtonElement).click(); });
-    expect(q('[data-dag="2026-09-15"] [data-dag-detalj]')!.textContent).toContain("Egen · 68 km totalt");
+    expect(q('[data-dag="2026-09-15"] [data-dag-detalj]')!.textContent).toContain("Dit 34 km · hem 34 km");
   });
 
   it("motorns notis om extra tid utan pass står under uträkningen", async () => {
@@ -107,8 +106,8 @@ describe("ForarManadArk — Stefan september 2026", () => {
     expect(q('[data-dag="2026-09-01"]')!.textContent).not.toContain("appen");
     await act(async () => { (q('[data-dag="2026-09-15"] button') as HTMLButtonElement).click(); });
     const det = q('[data-dag="2026-09-15"] [data-dag-detalj]')!.textContent!;
-    expect(det).toContain("Hem → 400763 Akelius Tåget SA -26 · 80 km (appen: 58 km)");
-    expect(det).toContain("Egen · 160 km totalt (appen: 118 km) · 10 mil ersätts");
+    expect(det).toContain("Dit 80 km · hem 80 km (appen 58 km + 60 km)");
+    expect(det).not.toContain("totalt");
     const milKnapp = Array.from(document.body.querySelectorAll("button")).find(b => /dagar över gränsen/.test(b.textContent || "")) as HTMLButtonElement;
     await act(async () => { milKnapp.click(); });
     expect(text()).toContain("15 sep · Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
