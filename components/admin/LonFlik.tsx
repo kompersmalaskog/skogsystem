@@ -386,7 +386,7 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
         return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
           // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
-          if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1" } });
+          if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1", ...(nav.params.dagvy ? { dagvy: nav.params.dagvy } : {}) } });
           else { sattParam("forare", null); sattParam("dag", null); }
         }} /> : null;
       })()}

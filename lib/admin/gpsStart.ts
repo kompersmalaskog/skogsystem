@@ -13,6 +13,11 @@
  * minuters uppehåll. Starten som hör till passet = den första som ligger högst
  * STARTFONSTER_MIN före förarens starttid (en tidigare start är en annan förare
  * eller gårdagens pass).
+ *
+ * Mer än GPS_SEN_MAX_MIN efter starttiden säger ingenting om tiden: då startades
+ * appen sent eller inte alls på morgonen (vanligt i oktober 2026 — Stefan 6 okt
+ * fick första punkten 18:32, efter passet). Det står i grått och räknas aldrig
+ * som avvikelse (Martin 2026-11-25).
  */
 import { sthlmOffsetMin } from "@/lib/optiTid";
 
@@ -20,14 +25,18 @@ import { sthlmOffsetMin } from "@/lib/optiTid";
 export const GPS_SENARE_GRANS_MIN = 10;
 /** En GPS-start upp till så här långt FÖRE starttiden hör ändå till passet. */
 export const STARTFONSTER_MIN = 30;
+/** Mer än så här efter starttiden = appen startades sent, ingen avvikelse. */
+export const GPS_SEN_MAX_MIN = 60;
 
 export type GpsStart = {
   /** Första GPS-punktens klockslag i svensk tid, "06:47". */
   tid: string;
   /** Minuter från starttiden till första GPS (negativt = GPS före starttiden). */
   senareMin: number;
-  /** Mer än GPS_SENARE_GRANS_MIN efter starttiden. */
+  /** Mellan GPS_SENARE_GRANS_MIN och GPS_SEN_MAX_MIN efter starttiden. */
   markerad: boolean;
+  /** Mer än GPS_SEN_MAX_MIN efter starttiden: appen startades sent, säger inget om tiden. */
+  sent: boolean;
 };
 
 /** Minuter sedan midnatt i svensk tid för en UTC-tid. */
@@ -55,15 +64,19 @@ export function gpsStartForPass(datum: string, startTid: string | null | undefin
   const forsta = kandidater[0];
   if (!forsta) return null;
   const senareMin = forsta.min - startMin;
-  return { tid: hhmm(forsta.min), senareMin, markerad: senareMin > GPS_SENARE_GRANS_MIN };
+  const sent = senareMin > GPS_SEN_MAX_MIN;
+  return { tid: hhmm(forsta.min), senareMin, markerad: !sent && senareMin > GPS_SENARE_GRANS_MIN, sent };
 }
 
-/** Raden i dagens detalj: "GPS i hytten från 06:55 · 15 min senare". */
+/** Raden i dagens detalj. */
 export function gpsStartText(g: GpsStart): string {
-  return g.markerad ? `GPS i hytten från ${g.tid} · ${g.senareMin} min senare` : `GPS i hytten från ${g.tid}`;
+  if (g.sent) return `Appen i hytten startade först ${g.tid} – säger inget om starttiden`;
+  return g.markerad
+    ? `Appen i hytten startade ${g.tid} · ${g.senareMin} min efter starttiden`
+    : `Appen i hytten startade ${g.tid}`;
 }
 
-/** Ordet i dagens avvikelselista: "GPS 15 min senare". */
+/** Ordet i dagens avvikelselista: "appen startade 15 min sent". */
 export function gpsStartAvvikelse(g: GpsStart): string | null {
-  return g.markerad ? `GPS ${g.senareMin} min senare` : null;
+  return g.markerad ? `appen startade ${g.senareMin} min sent` : null;
 }

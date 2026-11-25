@@ -4398,16 +4398,32 @@ describe("Lön → Dagar: svaret först", () => {
     try {
       await oppna("flik=lon&underflik=dagar", [dag("2026-09-01"), dag("2026-09-02")]);
       expect(text()).toContain("1 dag med avvikelse");
-      expect(text()).toContain("GPS 25 min senare");
+      expect(text()).toContain("appen startade 25 min sent");
       await klick("Visa alla 2");
-      expect(text()).not.toContain("GPS i hytten från 06:03"); // hopfälld
+      expect(text()).not.toContain("Appen i hytten startade 06:03"); // hopfälld
       const dagKnappar = () => Array.from(cont.querySelectorAll<HTMLElement>("button[aria-expanded]"));
       await act(async () => { dagKnappar()[0].click(); }); // tis 1 sep (rader i datumordning)
-      expect(text()).toContain("GPS i hytten från 06:25 · 25 min senare");
+      expect(text()).toContain("Appen i hytten startade 06:25 · 25 min efter starttiden");
       await act(async () => { dagKnappar()[1].click(); }); // ons 2 sep — en dag öppen åt gången
-      expect(text()).toContain("GPS i hytten från 06:03");
+      expect(text()).toContain("Appen i hytten startade 06:03");
       expect(text()).not.toContain("06:03 · ");
     } finally { delete g.__gpsStarter; }
+  });
+
+  it("listan delas upp per datum (förvalt) eller per person — personen med flest avvikelser först, rubriken säger antal dagar (2026-11-25)", async () => {
+    const a = forare([dag("2026-09-01"), dag("2026-09-02", { slut_tid: null })], "Anna Ek");
+    const b = { ...forare([dag("2026-09-01", { id: "b1", objekt: [] }), dag("2026-09-02", { id: "b2", objekt: [] }), dag("2026-09-03", { id: "b3", objekt: [] })], "Bo Ek"), medarbetare_id: "m2" };
+    g.__salary = { ...SALARY, medarbetare: [a, b] };
+    await monter("flik=lon&underflik=dagar&avv=0");
+    const rubriker = () => Array.from(cont.querySelectorAll("[data-grupp-rubrik]")).map(e => e.textContent);
+    expect(rubriker()[0]).toMatch(/1 september/);
+    const vaxla = cont.querySelector("[data-dag-grupp]")!;
+    await act(async () => { (Array.from(vaxla.querySelectorAll("button")).find(b => b.textContent === "Person") as HTMLElement).click(); });
+    expect(rubriker()).toEqual(["Bo Ek · 3 dagar", "Anna Ek · 2 dagar"]);
+    // Raden heter datumet, inte namnet, när listan står per person.
+    const forstaRad = cont.querySelector("button[aria-expanded]")!.textContent!;
+    expect(forstaRad).toContain("1 september");
+    expect(forstaRad).not.toContain("Bo");
   });
 
   // ── Lönekvot per förare överst (2026-10-23) ──

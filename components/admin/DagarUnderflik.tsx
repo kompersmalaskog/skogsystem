@@ -126,6 +126,8 @@ export default function DagarUnderflik() {
   // Förvalt: bara avvikelserna (svaret först). "Visa alla" är ett val man gör; ?avv=0 öppnar med alla.
   const [baraAvv, setBaraAvv] = useState(nav.params.avv !== "0");
   const [oppen, setOppen] = useState<string | null>(null);
+  // Listan delas upp på DATUM (förvalt) eller PERSON (Martin 2026-11-25). ?dagvy=person öppnar per person.
+  const [grupp, setGrupp] = useState<"datum" | "person">(nav.params.dagvy === "person" ? "person" : "datum");
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
   // "GPS i hytten från …" per maskin och dag (RPC hyttspar_starter). Bara visning: ett läsfel ger inga GPS-rader, aldrig ett fel i vyn.
@@ -223,7 +225,14 @@ export default function DagarUnderflik() {
 
   const antalForare = new Set(rader.map(r => r.namn)).size;
   const medAvv = rader.filter(r => r.avv.length > 0);
-  const visade = baraAvv ? medAvv : rader;
+  const filtrerade = baraAvv ? medAvv : rader;
+  // Per person: den med flest avvikelser först, sedan namn; inom personen datumordning.
+  const avvPerPerson = new Map<string, number>();
+  for (const r of medAvv) avvPerPerson.set(r.id, (avvPerPerson.get(r.id) || 0) + 1);
+  const visade = grupp === "person"
+    ? [...filtrerade].sort((a, b) => (avvPerPerson.get(b.id) || 0) - (avvPerPerson.get(a.id) || 0) || a.namn.localeCompare(b.namn, "sv") || a.datum.localeCompare(b.datum))
+    : filtrerade;
+  const antalIGrupp = (r: Rad) => visade.filter(x => grupp === "person" ? x.id === r.id : x.datum === r.datum).length;
   const arNu = offset >= 0;
   const periodLabel = range.label;
 
@@ -255,7 +264,7 @@ export default function DagarUnderflik() {
   // Dagarnas läge (period, månad, filter) följer med i adressen, så "tillbaka" från Förare · Månad landar i samma Dagar.
   const oppnaForare = (id: string) => gaTill({ flik: "lon", underflik: "underlag", params: {
     period: loneperiodFor(range.start.slice(0, 7)), forare: id,
-    dagper: period, dagoff: String(offset), avv: baraAvv ? "1" : "0",
+    dagper: period, dagoff: String(offset), avv: baraAvv ? "1" : "0", dagvy: grupp,
   } });
 
   return (
@@ -382,6 +391,18 @@ export default function DagarUnderflik() {
             )}
           </div>
 
+          {/* Uppdelning: per datum eller per person. */}
+          {visade.length > 0 && (
+            <div data-dag-grupp="" style={{ display: "flex", background: FARG.linje, borderRadius: RADIE.rad, padding: AVSTAND.xs, marginBottom: AVSTAND.l }}>
+              {([["datum", "Datum"], ["person", "Person"]] as const).map(([k, l]) => (
+                <button key={k} onClick={() => { setGrupp(k); setOppen(null); }} aria-pressed={grupp === k}
+                  style={{ flex: 1, minHeight: TRAFFYTA.min, border: "none", borderRadius: RADIE.rad, cursor: "pointer", fontFamily: "inherit", ...TYP.meta, fontWeight: grupp === k ? VIKT.halvfet : VIKT.normal, background: grupp === k ? FARG.fyllning : "transparent", color: grupp === k ? FARG.text : FARG.text2 }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+
           {rader.length === 0 && (
             <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {periodLabel}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
           )}
@@ -392,7 +413,7 @@ export default function DagarUnderflik() {
           {visade.length > 0 && (
             <div style={{ ...KORT, paddingTop: 0, paddingBottom: 0 }}>
               {visade.map((r, i) => {
-                const nyttDatum = i === 0 || visade[i - 1].datum !== r.datum;
+                const nyGrupp = i === 0 || (grupp === "person" ? visade[i - 1].id !== r.id : visade[i - 1].datum !== r.datum);
                 const dt = new Date(`${r.datum}T12:00:00`);
                 const ärOppen = oppen === r.nyckel;
                 const objekt = r.d.objekt.join(", ");
@@ -421,16 +442,18 @@ export default function DagarUnderflik() {
                 ].filter(Boolean) as string[];
                 return (
                   <React.Fragment key={r.nyckel}>
-                    {nyttDatum && (
-                      <p style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
-                        {DAG[dt.getDay()]} {datumLang(r.datum)}
+                    {nyGrupp && (
+                      <p data-grupp-rubrik="" style={{ margin: 0, paddingTop: AVSTAND.l, paddingBottom: AVSTAND.xs, ...TYP.micro, color: FARG.text2 }}>
+                        {grupp === "person"
+                          ? `${r.namn} · ${antalIGrupp(r)} ${antalIGrupp(r) === 1 ? "dag" : "dagar"}`
+                          : `${DAG[dt.getDay()]} ${datumLang(r.datum)}`}
                       </p>
                     )}
                     <div style={{ borderBottom: `1px solid ${FARG.linje}` }}>
                       <button type="button" onClick={() => setOppen(ärOppen ? null : r.nyckel)} aria-expanded={ärOppen}
                         style={{ display: "flex", alignItems: "center", gap: AVSTAND.m, width: "100%", minHeight: TRAFFYTA.min, padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: "inherit" }}>
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{r.namn.split(" ")[0]}</span>
+                          <span style={{ display: "block", ...TYP.text, color: FARG.text, whiteSpace: "nowrap" }}>{grupp === "person" ? `${DAG[dt.getDay()]} ${datumLang(r.datum)}` : r.namn.split(" ")[0]}</span>
                           <span style={{ display: "block", ...TYP.meta, color: r.avv.length ? FARG.orange : FARG.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {r.avv.length ? r.avv.map(avvOrd).join(" · ") : (objekt || "—")}
                           </span>
