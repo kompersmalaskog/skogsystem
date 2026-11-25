@@ -85,7 +85,7 @@ export type TidsBar = {
   start: number
   langd: number
   /** klar = inom månaden · efter = korsar månadens slut · saknas = prognos saknas (streckad) */
-  stil: 'klar' | 'efter' | 'saknas'
+  stil: 'klar' | 'efter' | 'saknas' | 'nasta' | 'darefter'
   /** Del av stapeln som ligger före månadens slut, 0–1 (bara 'efter'). */
   fore: number
   /** Kort text i stapeln. */
@@ -115,6 +115,9 @@ export type Tidslinje = {
 export type BarSvar = { langd: string; klar: string; ton: TidsBar['stil'] }
 export function barSvar(b: TidsBar, t: Tidslinje): BarSvar {
   if (b.stil === 'saknas') return { langd: '', klar: 'tid saknas', ton: 'saknas' }
+  // Maskinen är inte på trakten än: inget datum (det vore ett antagande om när den hinner dit), bara ordningen.
+  if (b.stil === 'nasta') return { langd: '', klar: 'nästa', ton: 'saknas' }
+  if (b.stil === 'darefter') return { langd: '', klar: 'därefter', ton: 'saknas' }
   const langd = b.langd < 1 ? 'under 1 dag' : b.langd < 1.5 ? '1 dag' : `${Math.round(b.langd)} dagar`
   // Efter månadens slut är det enda som räknas — datumet därefter är ingen nytta för den som läser.
   if (b.stil === 'efter') return { langd, klar: 'klar efter månadens slut', ton: 'efter' }
@@ -187,6 +190,14 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       barer.push({ id: `${t.objekt_id}:${t.roll}`, namn, start, langd, stil, fore: stil === 'efter' && langd > 0 ? Math.max(0, Math.min(1, (slut - start) / langd)) : 0, text: namn, vantar })
       start = slutDag
     }
+    // BARA DATA: bara trakten maskinen faktiskt är på nu (senaste arbetet ligger där) får ett klar-datum. De andra står som nästa / därefter —
+    // en uträkning som förutsätter att maskinen hinner dit i tid är ett antagande, inte data. Okänt vad maskinen gör = inget datum alls.
+    const pa = d.senaste?.find(x => x.maskin_id === m.maskin_id)?.pa
+    barer.forEach((b, i) => {
+      const harDar = i === 0 && pa != null && pa.includes(b.id.split(':')[0])
+      if (harDar || b.stil === 'saknas') return
+      b.stil = i === 0 ? 'nasta' : 'darefter'
+    })
     const not = [...(efterOkand.length > 0 ? [`Sedan: ${efterOkand.join(', ')}`] : [])].join(' · ') || null
     if (barer.length > 0 || not) rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer, not })
   }

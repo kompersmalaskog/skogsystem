@@ -117,13 +117,30 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
 
   it('en stapel som korsar månadens slut är "efter", med den del som ligger före linjen', () => {
     // Ekonomin: Bondeskog (1,8 d) + Britteberg (3 d) = 4,8 d → klar före slut (5); lägg en längre trakt.
-    const lang = [...trakter.filter(x => x.objekt_id !== 'Britteberg'), trakt('Lång', 'skotare', 'EK26', { sortn: 1.5, volym: 2000, rest_volym: 2000, timmar: 80, prognos_h: 80 }), trakt('Lång', 'skordare', 'Scorpion', { volym: 2000, utfort_volym: 2000, timmar: 0 })]
-    const d2 = indata({ klar: klar(maskiner, lang) })
+    const lang = [...trakter.filter(x => x.objekt_id !== 'Britteberg'), trakt('Efter', 'skotare', 'EK26', { sortn: 2, volym: 100, rest_volym: 100, timmar: 5, prognos_h: 5 }), trakt('Efter', 'skordare', 'Scorpion', { volym: 100, utfort_volym: 100, timmar: 0 }), trakt('Lång', 'skotare', 'EK26', { sortn: 0.5, volym: 2000, rest_volym: 2000, timmar: 80, prognos_h: 80 }), trakt('Lång', 'skordare', 'Scorpion', { volym: 2000, utfort_volym: 2000, timmar: 0 })]
+    // Maskinen är på trakten nu (senaste arbetet ligger där): bara då får den ett klar-datum.
+    const d2 = indata({ klar: klar(maskiner, lang), senaste: [{ maskin_id: 'EK26', pa: ['Lång'] }] })
     const t2 = byggTidslinje(d2, byggTavla(d2))!
     const b = t2.rader.find(r => r.maskin_id === 'EK26')!.barer.find(x => x.namn.startsWith('Lång'))!
     expect(b.stil).toBe('efter')
     expect(b.fore).toBeGreaterThan(0)
     expect(b.fore).toBeLessThan(1)
+    // Trakterna efter den står "därefter" — inget datum, för det förutsätter att maskinen hinner dit.
+    const efter = t2.rader.find(r => r.maskin_id === 'EK26')!.barer.filter(x => x.namn.startsWith('Efter'))
+    expect(efter.length).toBeGreaterThan(0)
+    for (const x of efter) { expect(x.stil).toBe('darefter'); expect(barSvar(x, t2).klar).toBe('därefter') }
+  })
+
+  it('maskinen är inte på någon köad trakt (eller okänt var den är): första står "nästa", inget datum', () => {
+    const med = [...trakter, trakt('Först', 'skotare', 'EK26', { sortn: 0.5, volym: 100, rest_volym: 100, timmar: 5, prognos_h: 5 }), trakt('Först', 'skordare', 'Scorpion', { volym: 100, utfort_volym: 100, timmar: 0 })]
+    const d2 = indata({ klar: klar(maskiner, med), senaste: [{ maskin_id: 'EK26', pa: [], annat_oppet: false }] })
+    const t2 = byggTidslinje(d2, byggTavla(d2))!
+    const barer = t2.rader.find(r => r.maskin_id === 'EK26')!.barer
+    expect(barer[0].namn.startsWith('Först')).toBe(true)
+    expect(barer[0].stil).toBe('nasta')
+    expect(barSvar(barer[0], t2).klar).toBe('nästa')
+    const okant = byggTidslinje(indata({ senaste: undefined }), byggTavla(indata({ senaste: undefined })))!
+    expect(okant.rader.flatMap(r => r.barer).every(x => x.stil === 'saknas' || x.stil === 'nasta' || x.stil === 'darefter')).toBe(true)
   })
 
   it('ingen tidslinje i en månad som inte pågår eller utan köunderlag', () => {
