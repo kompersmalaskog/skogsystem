@@ -63,6 +63,9 @@ export type KlarTrakt = {
   utfort_volym: number
   /** timmar är ett G15-förslag ur uppmätt utfall, inte planerarens prognos (medUppskattadPrognos). */
   uppskattad?: boolean
+  /** Det UPPMÄTTA prediktionsfelet för `timmar` (25:e–75:e percentilen, i kvarvarande G15-timmar, samma skala som `timmar`). Bara på `uppskattad` trakter med nog många
+   *  jämförbara avslutade trakter att mäta felet på (lib/g15Forslag `intervall`); saknas = prognosen är ett punktvärde och räknas inte med osäkerhet. */
+  timmar_spann?: { lag: number; hog: number }
   /** timmar räknas på traktens egen takt (medFoljandePrognos): resten enligt prognosen rakt av, och uppmätt takt mot prognosens. */
   foljer?: { restPlanH: number | null; skillnad: number | null; utfortH: number }
   /** `volym` är uppmätt på trakten (medMattVolym): laserns volym × uttaget skördaren faktiskt gjort. `vida` = volymen som stod där förut. */
@@ -290,7 +293,9 @@ export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, sk
       skotareKlass: t.roll === 'skotare' && t.maskin_id != null ? klass.get(t.maskin_id) ?? null : null }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
-    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
+    const iv = f.forslag.intervall
+    const spann = iv && iv.lag > 0 && iv.hog >= iv.lag ? { timmar_spann: { lag: Math.round(iv.lag * andel * 100) / 100, hog: Math.round(iv.hog * andel * 100) / 100 } } : {}
+    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true, ...spann }
   })
   return { ...d, trakter }
 }
