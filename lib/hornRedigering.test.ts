@@ -48,9 +48,12 @@ describe('Redigera hörn och traktanalys — kopplingen i planeringssidan', () =
     expect(sida).toMatch(/await skickaVantandeForst\(8000\);/);
     expect(sida).toContain("'Gränsen är sparad på enheten · skickas när nätet finns'");
   });
-  it('Justera gräns förenklar Vidas ring (2 m, minst 4 hörn) och säger före → efter', () => {
-    expect(sida).toMatch(/forenklaRing\(ringLatLon\.map\(p => \[p\.lon, p\.lat\] as \[number, number\]\), 2, 4\)/);
-    expect(sida).toContain('Gränsen förenklad: ${forenklad.fore} → ${forenklad.efter} hörn');
+  it('Justera gräns kopierar ALLA traktdelar, kopplar ihop gemensamma hörn och förenklar (2 m, minst 4 hörn) med dem bevarade, och säger före → efter', () => {
+    expect(sida).toMatch(/justeraDelar\(delar\.map/);
+    expect(sida).toMatch(/\}\), 2, 4\);/);
+    expect(sida).toContain('förenklade ${f.fore} → ${f.efter} hörn');
+    expect(sida).toContain('Gränsen förenklad: ${f.fore} → ${f.efter} hörn');
+    expect(sida).not.toMatch(/forenklaRing\(/);   // den gamla förenklingen av EN ring är borta ur sidan: den kunde glida isär delar som delar gräns
   });
   it('analysen och väg-kontrollen körs om när GEOMETRIN ändras (flyttat hörn), inte bara när antalet hörn ändras', () => {
     expect((sida.match(/ringAvtryck\(bm\.path \|\| \[\]\)/g) || []).length).toBe(2);
@@ -64,5 +67,38 @@ describe('Redigera hörn och traktanalys — kopplingen i planeringssidan', () =
     expect(sida).not.toMatch(/Kör igen/);
     // traktkortets rad är kvar och får länkar, varningar och Försök igen
     expect(sida).toMatch(/<TraktAnalysRad status=\{analysStatus\} kontroller=\{kontroller\} onOppnaLank=\{openExternal\} onForsokIgen=/);
+  });
+
+  // Traktdelar som sitter ihop (Martin 2026-11-25): Justera gräns kopierar ALLA delar, delarna redigeras tillsammans, kopiorna ritas som Vidas traktdel.
+  it('Justera gräns kopierar alla Vida-delar (en markör per del med fromVidaTd) och tar med en redan justerad kopia som den är', () => {
+    const a = sida.indexOf('const justeraGrans = (key: string) => {');
+    const block = sida.slice(a, sida.indexOf('// Redigera en boundary-markörs (eget område / traktgräns) nummer.', a));
+    expect(block).toContain('traktdelDelarRef.current');
+    expect(block).toMatch(/fromVidaTd: d\.partKey/);
+    expect(block).toMatch(/last: true/);   // redan justerad kopia: hörnen rörs inte
+    expect(block).not.toMatch(/forenklaRing|ringLatLon/);
+  });
+  it('Redigera hörn tar med ALLA justerade delar och bygger topologin (gemensamma hörn är ett hörn)', () => {
+    const a = sida.indexOf('const gransGrupp = (marker: any)');
+    const block = sida.slice(a, sida.indexOf('// Avsluta corner-drag.', a));
+    expect(block).toMatch(/filter\(\(m: any\) => arGrans\(m\) && m\.fromVidaTd\)/);
+    expect(block).toContain('byggTopologi(grupp.map');
+    expect(block).toMatch(/setRedigeraGransIdn\(grupp\.map/);
+  });
+  it('Spara skriver bara de delar vars ring ändrats, och kvittot säger sanningen för flera delar', () => {
+    expect(sida).toMatch(/ringAvtryck\(svgPath\) === ringAvtryck\(m\.path \|\| \[\]\)\) continue;/);
+    expect(sida).toContain("'Gränserna är sparade på enheten · skickas när nätet finns'");
+  });
+  it('Radera på en justerad del frågar: bara den här eller alla justerade delar (tillbaka till Vidas)', () => {
+    expect(sida).toContain('data-testid="trakt-kort-radera-fraga"');
+    expect(sida).toContain('testid="trakt-kort-radera-denna"');
+    expect(sida).toContain('testid="trakt-kort-radera-alla"');
+    expect(sida).toMatch(/bMarker\?\.fromVidaTd && antalJusterade > 1/);
+    expect(sida).toMatch(/const raderaJusterade = \(id: string \| number, alla: boolean\)/);
+  });
+  it('en egen traktgräns ritas i SAMMA stil som Vidas traktdel (TRAKTGRANS_BREDD, kant och färg) — inte två sorters traktgräns', () => {
+    expect(sida).toMatch(/const lw = isBoundary\s*\? \[\.\.\.TRAKTGRANS_BREDD\]/);
+    expect(sida).toMatch(/const cwLw = isBoundary\s*\? \[\.\.\.TRAKTGRANS_KANT_BREDD\]/);
+    expect(sida).toMatch(/casingColor = isBoundary \? TRAKTGRANS_KANT_FARG/);
   });
 });
