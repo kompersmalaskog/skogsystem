@@ -4496,10 +4496,11 @@ export default function Arbetsrapport() {
                     return (
                       <div key={g.id} data-grans={g.id} style={{ padding:`${AVSTAND.m}px 0`, borderBottom: i < rader.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
                         <button data-grans-tryck="" aria-expanded={gransOppen===g.id} onClick={()=>setGransOppen(o=>o===g.id?null:g.id)} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m, padding:0, minHeight:TRAFFYTA.min, height:"auto", textAlign:"left", color:FARG.text }}>
-                          <span style={{ ...TYP.meta, color:FARG.text, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}<span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, transform:gransOppen===g.id?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span></span>
+                          <span style={{ ...TYP.meta, color:FARG.text, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}</span>
                           <span style={{ ...TYP.listtitel, ...TNUM, color:farg, whiteSpace:"nowrap" }}>
                             {g.varde==null ? "–" : `${Number(g.varde).toLocaleString('sv-SE')} ${enhet}`}
                             <span style={{ ...TYP.meta, color:FARG.text2 }}> av {Number(g.grans).toLocaleString('sv-SE')}</span>
+                            <span data-grans-pil="" className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, marginLeft:AVSTAND.xs, verticalAlign:"middle", display:"inline-block", transform:gransOppen===g.id?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span>
                           </span>
                         </button>
                         {(g.niva!=="lugn" || g.varde==null) && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color: g.niva==="lugn" ? FARG.text2 : farg }}>{g.mening}</p>}
