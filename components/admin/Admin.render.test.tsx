@@ -4389,6 +4389,12 @@ describe("Lön → Dagar: svaret först", () => {
     expect(text()).not.toContain("ingen rast");
   });
 
+  it("dagens maskintid säger hur mycket av lönen maskinen arbetade (Martin 2026-11-25)", async () => {
+    await oppna("flik=lon&underflik=dagar&dagvy=datum&avv=0", [dag("2026-09-01", { arbetad_min: 480, maskintid: { min: 432, kalla: "fil", maskinens_min: 432 } })]);
+    await klick("8 tim");
+    expect(text()).toContain("Av 8 tim lön arbetade maskinen 7 tim 12 min · 90 %");
+  });
+
   it("GPS i hytten (2026-11-23): mer än 10 min efter starttiden är en avvikelse med raden i detaljen; inom gränsen bara raden", async () => {
     // 1 sep: start 06:00, GPS 06:25 svensk tid (04:25Z sommartid) → 25 min senare. 2 sep: GPS 06:03 → ingen avvikelse.
     g.__gpsStarter = [

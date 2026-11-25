@@ -29,7 +29,7 @@ import { gpsStartForPass, gpsStartText, gpsStartAvvikelse } from "@/lib/admin/gp
  *
  * LÖNEKVOTEN (Martin 2026-10-02): hur mycket av betald tid som blir maskintid,
  * G15 per betald timme — bara här i admin, aldrig i förarens vy. Per dagrad
- * "Maskintid X av Y betald · Z %", per förare och för månaden bara över dagar
+ * "Av Y lön arbetade maskinen X · Z %" (dagens rad; Martin 2026-11-25), per förare och för månaden bara över dagar
  * där maskinen skickar filer, med antalet dagar bredvid. Filfri maskin (810E)
  * = "ingen maskintid rapporteras", aldrig 0 %. Täljaren är G15, inte branschens
  * G0 — docs/lonesystem/lonekvot.md.
@@ -291,7 +291,7 @@ export default function DagarUnderflik() {
       // Lönekvot per dag: maskinens G15 under förarens inloggning mot betald tid.
       r.d.maskintid?.kalla === "fil" && r.min > 0
         ? (r.d.maskintid.min > 0
-            ? `Maskintid ${minText(r.d.maskintid.min)} av ${minText(r.min)} betald · ${pct(r.d.maskintid.min, r.min)} %`
+            ? `Av ${minText(r.min)} lön arbetade maskinen ${minText(r.d.maskintid.min)} · ${pct(r.d.maskintid.min, r.min)} %`
             : (r.d.maskintid.maskinens_min > 0
                 ? `Ingen maskintid på förarens inloggning — maskinen gick ${minText(r.d.maskintid.maskinens_min)} under annan inloggning`
                 : "Ingen maskintid den dagen"))
