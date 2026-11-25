@@ -196,9 +196,12 @@ function SparBlock({ veckor, vald, onVald, manuella, onAndraOrsak }: {
                 titel={`Vecka ${v.isovecka}`}
                 hoger={<span style={{ ...TYP.meta, color: FARG.text2 }}>{v.status === 'pagar' ? 'pågår' : veckoDatum(v.fran, v.till)}</span>}
                 under={[r.skordat, r.skotat].map((x, k) => (
-                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: k === 0 ? AVSTAND.xs : AVSTAND.xs, ...TYP.text, color: x.klart ? FARG.text : FARG.text2, fontWeight: x.klart ? 600 : 400 }}>
-                    <span style={TNUM}>{x.text}</span>
-                    <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
+                  <div key={k}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: AVSTAND.xs, ...TYP.text, color: x.klart ? FARG.text : FARG.text2, fontWeight: x.klart ? 600 : 400 }}>
+                      <span style={TNUM}>{x.text}</span>
+                      <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
+                    </div>
+                    {k === 1 && r.egen && <div data-egen="1" style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>{r.egen}</div>}
                   </div>
                 ))}
                 sista={i === lista.length - 1 && !oppen}
@@ -222,7 +225,8 @@ function VeckoDetalj({ vecka, manuella, sista, onAndraOrsak }: { vecka: VeckaRad
     <div style={{ padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px`, borderBottom: sista ? 'none' : RAD.borderBottom }}>
       {grupper.map(([namn, roll]) => {
         const rader = vecka.maskiner.filter(m => m.roll === roll && m.volym > 0).sort((a, b) => b.volym - a.volym)
-        return rader.length === 0 ? null : (
+        const egen = roll === 'skotare' ? Math.round(vecka.skotat_egen ?? 0) : 0
+        return rader.length === 0 && egen === 0 ? null : (
           <div key={roll} style={{ marginTop: AVSTAND.s }}>
             <div style={{ ...TYP.micro, color: FARG.text2 }}>{namn} per maskin</div>
             {rader.map(m => (
@@ -231,6 +235,12 @@ function VeckoDetalj({ vecka, manuella, sista, onAndraOrsak }: { vecka: VeckaRad
                 <span style={{ color: FARG.text2 }}>{fmt(m.volym)}{manuella.has(m.maskin_id) && <span style={{ color: FARG.text3 }}> · manuell</span>}</span>
               </div>
             ))}
+            {egen > 0 && (
+              <div data-egen-maskin="1" style={{ display: 'flex', justifyContent: 'space-between', marginTop: AVSTAND.xs, ...TYP.text, ...TNUM }}>
+                <span style={{ color: FARG.text }}>Egen skotning</span>
+                <span style={{ color: FARG.text2 }}>{fmt(egen)}</span>
+              </div>
+            )}
           </div>
         )
       })}

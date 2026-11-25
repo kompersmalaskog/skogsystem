@@ -46,4 +46,16 @@ describe('Veckor — Hur gick veckorna?', () => {
     await act(async () => { knapp().click() })
     expect(el.textContent).not.toContain('Regn')
   })
+  it('egen skotning står som egen skotning under Skotat och som egen rad i maskinerna', async () => {
+    const q = await import('../_lib/queries')
+    const orig = (q.hamtaVeckor as any).getMockImplementation()
+    ;(q.hamtaVeckor as any).mockImplementation(async () => ({ data: [vecka({ isovecka: 46, status: 'last', plan: 238, skordat: 192, skotat: 192, skotat_egen: 192, maskiner: [{ maskin_id: 'H', modell: null, namn: 'H8E', roll: 'skordare', volym: 192 }] })], error: null }))
+    await act(async () => { root.render(<VeckorVy />) }); await vanta()
+    expect(el.querySelector('[data-vecka="46"] [data-egen]')!.textContent).toBe('varav egen skotning 192')
+    const rad = el.querySelector('[data-vecka="46"]')!
+    await act(async () => { (rad.querySelector('[aria-expanded]') as HTMLElement).click() })
+    expect(el.querySelector('[data-egen-maskin]')!.textContent).toContain('Egen skotning')
+    expect(el.querySelector('[data-egen-maskin]')!.textContent).toContain('192')
+    ;(q.hamtaVeckor as any).mockImplementation(orig)
+  })
 })

@@ -202,6 +202,8 @@ export type VeckaRad = {
   plan: number | null
   skordat: number
   skotat: number
+  /** Del av skotat som är egen skotning, räknad på skördad volym (markägaren skotar). Ingår i skotat. */
+  skotat_egen?: number
   status: 'last' | 'pagar' | 'kommande'
   orsak: string | null
   maskiner: { maskin_id: string; modell: string | null; namn: string; roll: 'skordare' | 'skotare'; volym: number }[]
@@ -271,7 +273,7 @@ function normVecka(r: any): VeckaRad {
   return {
     isovecka: tal(r.isovecka), iso_ar: tal(r.iso_ar), fran: r.fran, till: r.till,
     arbetsdagar: tal(r.arbetsdagar), arbetsdagar_kvar: tal(r.arbetsdagar_kvar), plan: talEllerNull(r.plan),
-    skordat: tal(r.skordat), skotat: tal(r.skotat), status: r.status, orsak: r.orsak ?? null,
+    skordat: tal(r.skordat), skotat: tal(r.skotat), skotat_egen: tal(r.skotat_egen), status: r.status, orsak: r.orsak ?? null,
     maskiner: Array.isArray(r.maskiner) ? r.maskiner.map((m: any) => ({ maskin_id: String(m?.maskin_id ?? ''), modell: m?.modell ?? null, namn: String(m?.namn ?? m?.modell ?? m?.maskin_id ?? ''), roll: m?.roll, volym: tal(m?.volym) })) : [],
   }
 }

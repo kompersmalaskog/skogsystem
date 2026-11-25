@@ -24,8 +24,14 @@ function rad(namn: string, varde: number, plan: number | null, status: VeckaRad[
 }
 
 /** Veckans två rader. Utan beställning (plan saknas) står bara volymen, inget ord. */
-export function veckoRader(v: VeckaRad): { skordat: VeckoRadRad; skotat: VeckoRadRad } {
-  return { skordat: rad('Skördat', v.skordat, v.plan, v.status), skotat: rad('Skotat', v.skotat, v.plan, v.status) }
+export function veckoRader(v: VeckaRad): { skordat: VeckoRadRad; skotat: VeckoRadRad; egen: string | null } {
+  return { skordat: rad('Skördat', v.skordat, v.plan, v.status), skotat: rad('Skotat', v.skotat, v.plan, v.status), egen: egenText(v) }
+}
+
+/** "varav egen skotning 192" — den del av skotat som markägaren skotar och som räknas på skördad volym. Inget när det inte finns. */
+export function egenText(v: VeckaRad): string | null {
+  const e = Math.round(v.skotat_egen ?? 0)
+  return e > 0 ? `varav egen skotning ${fmt(e)}` : null
 }
 
 /** Rubrikens svar: bara när en vecka pågår — "Vecka 47 pågår" + "3 dagar kvar av veckan". Annars ingen rubrik (listan räcker). */

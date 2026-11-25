@@ -34,3 +34,16 @@ describe('veckoSvar och datum', () => {
     expect(veckoDatum('2026-10-28', '2026-11-01')).toBe('28 okt–1 nov')
   })
 })
+
+describe('egen skotning', () => {
+  it('står som egen rad under Skotat när den finns, annars inget', () => {
+    expect(veckoRader(v({ skotat: 335, skotat_egen: 335.3 })).egen).toBe('varav egen skotning 335')
+    expect(veckoRader(v({ skotat_egen: 0 })).egen).toBeNull()
+    expect(veckoRader(v({})).egen).toBeNull()
+  })
+  it('skotat räknar med egen skotning (det är samma tal som RPC:n ger, inget läggs på här)', () => {
+    const r = veckoRader(v({ plan: 238, skordat: 192, skotat: 192, skotat_egen: 192 }))
+    expect(r.skotat.text).toBe('Skotat 192 av 238')
+    expect(r.skotat.ord).toBe('46 kvar')
+  })
+})
