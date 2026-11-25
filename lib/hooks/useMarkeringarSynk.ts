@@ -15,6 +15,7 @@ import { hamtaMarkeringarSammanfogade, korMarkeringSynk, laggMarkeringDelete, la
 import { tomFotoForMarkering } from '../markeringFotoKo';
 import type { ServerRad } from '../markeringSynk';
 import { BORTTAGEN_MS } from '../borttagenKvitto';
+import { stampla } from '../nyttFranPlaneraren';
 
 type Ref<T> = { current: T };
 
@@ -43,6 +44,8 @@ export interface MarkeringarSynkIn<M extends { id: string | number }> {
   hamtaServer: (objektId: string) => Promise<ServerRad[] | null>;
   refs: MarkeringarSynkRefs;
   setUppdaterar?: (b: boolean) => void;
+  /** Vem som sparar (lib/nyttFranPlaneraren): stämplas som `andradAv`/`andradAvNamn` i det som skrivs, så andra skärmar kan säga "Nytt från Martin". Utan den skrivs markeringen som förut. */
+  forfattare?: () => { id: string | null; namn: string } | null;
   /** efter att en hämtning lagts in: `farsk` = serverns rader lästes just nu (annars den sparade bilden) */
   onHamtad?: (r: { markers: M[]; farsk: boolean; efterRefetch: boolean }) => void;
 }
@@ -76,7 +79,9 @@ export function useMarkeringarSynk<M extends { id: string | number }>(i: Markeri
     const json = JSON.stringify(marker);
     lokaltPagar.current.add(id);
     try {
-      await laggMarkeringUpsert(objektId, marker as any, typAv(marker));
+      // Författaren stämplas bara i det som SKRIVS; minnets markering (och därmed `json` ovan) är orörd — annars skulle den se ändrad ut vid varje jämförelse.
+      const f = inRef.current.forfattare?.() ?? null;
+      await laggMarkeringUpsert(objektId, (f ? stampla(marker, f) : marker) as any, typAv(marker));
       if (refs.objekt.current === objektId) {   // objektet kan ha bytts under skrivningen: de refs som finns nu hör till ett annat
         refs.persistedIds.current.add(id);
         refs.persistedSnapshot.current.set(id, json);

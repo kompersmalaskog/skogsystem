@@ -110,6 +110,10 @@ import { AvlaggForstaLasset } from '../../components/malbild/AvlaggForstaLasset'
 import { arForstaLassetPaTrakten } from '../../lib/malbildSett'
 import { malbildNyckel, type Maskinroll } from '../../lib/malbilder'
 import { VidaSaknasRad, VIDA_RAD_HOJD_PX } from '../../components/planering/VidaSaknasRad'
+import { NyttFranRad, NYTT_RAD_HOJD_PX } from '../../components/planering/NyttFranRad'
+import { useNyttFranPlaneraren } from '@/lib/hooks/useNyttFranPlaneraren'
+import { andradAvNamn, markeringPlats as nyttMarkeringPlats, NYTT_KAMERA_PADDING, NYTT_PULS_MS, type NyttPost } from '../../lib/nyttFranPlaneraren'
+import { useMaskinKonto } from '@/components/maskinkonto/MaskinKontoProvider'
 import { arVidaVo, lasVidaLager, skapaFornyare } from '../../lib/larm/vidaLager'
 import { medVidaNycklar } from '../../lib/vidaNycklar'
 import { useVidaLagerFel } from '../../lib/hooks/useVidaLagerFel'
@@ -868,6 +872,7 @@ export default function PlannerPage() {
 
   // STEG 3/4: rollbaserad filtrering + "Starta körning"-pill + admin-växling
   const { medarbetare: currentMedarbetare, loading: medarbetareLaddar } = useCurrentMedarbetare();
+  const maskinKonto = useMaskinKonto();   // vem som låst upp maskinen med "Vem är du?" (namnet på det man sparar: lib/nyttFranPlaneraren)
   const [startarKorning, setStartarKorning] = useState(false);
   const autoValjGjordRef = useRef(false);
   // AUTO-UPPDATERING: läs (och rensa) ev. sparat läge från en auto-omladdning SYNKRONT vid render, så
@@ -1008,8 +1013,14 @@ export default function PlannerPage() {
 
   // Markeringar: lokalt först, kö mot servern, hämtning som sammanfogas med det som väntar (lib/hooks/useMarkeringarSynk — laddning, hämta om, spara, radera,
   // lokal sparning vid ändringar och flush). `saveMarkerToDb`/`deleteMarkerFromDb`/`refetchMarkers` behåller sina gamla namn för alla anropsställen.
+  const nyttHamtadRef = useRef<(m: readonly any[], farsk: boolean) => void>(() => {});   // "Nytt från …": fylls av useNyttFranPlaneraren längre ner
   const { saveMarker: saveMarkerToDb, deleteMarker: deleteMarkerFromDb, refetch: refetchMarkers } = useMarkeringarSynk<Marker>({
     objektId: valtObjekt?.id ? String(valtObjekt.id) : undefined,
+    // Vem som sparar stämplas i det som skrivs (andradAv/andradAvNamn): personkonto → förnamn; maskinkonto → förarens förnamn om någon låst upp, annars maskinens namn.
+    forfattare: () => currentMedarbetare ? {
+      id: currentMedarbetare.id,
+      namn: andradAvNamn({ upplastNamn: maskinKonto.upplast?.namn ?? null, konto: currentMedarbetare, maskinNamn: maskinModell(dimMaskiner.find((m) => m.maskin_id === (testlage?.maskinId ?? enhetMaskinId))) }),
+    } : null,
     markers, markersLoaded, setMarkers, setMarkersLoaded, typAv: getMarkerTyp,
     hamtaServer: async (objektId) => {
       const { data, error } = await supabase.from('planering_markeringar').select('marker_id, data').eq('objekt_id', objektId);
@@ -1019,6 +1030,7 @@ export default function PlannerPage() {
     refs: { persistedIds: persistedMarkerIdsRef, persistedSnapshot: persistedSnapshotRef, mergeChecked: mergeCheckedIdsRef, objekt: markersObjektIdRef, sparPagar: sparPagarRef, upptagen: upptagenRef },
     setUppdaterar: setMarkersUppdaterar,
     onHamtad: ({ markers: laddade, farsk, efterRefetch }) => {
+      nyttHamtadRef.current(laddade, farsk);   // "Nytt från …": nya/ändrade från andra jämförs mot baslinjen
       if (farsk) setMarkersUppdateradAt(Date.now());   // en sparad bild utan nät är inte "uppdaterad nu"
       // Avlägg-baslinjen följer med: annars ser avlägg-sparningen skillnaden mot det tidigare inflätade avlägg-innehållet som "ändrat".
       const oid = valtObjekt?.id;
@@ -9735,7 +9747,40 @@ export default function PlannerPage() {
     minId: currentMedarbetare?.id ?? null,
     minNamn: currentMedarbetare?.namn ?? null,
     arAdmin: isAdminRiktig,
+    live: korvyActive || maskinlage,   // körvyn/maskinen: realtime + omläsning var minut (nya kommentarer från andra → raden "Nytt från …"); planeringsvyn som förut
   });
+  // NYTT FRÅN …: raden överst i körvyn när någon annan lagt till eller ändrat något (lib/nyttFranPlaneraren). Tryck → kartan visar ändringen och den pulserar 5 s.
+  const nyttVisa = (post: NyttPost) => {
+    const map = mapInstanceRef.current;
+    const plats = post.plats;
+    if (!map || !plats) return;
+    setKorvyFollowPaused(true);   // annars hoppar kameran tillbaka till maskinen vid nästa GPS-punkt (Centrera tar tillbaka)
+    const padding = { ...NYTT_KAMERA_PADDING };
+    try {
+      const punkt = plats.bounds[0][0] === plats.bounds[1][0] && plats.bounds[0][1] === plats.bounds[1][1];
+      if (punkt) map.easeTo({ center: [plats.lng, plats.lat], zoom: Math.max(map.getZoom(), 17.5), padding, duration: 800 });
+      else map.fitBounds(plats.bounds, { padding, maxZoom: YTA_MAX_ZOOM, duration: 800 });
+    } catch { /* kartan är borta */ }
+    if (ytaPulsTimerRef.current) clearTimeout(ytaPulsTimerRef.current);
+    setYtaPuls({ id: `nytt:${post.nyckel}`, farg: post.ton === 'fara' ? FARG.rod : post.ton === 'viktigt' ? FARG.gul : FARG.text, geometri: plats.geometri });
+    ytaPulsTimerRef.current = setTimeout(() => setYtaPuls(null), NYTT_PULS_MS);
+  };
+  const nyttFran = useNyttFranPlaneraren({
+    objektId: valtObjekt?.id ? String(valtObjekt.id) : undefined,
+    aktiv: korvyActive,
+    minId: currentMedarbetare?.id ?? null,
+    kommentarer: kk.rader, kommentarerLaddad: kk.laddad,
+    markeringPlats: (m) => nyttMarkeringPlats(m, svgToLatLon),
+    nyckelPlats: (nyckel) => {
+      const mm = (markersRef.current as any[]).find((x) => markerNyckel(x?.id) === nyckel);
+      if (mm) return nyttMarkeringPlats(mm, svgToLatLon);
+      const geo = ytaGeo({ nyckel, features: traktGeo?.features, markers: markersRef.current as any[], svgToLatLon });
+      return geo ? { lat: (geo.bounds[0][1] + geo.bounds[1][1]) / 2, lng: (geo.bounds[0][0] + geo.bounds[1][0]) / 2, geometri: geo.geometri, bounds: geo.bounds } : null;
+    },
+    pos: korvyEffectivePos,
+    onVisa: nyttVisa,
+  });
+  nyttHamtadRef.current = nyttFran.hamtadMarkeringar;
   // KOMMENTAR-TECKEN: vilka nycklar som har en kommentar (symbolerna läser dem i syncMarkersToMapLibre), och tecknen på linjer och ytor.
   const kommentarNycklarNu = useMemo(() => Array.from(new Set(kk.rader.map((r) => r.yta_nyckel))).sort().join('|'), [kk.rader]);
   useEffect(() => { setKommentarNycklarText(kommentarNycklarNu); }, [kommentarNycklarNu]);
@@ -12964,8 +13009,9 @@ export default function PlannerPage() {
   // Påminnelsens hela instruktion stängs när påminnelsen försvinner (kört ut, larm/lossning visas): kommer man tillbaka börjar den som pill/bricka igen.
   useEffect(() => { if (!inst.paminnelse) setPaminnelseOppen(null); }, [inst.paminnelse]);
   // Instruktionskortet och påminnelsen sitter på samma plats (under objektpillen och larmets/grindens kort).
-  const larmTopBas = `env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px`;
-  const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
+  const nyttRadH = korvyActive && nyttFran.rad ? NYTT_RAD_HOJD_PX + AVSTAND.s : 0;   // raden "Nytt från …" sitter under objektpillen; korten under flyttas ned
+  const larmTopBas = `env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${nyttRadH}px`;
+  const instruktionTop = `calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${nyttRadH}px + ${grindKort ? GRIND_KORT_HOJD_PX + AVSTAND.s : 0}px)`;
   // LARMPLATSEN — "Kommer en ambulans hit?" (lib/larmKontroll, Martin 2026-11-10): i maskinen och för planeraren ute med telefonen,
   // en gång per larmplats som ingen bekräftat, när man står inom 50 m med färsk position. Allt annat överst (larm, lossning, besök,
   // risker, instruktioner, grind) går före. I testläget sparas svaren bara i minnet.
@@ -15342,6 +15388,12 @@ export default function PlannerPage() {
       {korvyActive && vidaFel.fel && (
         <VidaSaknasRad top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px)`} />
       )}
+      {korvyActive && nyttFran.rad && (
+        <NyttFranRad
+          text={nyttFran.rad.text} ton={nyttFran.rad.ton} antal={nyttFran.rad.antal} onTryck={nyttFran.tryck}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+        />
+      )}
       {korvyActive && larm.kort && !inst.kort && (   // instruktionen har platsen (larmet är då sett och ingen Fara): larmkortet kommer tillbaka efter dess Sett
         <LarmKortVy
           kort={larm.kort}
@@ -15482,7 +15534,7 @@ export default function PlannerPage() {
         <FastighetsgransKortVy
           fall={fgFall}
           onVisa={() => setLarmMalbildOppen('kant')}
-          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px)`}
+          top={`calc(env(safe-area-inset-top, 0px) + 12px + ${testlage ? TESTBANNER_HOJD_PX : 0}px + ${PILL_HOJD_PX}px + ${AVSTAND.s}px + ${vidaFel.fel ? VIDA_RAD_HOJD_PX + AVSTAND.s : 0}px + ${nyttRadH}px)`}
         />
       )}
       {korvyActive && larm.settRad && (
