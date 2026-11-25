@@ -168,5 +168,10 @@ describe("Min tid: arbetstidens gränser för föraren", () => {
     expect(kort!.textContent).toContain("närmar sig gränsen");
     expect(kort!.textContent).toContain("44,2 tim/v");
     expect(behallare!.textContent).not.toMatch(/Övertid \d{4}.*av 250 tim.*Räknat per månad/);
+    // Tryck på en rad fäller ut vad lagen säger
+    expect(kort!.querySelector("[data-grans-varfor]")).toBeNull();
+    const rad = kort!.querySelector<HTMLElement>("[data-grans=snitt_48] [data-grans-tryck]")!;
+    await act(async () => { rad.click(); });
+    expect(kort!.querySelector("[data-grans-varfor]")?.textContent).toMatch(/10 b §.*48 timmar per vecka i snitt/);
   });
 });

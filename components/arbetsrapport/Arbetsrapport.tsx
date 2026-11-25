@@ -907,6 +907,7 @@ export default function Arbetsrapport() {
   // Förarens egna arbetstidsgränser (50 tim övertid/månad, 250/år, 48 tim/vecka i snitt) — SAMMA räkning som Admin › Arbetstid
   // (/api/lon/arbetstid?mig=1). null = läses/kunde inte läsas: då visas årets övertid som förut.
   const [minaGranser, setMinaGranser] = useState<any[] | null>(null);
+  const [gransOppen, setGransOppen] = useState<string | null>(null);
   useEffect(() => {
     if (steg !== "mintid" || !medarbetare?.id || medarbetare?.foretagsledare === true) return;
     let avbruten = false;
@@ -3692,10 +3693,8 @@ export default function Arbetsrapport() {
     const vecka = byggVecka(new Date(), [...veckaDagar.values()], extraTidData || []);
     const veckanKort = (
       <section>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.s, margin:`0 0 ${AVSTAND.s}px` }}>
-          <p style={{ margin:0, ...TYP.rubrik, color:FARG.text }}>Veckan</p>
-          <p style={{ margin:0, ...TYP.listtitel, ...TNUM, color:FARG.text }}>{fmt(vecka.totalMin)}</p>
-        </div>
+        {/* Rubriken bara ordet; summan står sist i kortet, som en kolumn man räknar ihop (Martin 2026-11-25). */}
+        <p style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.rubrik, color:FARG.text }}>Veckan</p>
         <div style={{ ...KORT, paddingTop:AVSTAND.xs, paddingBottom:AVSTAND.xs }}>
           {vecka.rader.map((r, i) => {
             const sista = i === vecka.rader.length - 1;
@@ -3711,6 +3710,10 @@ export default function Arbetsrapport() {
               </button>
             );
           })}
+          <div data-vecka-totalt="" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:AVSTAND.s, minHeight:TRAFFYTA.min, padding:`${AVSTAND.s}px 0`, borderTop:`1px solid ${FARG.linje}` }}>
+            <span style={{ ...TYP.listtitel, fontWeight:VIKT.halvfet, color:FARG.text }}>Totalt</span>
+            <span style={{ ...TYP.listtitel, fontWeight:VIKT.halvfet, ...TNUM, color:FARG.text }}>{fmt(vecka.totalMin)}</span>
+          </div>
         </div>
         <div style={{ display:"flex", justifyContent:"center", marginTop:AVSTAND.s }}>
           <button onClick={()=>setSteg("mintid")} style={KNAPP.tertiar}>Månaden och året i Min tid</button>
@@ -4475,6 +4478,12 @@ export default function Arbetsrapport() {
               extra_overtid_ar: ["Extra övertid", "över årets tak"],
               snitt_48: ["Snitt per vecka", "senaste 4 månaderna"],
             };
+            const LAGEN_FORARE: Record<string,string> = {
+              overtid_manad: "Arbetstidslagen 8 §: högst 50 timmar övertid per kalendermånad (eller 48 timmar på fyra veckor). Övertid blir det först när månadens ordinarie timmar är fyllda, precis som på lönen.",
+              allman_overtid_ar: "Skogsavtalet § 5 mom 5: högst 250 timmar övertid per kalenderår. Lagen säger 200, avtalet tillåter 250.",
+              extra_overtid_ar: "Arbetstidslagen 8 a §: över årets tak får det bli högst 150 timmar extra övertid, och bara när det finns särskilda skäl. Prata med arbetsledningen.",
+              snitt_48: "Arbetstidslagen 10 b §: all arbetstid, övertid inräknad, får vara högst 48 timmar per vecka i snitt över fyra månader. En enskild vecka får vara längre. Semester och sjukdagar räknas som 8 timmar.",
+            };
             const rader = ordning.map(id => minaGranser.find((g:any)=>g.id===id)).filter((g:any)=>g && !(g.id==="extra_overtid_ar" && !(g.varde>0)));
             return (
               <section data-arbetstid-granser="" style={{ marginBottom:AVSTAND.xl }}>
@@ -4486,19 +4495,21 @@ export default function Arbetsrapport() {
                     const enhet = g.id==="snitt_48" ? "tim/v" : "tim";
                     return (
                       <div key={g.id} data-grans={g.id} style={{ padding:`${AVSTAND.m}px 0`, borderBottom: i < rader.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m }}>
-                          <span style={{ ...TYP.meta, color:FARG.text }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}</span>
+                        <button data-grans-tryck="" aria-expanded={gransOppen===g.id} onClick={()=>setGransOppen(o=>o===g.id?null:g.id)} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m, padding:0, minHeight:TRAFFYTA.min, height:"auto", textAlign:"left", color:FARG.text }}>
+                          <span style={{ ...TYP.meta, color:FARG.text, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}<span className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, transform:gransOppen===g.id?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span></span>
                           <span style={{ ...TYP.listtitel, ...TNUM, color:farg, whiteSpace:"nowrap" }}>
                             {g.varde==null ? "–" : `${Number(g.varde).toLocaleString('sv-SE')} ${enhet}`}
                             <span style={{ ...TYP.meta, color:FARG.text2 }}> av {Number(g.grans).toLocaleString('sv-SE')}</span>
                           </span>
-                        </div>
+                        </button>
                         {(g.niva!=="lugn" || g.varde==null) && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color: g.niva==="lugn" ? FARG.text2 : farg }}>{g.mening}</p>}
+                        {/* Vad lagen säger, skrivet för föraren (admins längre "Varför?" handlar om hur appen räknar). */}
+                        {gransOppen===g.id && <p data-grans-varfor="" style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{LAGEN_FORARE[g.id]}</p>}
                       </div>
                     );
                   })}
                 </div>
-                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Övertid räknas per månad, som lönen. 48 tim är ett snitt — en enskild vecka får vara längre.</p>
+                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Tryck på en rad för att se vad lagen säger.</p>
               </section>
             );
           })()}
