@@ -9,6 +9,7 @@ export const RUTNAT_FRAN_PX = 900;
 const LISTA_BREDD_PX = 360;
 
 export const kalibreringCss = `
+.kal-utan-sista-linje > :last-child { border-bottom: none !important; }
 .kal-rutnat { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: ${AVSTAND.xl}px; align-items: start; }
 @media (min-width: ${RUTNAT_FRAN_PX}px) {
   .kal-rutnat { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }

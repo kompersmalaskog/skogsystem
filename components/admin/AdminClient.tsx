@@ -6,7 +6,7 @@ import React from "react";
 import { useSearchParams } from "next/navigation";
 import { AVSTAND, FARG, FONT, LAYOUT, RADIE, TRAFFYTA, TYP, designCss, medSafeBotten } from "@/lib/design/tokens";
 import { Ikon, Markering, Titel, MAXBREDD_ADMIN } from "./ui";
-import { AdminNavProvider, FLIKAR, lasNav, useAdminNav } from "./nav";
+import { AdminNavProvider, FLIKAR, LON_MER, lasNav, useAdminNav } from "./nav";
 import { useAttGora } from "./useAttGora";
 import { antalKraver } from "@/lib/admin/attGora";
 import Oversikt from "./Oversikt";
@@ -79,14 +79,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             </button>
           );
         })}
-        {/* "Ny medarbetare" bor bara i Medarbetare (+ Lägg till) — samma ställe på telefon och dator (Martin 2026-10-25). */}
-        {currentUser.roll === "admin" && <div style={{ height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` }} />}
-        {currentUser.roll === "admin" && (
-          <a href="/admin/historik" className="adm-post" style={{ ...postStil(false), textDecoration: "none", boxSizing: "border-box" }}>
-            <Ikon namn="history" farg={FARG.text2} />
-            <span>Historik</span>
-          </a>
-        )}
+        {/* "Ny medarbetare" bor bara i Medarbetare (+ Lägg till). Produktionshistoriken bor i Maskiner › Arkiv — en ingång, samma på telefon och dator (2026-11-25). */}
         <div style={{ flex: 1 }} />
         <div style={{ ...TYP.meta, color: FARG.text3, padding: `0 ${AVSTAND.m}px` }}>{currentUser.namn || "—"} · admin</div>
       </aside>
@@ -94,7 +87,8 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
       <main className="adm-inn">
         <div className="adm-kol" key={`${nav.flik}-${nyMedarbetare ? "ny" : ""}`}>
           <div className="tona-in">
-            {!nyMedarbetare && <Titel>{aktiv.label}</Titel>}
+            {/* Lön › Mer (ATK-val, Vilobrott …) har sin egen rubrik under "‹ Lön": annars stod "Lön" två gånger. */}
+            {!nyMedarbetare && !(nav.flik === "lon" && LON_MER.includes(nav.underflik as any)) && <Titel>{aktiv.label}</Titel>}
             {nav.flik === "oversikt"    && <Oversikt att={att} />}
             {nav.flik === "medarbetare" && <MedarbetareFlik />}
             {nav.flik === "maskiner"    && <MaskinerFlik visaHistorik={currentUser.roll === "admin"} />}

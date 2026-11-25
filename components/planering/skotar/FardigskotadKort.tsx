@@ -54,7 +54,7 @@ export function FardigskotadKort({ kontroll, klar, ingetSkordat = false, onKarta
               <button type="button" data-testid="fardigskotad-karta" onClick={onKarta} style={{ ...knappPrimar, flex: 1 }}>Kolla kartan</button>
               <button type="button" data-testid="fardigskotad-anda" onClick={onBekrafta} style={{ ...knappStor, flex: 1 }}>Färdigskotad ändå</button>
             </div>
-            <button type="button" onClick={onAvbryt} style={{ ...knappStor, width: '100%', marginTop: AVSTAND.s, background: 'transparent', color: FARG.text2 }}>Avbryt</button>
+            <button type="button" onClick={onAvbryt} style={{ ...knappStor, width: '100%', marginTop: AVSTAND.s, background: 'transparent', color: FARG.bla }}>Avbryt</button>
           </>
         ) : (
           <>

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { stefanUnderlag, MASKIN } from "@/lib/lonesystem/testdata/stefanSep";
-import { byggForarManad, tidMedDecimal, kmKallaText } from "@/lib/admin/forarManadVy";
+import { milPerTrakt, byggForarManad, tidMedDecimal, kmKallaText } from "@/lib/admin/forarManadVy";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { summeraKvot, kvotVarde, kvotDetalj } from "@/lib/admin/lonekvot";
 
@@ -61,7 +61,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     // Summan av dagarnas mil = motorns kor_mil.
     expect(m.dagar.reduce((s: number, d: any) => s + d.ersattningsmil, 0)).toBe(m.kor_mil);
     expect(vy.km.over).toMatch(/över 60 km\/dag/);
-    expect(vy.km.sa).toMatch(/påbörjad mil/);
+    expect(vy.km.sa).toMatch(/Körning över 60 km per dag ersätts.*avrundat uppåt/);
   });
 
   it("km med källa: beräknad dag har platser (hem → första trakten, sista trakten → hem) och km per ben", async () => {
@@ -71,8 +71,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     // Flyttobjektet (dagens första) har ingen plats — SAMMA funktion som räknade km hoppar över det, så benet går till Hålabäck.
     expect(d.km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hallaslätt AU 2026", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-14")!;
-    expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
-    expect(v.detalj).toContain("Hallaslätt AU 2026 → Hem · 7 km");
+    expect(v.detalj).toContain("Dit 34 km · hem från Hallaslätt AU 2026 7 km");
     expect(v.rad).toContain("41 km beräknad");
   });
 
@@ -80,8 +79,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { m, vy } = await stefan(d => (d.datum === "2026-09-15" ? { ...d, km_kalla: "forare" } : d));
     expect(m.dagar.find((x: any) => x.datum === "2026-09-15").km_rutt).toEqual({ forsta: "Hålabäck au 2025", sista: "Hålabäck au 2025", appen: null });
     const v = vy.dagar.find(x => x.datum === "2026-09-15")!;
-    expect(v.detalj.some(t => t.startsWith("Egen · 68 km totalt"))).toBe(true);
-    expect(v.detalj).toContain("Hem → Hålabäck au 2025 · 34 km");
+    expect(v.detalj).toContain("Dit 34 km · hem 34 km");
     expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km egen · → 1 mil");
     expect(v.rad).not.toContain("appen");
   });
@@ -90,7 +88,7 @@ describe("Förare · Månad — Stefan september 2026", () => {
     const { vy } = await stefan(d => (d.datum === "2026-09-16" ? { ...d, km_kalla: null } : d));
     const v = vy.dagar.find(x => x.datum === "2026-09-16")!;
     expect(v.rad).toContain("Hem → Hålabäck au 2025 · 68 km ingen uppgift");
-    expect(v.detalj).toContain("68 km · ingen uppgift om källa · 1 mil ersätts");
+    expect(v.detalj.join(" ")).not.toMatch(/uppgift|ersätts/);
     expect(v.avvikelser.join(" ")).not.toMatch(/km|källa|uppgift/);
     expect(kmKallaText(null)).toBe("ingen uppgift");
   });
@@ -185,5 +183,61 @@ describe("minutskillnad mot maskinen visas bara från 15 min (Martin 2026-10-21)
     expect((await dagen(-14)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(false);
     expect((await dagen(15)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
     expect((await dagen(-20)).avvikelser.some(a => /mot maskinen/.test(a))).toBe(true);
+  });
+
+  it("den utfällda dagen säger vad maskinen loggade (bara när skillnaden visas) och upprepar inte dagens rad", async () => {
+    const { m } = await stefan();
+    const synk = (diff_min: number) => [{ medarbetare_id: m.medarbetare_id, datum: "2026-09-02", diff_min, bekraftat: "07:34-16:20 rast 0", maskinen: "07:34:00-15:53:00 rast 0" }];
+    const bygg = (diff: number) => byggForarManad({ ...m, synk: synk(diff) }, { rodaDagar: getRödaDagar(2026), maskinNamn: { [MASKIN]: "Giant" } }).dagar.find(x => x.datum === "2026-09-02")!;
+    expect(bygg(27).maskinLogg).toBe("Maskinen loggade 07:34–15:53 – 27 min kortare");
+    expect(bygg(-20).maskinLogg).toBe("Maskinen loggade 07:34–15:53 – 20 min längre");
+    expect(bygg(14).maskinLogg).toBeNull();
+    const d = bygg(27);
+    expect(d.detalj[0]).toBe("Maskin Giant");
+    // Klockslag, total tid och trakten står redan på raden.
+    for (const t of d.detalj) expect(t).not.toMatch(/^\d\d:\d\d–|^Tid |^Trakt: |totalt/);
+  });
+});
+
+describe("mil per trakt (Martin 2026-11-25: 17 rader blev 4 trakter)", () => {
+  const dag = (datum: string, trakt: string, km: number, kalla: string, mil: number, appen?: number) =>
+    ({ datum, km_totalt: km, km_kalla: kalla, ersattningsmil: mil, km_rutt: { forsta: trakt, sista: trakt, appen: appen == null ? null : { morgon: appen / 2, kvall: appen / 2, totalt: appen } } });
+  // Daniel oktober 2026, som i skärmbilden.
+  const H = "Hålabäck au 2025", O = "Östra-Hoka 17 A-C -25", B = "Bågskyttebanan RP J-Hus- 25", M = "Mölleryd RP J-Hus -25";
+  const DAGAR = [
+    dag("2026-10-01", H, 160, "forare", 10), dag("2026-10-02", H, 160, "forare", 10),
+    dag("2026-10-05", O, 164, "forare", 11),
+    ...["06", "07", "08", "09"].map(d => dag(`2026-10-${d}`, O, 184, "auto", 13)),
+    dag("2026-10-12", O, 194, "forare", 14, 191),
+    ...["13", "14", "15", "16"].map(d => dag(`2026-10-${d}`, B, 218, "forare", 16, 198)),
+    dag("2026-10-19", B, 208, "forare", 15, 198),
+    ...["20", "21", "22", "23"].map(d => dag(`2026-10-${d}`, M, 191, "auto", 14)),
+  ];
+
+  it("fyra trakter i ordning, med mil som går ihop till månadens", () => {
+    const t = milPerTrakt(DAGAR);
+    expect(t.map(x => [x.trakt, x.mil])).toEqual([[H, "20 mil"], [O, "77 mil"], [B, "79 mil"], [M, "56 mil"]]);
+    expect(t.reduce((s, x) => s + parseInt(x.mil), 0)).toBe(DAGAR.reduce((s, d) => s + d.ersattningsmil, 0));
+  });
+
+  it("dagar i följd med samma km är EN rad med uträkningen; orange rad bara när förarens km är minst 10 % fler", () => {
+    const [h, o, b, m] = milPerTrakt(DAGAR, 60);
+    expect(h.rader).toEqual([{ nyckel: "2026-10-01", datum: "1–2 okt · 2 dagar", dagar: 2, rakning: "160 km – 60 = 10 mil per dag", avviker: null, mil: "20 mil" }]);
+    expect(o.rader.map(r => [r.datum, r.rakning, r.avviker, r.mil])).toEqual([
+      ["5 okt", "164 km – 60 = 11 mil", null, "11 mil"],
+      ["6–9 okt · 4 dagar", "184 km – 60 = 13 mil per dag", null, "52 mil"],
+      ["12 okt", "194 km – 60 = 14 mil", null, "14 mil"]]);
+    expect(b.rader.map(r => [r.datum, r.rakning, r.avviker, r.mil])).toEqual([
+      ["13–16 okt · 4 dagar", "218 km – 60 = 16 mil per dag", "Föraren skrev 218 km · appen räknade 198 km", "64 mil"],
+      ["19 okt", "208 km – 60 = 15 mil", null, "15 mil"]]);
+    expect(m.rader).toHaveLength(1);
+    expect(m.rader[0].datum).toBe("20–23 okt · 4 dagar");
+    // Inga ord som "egen" eller "beräknad" i listan.
+    expect(JSON.stringify([h, o, b, m])).not.toMatch(/egen|beräknad/);
+  });
+
+  it("samma trakt men inte i följd (en annan trakt emellan) blir två rader; över månadsskifte skrivs båda månaderna", () => {
+    const t = milPerTrakt([dag("2026-09-30", H, 160, "auto", 10), dag("2026-10-01", H, 160, "auto", 10), dag("2026-10-02", O, 184, "auto", 13), dag("2026-10-05", H, 160, "auto", 10)]);
+    expect(t[0].rader.map(r => r.datum)).toEqual(["30 sep–1 okt · 2 dagar", "5 okt"]);
   });
 });

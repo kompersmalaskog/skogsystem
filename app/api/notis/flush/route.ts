@@ -14,6 +14,7 @@ import { arLedighetNotis, byggLedighetNotis, flushUrval, type HamtaRad } from "@
 import { LASS_MASKIN, arLassNotis, byggLassNotis, type HamtaLass } from "@/lib/lastbil/lass/notis";
 import { EGENKONTROLL_STICKPROV, arStickprovNotis, byggStickprovNotis, type HamtaStickprov } from "@/lib/egenkontrollStickprovNotis";
 import { LON_NOTIS_TYPER, arLonNotis, byggLonNotis, lasLonRadMotDb } from "@/lib/lonesystem/granskaNotis";
+import { ATK_PAMINN, arAtkNotis, byggAtkNotis, lasAtkRadMotDb } from "@/lib/admin/atkNotis";
 import { INVENTARIE_UNDER_MIN, arInventarieNotis, byggInventarieNotis, type HamtaInventarie } from "@/lib/inventarier/notis";
 import { arBesokPaminnelse, byggBesokNotis, type HamtaBesokObjekt } from "@/lib/besok/paminnelse";
 import { koaBesokPaminnelser } from "@/lib/besok/paminnelse-ko";
@@ -176,7 +177,7 @@ async function flush() {
     // production (som skickar okända typer som generiska pushar) aldrig tar dem. Åldersregeln står i byggLedighetNotis.
     // Lassfrågan ("Vilken maskin?") köas på samma sätt (lib/lastbil/lass/notis.ts), liksom lönenotiserna (lib/lonesystem/granskaNotis.ts).
     // Importlarmet (import_larm / import_ok) köas av databasen med skickas_at = now(); typerna står här så de tas även om det ändras till 'infinity'.
-    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, MASKIN_KOD_SPAR, MASKIN_KOD_VAL, KALIB_MATDON, KALIB_VADER, ...LON_NOTIS_TYPER, ...IMPORT_NOTIS_TYPER]))
+    .or(flushUrval(nu, [LASS_MASKIN, EGENKONTROLL_STICKPROV, INVENTARIE_UNDER_MIN, AM_STOPP, AM_TILLBUD, AM_KEMIKALIE, AM_ANMAL, AM_LAGAT, AM_ARSHJUL, LARMPLATS_NEJ, MASKIN_KOD_SPAR, MASKIN_KOD_VAL, KALIB_MATDON, KALIB_VADER, ATK_PAMINN, ...LON_NOTIS_TYPER, ...IMPORT_NOTIS_TYPER]))
     .is("skickad_at", null)
     .limit(200);
 
@@ -251,7 +252,7 @@ async function flush() {
       // Månadens stickprov: samma regler, plus en bestämd tid (payload.skicka_efter, 07:00 svensk tid) före vilken den skjuts upp.
       // Lönenotiserna ("Granska din september", lib/lonesystem/granskaNotis): redan godkänd/skickad månad, företagsledare och för gamla hoppas över.
       // Inventarier ("Börjar ta slut"): samma regler — raden läses färskt, beställd/påfylld/borta → hoppas över.
-      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMaskinKodNotis(n.typ) || arKodValNotis(n.typ) || arMatdonNotis(n.typ) || arVaderNotis(n.typ) || arImportNotis(n.typ)) {
+      if (arLedighetNotis(n.typ) || arLassNotis(n.typ) || arStickprovNotis(n.typ) || arInventarieNotis(n.typ) || arLonNotis(n.typ) || arAtkNotis(n.typ) || arBesokPaminnelse(n.typ) || arBesokEjSett(n.typ) || arGodkannNotis(n.typ) || arStoppNotis(n.typ) || arTillbudNotis(n.typ) || arKemikalieNotis(n.typ) || arAnmalNotis(n.typ) || arLagatNotis(n.typ) || arArshjulNotis(n.typ) || arLarmplatsNejNotis(n.typ) || arMaskinKodNotis(n.typ) || arKodValNotis(n.typ) || arMatdonNotis(n.typ) || arVaderNotis(n.typ) || arImportNotis(n.typ)) {
         // Maskinen ska stå (lib/arbetsmiljo/stoppNotis): borta, åtgärdad eller inte längre stopp → hoppas över.
         // Tillbud/olycka (lib/arbetsmiljo/tillbudNotis): borta eller redan åtgärdad → hoppas över.
         // Importlarmet (lib/datahalsa/importLarmNotis): databasens text som den står; för gammal → hoppas över.
@@ -278,6 +279,7 @@ async function flush() {
           : arStickprovNotis(n.typ) ? await byggStickprovNotis(n, hamtaStickprovrad)
           : arLassNotis(n.typ) ? await byggLassNotis(n, hamtaLassrad)
           : arLonNotis(n.typ) ? await byggLonNotis(n, lasLonRadMotDb(supabase))
+          : arAtkNotis(n.typ) ? await byggAtkNotis(n, lasAtkRadMotDb(supabase))
           : await byggLedighetNotis(n, hamtaLedighetsrad);
         if (u.typ === "uppskjut") { uppskjutna++; continue; }
         if (u.typ === "hoppa_over") {

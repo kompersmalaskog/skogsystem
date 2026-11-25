@@ -3,13 +3,13 @@ import React, { useState, useEffect, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA, VIKT } from "@/lib/design/tokens";
-import { Kort, Ikon, Lista, Rad, Lank } from "./ui";
-import { StatusRad, AttKolla } from "./ForarKortDelar";
-import { useAdminNav } from "./nav";
+import { Kort, Ikon, Lista, Rad, Lank, Laddar } from "./ui";
+import { ForarListRad, AttKolla } from "./ForarKortDelar";
+import { LON_MER, useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { enhetForMangd, fmtMangd } from "@/lib/lonesystem/loneart";
 import { blockerandeLonearter } from "@/lib/lonesystem/loneartSaknas";
-import { kodRadAttGora, oppnaFragor } from "@/lib/lonesystem/attTaMed";
+import { kodRadAttGora } from "@/lib/lonesystem/attTaMed";
 import { arbetsManadText, arPagaendeArbetsManad, manadNamn, senasteLoneperiod, svenskIdag } from "@/lib/lonesystem/lonemanad";
 import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, type ForarKort, type Kvittering, type Mal, type VyRad } from "@/lib/admin/loneunderlagVy";
@@ -19,7 +19,7 @@ import Svarsrad from "@/components/design/Svarsrad";
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import LonearterUnderflik from "./LonearterUnderflik";
-import { LoneradLista, SaknasKort, SkickaDialog, lonerader as loneraderAv } from "./LoneraderForhandsvisning";
+import { SaknasKort, SkickaDialog } from "./LoneraderForhandsvisning";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
@@ -36,7 +36,7 @@ const secHead: CSSProperties = { ...TYP.micro, color: FARG.text2, margin: `${AVS
 const btnPrimary: CSSProperties = KNAPP.primar;
 const btnSecondary: CSSProperties = KNAPP.sekundar;
 
-type Underflik = "underlag" | "dagar" | "lonearter" | "system" | "atk" | "vila";
+type Underflik = "underlag" | "dagar" | "lonearter" | "system" | "atk" | "vila" | "arsovertid";
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 const UNDERFLIKAR: { key: Underflik; label: string }[] = [
@@ -46,13 +46,15 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "system",   label: "Lönesystem" },
   { key: "atk",      label: "ATK-val" },
   { key: "vila",     label: "Vilobrott" },
+  { key: "arsovertid", label: "Årsövertid" },
 ];
 
 // Två flikar är det man gör varje månad. Resten ställer man in sällan (eller slår upp) och ligger som rader
 // under "Mer" längst ner — samma adresser som förut (?underflik=lonearter …), så länkar och notiser hittar dit (Martin 2026-10-25).
 const FLIKRAD: Underflik[] = ["underlag", "dagar"];
-const MER: Underflik[] = ["vila", "lonearter", "system", "atk"];
+const MER: Underflik[] = [...LON_MER];
 const MER_UNDERTEXT: Partial<Record<Underflik, string>> = {
+  arsovertid: "Hur nära 250 timmar varje förare är i år",
   vila: "Alla förares vilobrott",
   lonearter: "Koder till Fortnox",
   system: "Kopplingen till Fortnox",
@@ -75,6 +77,7 @@ export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
       {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
+      {aktiv === "arsovertid" && <ArsovertidUnderflik />}
       {iFlikrad && <MerRader onValj={sattUnderflik} />}
     </>
   );
@@ -103,9 +106,24 @@ function TillbakaTillLon({ etikett, onTillbaka }: { etikett: string; onTillbaka:
       <button type="button" onClick={onTillbaka} style={{ ...KNAPP.tertiar, display: "inline-flex", alignItems: "center", gap: AVSTAND.xs, padding: 0, minHeight: TRAFFYTA.min }}>
         <Ikon namn="chevron_left" farg={FARG.bla} /> Lön
       </button>
-      <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.rubrik, color: FARG.text }}>{etikett}</p>
+      <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel, color: FARG.text }}>{etikett}</h1>
     </div>
   );
+}
+
+/** Årsövertid (Lön › Mer): hur nära taket varje förare är. Flyttad hit från Löneunderlag 2026-11-25. */
+function ArsovertidUnderflik() {
+  const [svar, setSvar] = useState<any>(null);
+  useEffect(() => {
+    let avbruten = false;
+    fetch("/api/lon/arsovertid", { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => { if (!avbruten) setSvar(j); })
+      .catch(e => { if (!avbruten) setSvar({ ok: false, meddelande: e?.message || String(e) }); });
+    return () => { avbruten = true; };
+  }, []);
+  if (!svar) return <Laddar />;
+  return <ArsovertidKort svar={svar} />;
 }
 
 /** Det man rör sällan: rader längst ner, en tryckning bort. */
@@ -165,8 +183,6 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   const [visaBekräftelse, setVisaBekräftelse] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [exportResultat, setExportResultat] = useState<any>(null);
-  // Årets övertid per förare (avtalets modell, lib/lonesystem/arsovertid) — vyn: ArsovertidKort.
-  const [arsovertid, setArsovertid] = useState<any>(null);
   // Kvitterade punkter under "Att kolla" ("Ser rätt ut", tabellen lon_kvittering). null = går inte att läsa/spara än: inga kvittera-knappar, ingen tyst förlust.
   const [kvitteringar, setKvitteringar] = useState<Kvittering[] | null>(null);
   const [kvittFel, setKvittFel] = useState<string | null>(null);
@@ -180,14 +196,6 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   // Den pågående arbetsmånaden går att öppna (hur ligger förarna till?) men inte skicka eller påminna om.
   const pagaende = arPagaendeArbetsManad(arbetsManad, svenskIdag());
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/lon/arsovertid")
-      .then(r => r.json())
-      .then(j => { if (!cancelled) setArsovertid(j); })
-      .catch(e => { if (!cancelled) setArsovertid({ ok: false, meddelande: e?.message || String(e) }); });
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,12 +330,21 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   const tlMon = tidigarelagdMonster(tidigarelagdAlla);
   const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
 
-  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad, bara avvikelserna. */
+  /**
+   * Vart en rad leder. "Se dagen" i Förare · Månad öppnar just den dagen i SAMMA ark (man stannar i arket och fortsätter med nästa
+   * punkt); ett andra tryck på samma dag byter värde i adressen så att arket rullar dit igen. Utan dag: Dagar, bara avvikelserna.
+   */
   const gaMal = (mal: Mal) => {
-    if (mal.typ === "dagar") {
+    if (mal.typ === "dagar" && mal.datum && nav.params.forare) sattParam("dag", nav.params.dag === mal.datum ? `${mal.datum}!` : mal.datum);
+    else if (mal.typ === "dagar") {
       const nu = new Date();
       const [å, m] = arbetsManad.split("-").map(Number);
-      gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: "1" } });
+      // Från en förare (Förare · Månad): Dagar öppnas på just den föraren — och "N obekräftade" visar bara de obekräftade dagarna.
+      const vem = nav.params.forare;
+      gaTill({ flik: "lon", underflik: "dagar", params: {
+        dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: mal.obekr ? "0" : "1",
+        ...(vem ? { vem } : {}), ...(mal.obekr ? { obekr: "1" } : {}),
+      } });
     }
     else if (mal.typ === "maskin") gaTill({ flik: "maskiner", params: { maskin: mal.id } });
     else if (mal.typ === "person") gaTill({ flik: "medarbetare", params: { person: mal.id } });
@@ -384,16 +401,17 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
       {(() => {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
-        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
+        const k = m ? byggForarKort(m, fortnoxData.oenighet || [], kvitteringar || []) : null;
+        return m ? <ForarManadArk m={m} attKolla={k && !k.ledare ? <AttKolla k={k} kanKvittera={kvitteringar !== null} onMal={gaMal}
+          onKvittera={rad => kvittera(m.medarbetare_id, rad)} onAngra={rad => angraKvittering(m.medarbetare_id, rad)} /> : null} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
           // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
           if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1" } });
           else { sattParam("forare", null); sattParam("dag", null); }
         }} /> : null;
       })()}
 
-      {/* ÅRSÖVERTID: en fråga — hur nära taket är varje förare? Avtalets modell (§5 mom 2); förklaringen ligger bakom
-          "Så räknas det" (components/admin/ArsovertidKort). */}
-      {arsovertid && <div style={{ marginTop: AVSTAND.m }}><ArsovertidKort svar={arsovertid} manad={arbetsManad} /></div>}
+      {/* Årsövertid bor under Mer (egen sida): löneunderlaget svarar bara på "kan jag skicka lönen?". Den som går över
+          taket syns i Översikten (Arbetstid). */}
 
       {tlFel && (
         <Card style={{ border: `1px solid ${FARG.rod}` }}>
@@ -572,59 +590,24 @@ function FortnoxExportSektion({
       {kvittFel && <p style={{ margin: `0 0 ${AVSTAND.m}px`, ...TYP.meta, color: FARG.rod }}>{kvittFel}</p>}
 
       {/* Det som gäller alla förare på en gång: EN rad var, med knappen bredvid. De långa avtalsfrågorna ligger under Avtal → Öppna frågor. */}
-      <Lista style={{ marginBottom: AVSTAND.m }}>
+      {(kodRad || saknarDatum.length > 0) && <Lista style={{ marginBottom: AVSTAND.m }}>
         {kodRad && <Rad attr={{ "data-att-ta-med": "gor" }} rubrik={kodRad.rubrik} hoger={<Lank smal onClick={() => onMal({ typ: "lonearter" })}>Koppla</Lank>} />}
         {saknarDatum.length > 0 && (
           <Rad attr={{ "data-att-ta-med": "anstallningsdatum" }}
             rubrik={`Anställningsdatum saknas: ${saknarDatum.map(f => f.namn.split(" ")[0]).join(", ")}`}
             hoger={<Lank smal onClick={() => onMal(saknarDatum.length === 1 ? { typ: "person", id: saknarDatum[0].id } : { typ: "personer" })}>Fyll i</Lank>} />
         )}
-        {/* Bara när något är obesvarat — och raden leder till Avtal, där frågorna bor. */}
-        {oppnaFragor.length > 0 && (
-          <Rad attr={{ "data-oppna-fragor-rad": "" }} rubrik={`${oppnaFragor.length} öppna ${oppnaFragor.length === 1 ? "fråga" : "frågor"}`} chevron
-            onClick={() => gaTill({ flik: "avtal", params: { fragor: "1" } })} sista />
-        )}
+      </Lista>}
+
+      {/* Per förare: EN rad var — läget i ord och hur mycket som är kvar att kolla. Lönerader, uträkning och det som ska kollas står i
+          Förare · Månad, som raden öppnar. */}
+      <Lista>
+        {lonMedarbetare.length === 0 && <Rad rubrik="Inga förare med lön den här månaden." dampad sista />}
+        {kort.map((k: ForarKort, mi: number) => (
+          <ForarListRad key={k.id} k={k} pagaende={pagaende} paminn={paminnStatus[k.id]} onPaminn={() => onPaminn(k.id)}
+            onOppna={() => onForare(k.id)} sista={mi === kort.length - 1} />
+        ))}
       </Lista>
-
-      {/* Per förare: godkännande, vad som går till Fortnox, och det som ska kollas. (Ett kort per förare med detaljvy är en senare, större ändring.) */}
-      <Card style={{ padding: 0 }}>
-        {lonMedarbetare.length === 0 && <p style={{ margin: 0, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.meta, color: FARG.text2 }}>Inga förare med lön den här månaden.</p>}
-        {lonMedarbetare.map((m: any, mi: number) => {
-          const k: ForarKort = kort[mi];
-          return (
-            // Hela kortet är en rad (iOS): tryck öppnar Förare · Månad. Knapparna inuti (Se dagen, Påminn, Fyll i …) gör sitt eget och öppnar inget.
-            <div key={m.medarbetare_id} data-forare={m.medarbetare_id} role="button" tabIndex={0} aria-label={`${m.namn}, öppna månaden`}
-              onClick={e => { if (!(e.target as HTMLElement).closest("button")) onForare(m.medarbetare_id); }}
-              onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onForare(m.medarbetare_id); } }}
-              style={{
-                padding: `${AVSTAND.m}px ${AVSTAND.l}px`, cursor: "pointer",
-                borderBottom: mi === lonMedarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
-              }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
-                <Ikon namn="chevron_right" farg={FARG.text3} />
-              </div>
-              {!pagaende && <StatusRad k={k} paminn={paminnStatus[m.medarbetare_id]} onPaminn={() => onPaminn(m.medarbetare_id)} />}
-              {k.saknarAnstNr && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
-                  <span style={{ ...TYP.meta, color: FARG.rod }}>Anställningsnummer saknas — går inte att skicka</span>
-                  <Lank smal onClick={() => onMal({ typ: "person", id: m.medarbetare_id })}>Fyll i</Lank>
-                </div>
-              )}
-
-              {/* Lönerader: varje löneart som har ett antal. */}
-              <div style={{ marginTop: AVSTAND.s }}>
-                <LoneradLista rader={loneraderAv(m)} />
-                {k.helglon.map(t => <p key={t} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{t}</p>)}
-              </div>
-
-              <AttKolla k={k} kanKvittera={kvitteringar !== null} onMal={onMal}
-                onKvittera={rad => onKvittera(m.medarbetare_id, rad)} onAngra={rad => onAngraKvittering(m.medarbetare_id, rad)} />
-              {k.info.map(r => <p key={r.id} {...(r.id.startsWith("utj-") ? { "data-utjamning-period": "" } : {})} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{r.text}</p>)}
-            </div>
-          );
-        })}
-      </Card>
     </>
   );
 }

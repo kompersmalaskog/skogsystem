@@ -115,21 +115,22 @@ describe('linjetyperna (lineTypeDefs)', () => {
     const lw = mellan(KALLA, /const lw = isBoundary/, /const cwLw/, 'lw');
     const lwDelar = lw.split(/\n\s*:\s*/);
     expect(lwDelar.length).toBe(3);   // gräns · tunn (Naturvård) · övriga
-    expect(stopp(lwDelar[0], 'lw/grans')).toEqual(LINJE_BREDD_GRANS.map((s) => [...s]));
+    // Traktgränsen i PLANERINGEN är Vidas traktdels stil (TRAKTGRANS_BREDD, 2026-11-25: en justerad kopia och Vidas egen del ska inte vara två sorters traktgräns); egenkontrollens karta behåller LINJE_BREDD_GRANS.
+    expect(lwDelar[0]).toContain('[...TRAKTGRANS_BREDD]');
     expect(lwDelar[1]).toContain('NATURVARD_BREDD');
     expect(stopp(lwDelar[2], 'lw/annan')).toEqual(LINJE_BREDD.map((s) => [...s]));
 
     const cw = mellan(KALLA, /const cwLw = isBoundary/, /\/\/ Mörk kant bakom varje linje/, 'cwLw');
     const delar = cw.split(/\n\s*:\s*/);
     expect(delar.length).toBe(3);
-    expect(stopp(delar[0], 'cwLw/grans')).toEqual(LINJE_KANT_BREDD_GRANS.map((s) => [...s]));
+    expect(delar[0]).toContain('[...TRAKTGRANS_KANT_BREDD]');
     expect(delar[1]).toContain('NATURVARD_KANT_BREDD');
     expect(stopp(delar[2], 'cwLw/annan')).toEqual(LINJE_KANT_BREDD.map((s) => [...s]));
   });
 
-  it('kantfarg: stark for gräns, basväg och stig, mjuk for resten', () => {
+  it('kantfarg: traktgränsen Vidas traktdels kant, stark for basväg och stig, mjuk for resten', () => {
     expect(sammanfoga(KALLA)).toContain(
-      sammanfoga("const casingColor = (isBoundary || isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)'"),
+      sammanfoga("const casingColor = isBoundary ? TRAKTGRANS_KANT_FARG : (isMainRoad || isTrail || arStickvag(lt.id)) ? VAG_KANT_FARG : 'rgba(0,0,0,0.5)'"),
     );
     expect(KANT_SVART_STARK).toBe('rgba(0,0,0,0.9)');
     expect(VAG_KANT_FARG).toBe(KANT_SVART_STARK);   // planeringens vägkant och egenkontrollens är samma färg

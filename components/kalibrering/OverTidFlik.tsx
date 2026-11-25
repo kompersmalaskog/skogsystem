@@ -1,7 +1,8 @@
 'use client';
-// ÖVER TID — "Blir det bättre?" Fem vinklar (Frost: flyttar frosten hela kurvan?) på historiken, med ett tidssteg (Månad · Kvartal · År) som gäller alla: Träff och Spridning (kurvor, åtgärderna som lodräta streck),
-// Per grovlek (var sitter felen? — rutnät grovlek × månad mot klaven) och Greppet (släpper det oftare? — maskinens egna stamprofiler, alla stammar; ersätter tryckmätaren).
-// Träff och Spridning är gamla Trend (Läget, Flaxar den?) och det som låg i Senaste › Siffror — talen är desamma.
+// ÖVER TID — "Blir det bättre?" Tre flikar (Martin 2026-11-25; förut fem) med ett tidssteg (Månad · Kvartal · År) som gäller alla:
+// Kurvor (träffen och spridningen över tid, åtgärderna som lodräta streck), Per grovlek (var sitter felen? — rutnät grovlek × månad mot klaven,
+// och under det Frost: hur maskinen mäter när det fryser) och Greppet (släpper det oftare? — maskinens egna stamprofiler, alla stammar).
+// "Träffprocent nu, per grovlek" är borttagen här: det som gäller NU står på Läget (Var sitter felet?). Talen är desamma som förut.
 import { useEffect } from 'react';
 import Flikkontroll from '@/components/design/Flikkontroll';
 import Sektion from '@/components/design/Sektion';
@@ -12,7 +13,7 @@ import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
 import type { KalibreringVy, TidMatt } from '@/lib/hooks/useKalibreringVy';
 import type { KalibreringArk } from '@/lib/hooks/useKalibreringArk';
 import {
-  flaxSlutsats, fmtPeriod, GRIND_MIN, perioderAv, periodKey, spridSerier, spridYMax, traffSerier, type LagetSteg,
+  flaxSlutsats, fmtPeriod, perioderAv, periodKey, spridSerier, spridYMax, traffSerier, type LagetSteg,
 } from '@/lib/kalibrering/diagnos';
 import { fmtKrav } from '@/lib/kalibrering/format';
 import { MATT } from '@/lib/kalibrering/ordlista';
@@ -22,12 +23,11 @@ import AtgarderSektion from './AtgarderSektion';
 import FrostVinkel from './FrostVinkel';
 import GreppVinkel from './GreppVinkel';
 import GrovlekVinkel from './GrovlekVinkel';
-import Procentrad from './Procentrad';
 import Rubrik from './Rubrik';
 import StabilitetTabell from './StabilitetTabell';
 import TidsDiagram, { MARKOR_FARG } from './TidsDiagram';
 
-const MATT_FLIKAR: readonly (readonly [TidMatt, string])[] = [['traff', 'Träff'], ['sprid', 'Spridning'], ['grovlek', 'Per grovlek'], ['grepp', 'Greppet'], ['frost', 'Frost']];
+const MATT_FLIKAR: readonly (readonly [TidMatt, string])[] = [['kurvor', 'Kurvor'], ['grovlek', 'Per grovlek'], ['grepp', 'Greppet']];
 const STEG: readonly (readonly [LagetSteg, string])[] = [['manad', 'Månad'], ['kvartal', 'Kvartal'], ['ar', 'År']];
 
 /** Vad de lodräta strecken i kurvorna betyder — bara de sorter som finns. Färgen bär aldrig ensam: ordet står bredvid. */
@@ -44,7 +44,7 @@ function MarkorForklaring({ diag }: { diag: DiagnosResp }) {
 
 function Traff({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: DiagnosResp }) {
   const kl = diag.klasser;
-  if (!kl.some(k => k.traffMonthly.length)) return <Fyll><Lugn marginTop={0}>Inget underlag ännu.</Lugn></Fyll>;
+  if (!kl.some(k => k.traffMonthly.length)) return null;
   const traff = traffSerier(kl, v.lagetSteg);
   return (
     <div className="kal-rutnat">
@@ -57,32 +57,18 @@ function Traff({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: Dia
         </Fyll>
       </Sektion>
 
-      <div>
-        <Sektion rubrik="Träffprocent nu, per grovlek"
-          not={`Inom ±4 mm · rullande ${diag.fonster?.dagar ?? 90} dagar${diag.golvDia != null ? ` · golv ${diag.golvDia}%` : ''}`}>
-          <Fyll>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
-              {kl.map(k => {
-                const under = k.traffPct != null && diag.golvDia != null && k.traffPct < diag.golvDia && k.n >= GRIND_MIN;
-                return <Procentrad key={k.klass} klass={k.klass} pct={k.traffPct ?? 0} under={under} varde={k.traffPct != null ? `${Math.round(k.traffPct)}%` : '–'} n={k.n} />;
-              })}
-            </div>
-          </Fyll>
+      {kl.some(k => k.systMonthly.length > 0) && (
+        <Sektion rubrik={`${MATT.systematisk.fraga} Per grovlek och månad`} not="Hur många mm maskinen mäter fel åt ett håll. Byter talet mellan plus och minus ligger felet i greppet, ligger det still ligger det i kalibreringen.">
+          <Fyll><StabilitetTabell klasser={kl} /></Fyll>
         </Sektion>
-
-        {kl.some(k => k.systMonthly.length > 0) && (
-          <Sektion rubrik={`${MATT.systematisk.fraga} Per grovlek och månad`} not="Systematisk avvikelse (mm). Svajar tecknet = tryck · ligger still = kurva.">
-            <Fyll><StabilitetTabell klasser={kl} /></Fyll>
-          </Sektion>
-        )}
-      </div>
+      )}
     </div>
   );
 }
 
 function Sprid({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: DiagnosResp }) {
   const { bedomning } = d;
-  if (!diag.klasser.some(k => k.spridMonthly.length)) return <Fyll><Lugn marginTop={0}>Inget underlag ännu.</Lugn></Fyll>;
+  if (!diag.klasser.some(k => k.spridMonthly.length)) return null;
   const stdRow = bedomning?.trosklar.find(t => t.variabel === 'diameter' && t.metrik === 'standardavv');
   const systRow = bedomning?.trosklar.find(t => t.variabel === 'diameter' && t.metrik === 'systematisk');
   const stdGolv = stdRow ? Number(stdRow.golv) : null;
@@ -96,10 +82,10 @@ function Sprid({ d, v, diag }: { d: KalibreringData; v: KalibreringVy; diag: Dia
   );
   return (
     <div className="kal-rutnat">
-      <Sektion rubrik={MATT.standardavv.fraga} not={`${MATT.standardavv.term} — hoppar maskinen fram och tillbaka, eller mäter den jämnt?${stdGolv != null ? ` ${diag.profil} vill att spridningen håller sig under ${fmtKrav(stdGolv)} mm.` : ''}`}>
+      <Sektion rubrik={MATT.standardavv.fraga} not={`Hur mycket mätningarna skiljer sig från varandra.${stdGolv != null ? ` ${diag.profil} vill att det håller sig under ${fmtKrav(stdGolv)} mm.` : ''}`}>
         <Fyll>
           <TidsDiagram manader={perioderAv(sprid)} series={sprid} yMax={spridYMax(stdGolv)} markorer={diag.markorer}
-            kravBand={stdGolv != null ? { till: stdGolv, label: `krav ≤${fmtKrav(stdGolv)} mm` } : undefined} riktning="↓ lägre = bättre"
+            kravBand={stdGolv != null ? { till: stdGolv, label: `krav under ${fmtKrav(stdGolv)} mm` } : undefined} riktning="↓ lägre = bättre"
             fmtX={m => fmtPeriod(m, v.lagetSteg)} markorKey={dat => periodKey(dat.slice(0, 7), v.lagetSteg)} />
           <MarkorForklaring diag={diag} />
         </Fyll>
@@ -136,13 +122,13 @@ export default function OverTidFlik({ d, v, ark }: { d: KalibreringData; v: Kali
   // Per grovlek och Greppet hämtar sitt eget underlag när vinkeln öppnas (en gång per maskin) — de hänger inte på diagnosen.
   useEffect(() => { if (effektiv && v.tidMatt === 'grovlek') laddaGrovlek(effektiv); }, [effektiv, v.tidMatt, laddaGrovlek]);
   useEffect(() => { if (effektiv && v.tidMatt === 'grepp') void laddaGrepp(effektiv); }, [effektiv, v.tidMatt, laddaGrepp]);
-  const kurva = v.tidMatt === 'traff' || v.tidMatt === 'sprid';
+  const kurva = v.tidMatt === 'kurvor';
   return (
     <>
       <Rubrik d={d} fraga="Blir det bättre?" />
       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, marginBottom: AVSTAND.xl }}>
         <Flikkontroll flikar={MATT_FLIKAR} aktiv={v.tidMatt} onVal={v.setTidMatt} />
-        {v.tidMatt !== 'frost' && <Flikkontroll flikar={STEG} aktiv={v.lagetSteg} onVal={v.setLagetSteg} />}
+        <Flikkontroll flikar={STEG} aktiv={v.lagetSteg} onVal={v.setLagetSteg} />
       </div>
       {kurva && !diag ? (
         d.diagnosFel
@@ -155,11 +141,13 @@ export default function OverTidFlik({ d, v, ark }: { d: KalibreringData; v: Kali
           : <Lugn ikon="hourglass_empty" marginTop={0}>Läser kurvorna…</Lugn>
       ) : (
         <Tillstand nyckel={v.tidMatt}>
-          {v.tidMatt === 'traff' && diag && <Traff d={d} v={v} diag={diag} />}
-          {v.tidMatt === 'sprid' && diag && <Sprid d={d} v={v} diag={diag} />}
-          {v.tidMatt === 'grovlek' && <GrovlekVinkel d={d} v={v} ark={ark} />}
+          {v.tidMatt === 'kurvor' && diag && (
+            diag.klasser.some(k => k.traffMonthly.length || k.spridMonthly.length)
+              ? <><Traff d={d} v={v} diag={diag} /><Sprid d={d} v={v} diag={diag} /></>
+              : <Fyll><Lugn marginTop={0}>Inget underlag ännu.</Lugn></Fyll>
+          )}
+          {v.tidMatt === 'grovlek' && <><GrovlekVinkel d={d} v={v} ark={ark} /><FrostVinkel maskin={effektiv} /></>}
           {v.tidMatt === 'grepp' && <GreppVinkel d={d} v={v} />}
-          {v.tidMatt === 'frost' && <FrostVinkel maskin={effektiv} />}
         </Tillstand>
       )}
       {/* Åtgärderna under kurvorna: där syns om de hjälpte. Kräver Läget-bedömningen (före → efter räknas där). */}
