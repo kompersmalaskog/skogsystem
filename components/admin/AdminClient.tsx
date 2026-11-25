@@ -79,14 +79,7 @@ function Skal({ currentUser }: { currentUser: Anvandare }) {
             </button>
           );
         })}
-        {/* "Ny medarbetare" bor bara i Medarbetare (+ Lägg till) — samma ställe på telefon och dator (Martin 2026-10-25). */}
-        {currentUser.roll === "admin" && <div style={{ height: 1, background: FARG.linje, margin: `${AVSTAND.m}px 0` }} />}
-        {currentUser.roll === "admin" && (
-          <a href="/admin/historik" className="adm-post" style={{ ...postStil(false), textDecoration: "none", boxSizing: "border-box" }}>
-            <Ikon namn="history" farg={FARG.text2} />
-            <span>Historik</span>
-          </a>
-        )}
+        {/* "Ny medarbetare" bor bara i Medarbetare (+ Lägg till). Produktionshistoriken bor i Maskiner › Arkiv — en ingång, samma på telefon och dator (2026-11-25). */}
         <div style={{ flex: 1 }} />
         <div style={{ ...TYP.meta, color: FARG.text3, padding: `0 ${AVSTAND.m}px` }}>{currentUser.namn || "—"} · admin</div>
       </aside>

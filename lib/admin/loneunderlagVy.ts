@@ -17,7 +17,7 @@ const MAN_KORT = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep",
 export const dagText = (d: string) => `${Number(d.slice(8, 10))} ${MAN_KORT[Number(d.slice(5, 7)) - 1] || ""}`;
 
 export type Mal =
-  | { typ: "dagar"; datum?: string }
+  | { typ: "dagar"; datum?: string; /** Bara förarens obekräftade dagar (raden "N obekräftade arbetsdagar"). */ obekr?: true }
   | { typ: "maskin"; id: string }
   | { typ: "person"; id: string }
   | { typ: "personer" }
@@ -81,6 +81,11 @@ function franvaroRad(v: string): { id: string; text: string } | null {
   return { id: `fr-${m[1]}-${m[3]}`, text: `${ord} ${nar} · lägg in i Fortnox för hand` };
 }
 
+/** "12 aug: rast 80 min" (texten före 2026-11-25) → "12 aug · rast 80 min". Allt annat lämnas orört. */
+export function nyDatumText(text: string): string {
+  return text.replace(/^(\d{1,2} [a-zåäö]+): /, "$1 · ");
+}
+
 /** Så många dagar skrivs ut på kortet; resten blir "och N till". */
 export const ANDRAD_SKICKAT_MAX_DAGAR = 3;
 
@@ -108,7 +113,8 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
   const dagar: Mal = { typ: "dagar" };
   /** En punkt som gäller en dag leder till just den dagen (öppnas i Förare · Månad, man stannar i arket). */
   const dag = (datum: string): Mal => ({ typ: "dagar", datum });
-  const kvitterade = new Set(kvitteringar.filter(k => k.medarbetare_id === m.medarbetare_id).map(k => `${k.punkt}\u0000${k.text}`));
+  // Texten skrevs "12 aug: rast …" före 2026-11-25 och "12 aug · rast …" sedan dess: en kvittering sparad med den gamla texten gäller fortfarande.
+  const kvitterade = new Set(kvitteringar.filter(k => k.medarbetare_id === m.medarbetare_id).map(k => `${k.punkt}\u0000${nyDatumText(k.text)}`));
   const kolla = (id: string, text: string, mal?: Mal, knapp?: string) => {
     const rad: VyRad = { id, text, mal, knapp };
     if (arKvitterbar(id) && kvitterade.has(`${id}\u0000${text}`)) rad.kvitterad = true;
@@ -126,20 +132,20 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
   for (const o of m.orimliga || []) {
     const tider = `${String(o.start_tid || "").slice(0, 5)}–${String(o.slut_tid || "").slice(0, 5)}`;
     kolla(`orim-${o.datum}`, o.slag === "lang"
-      ? `${dagText(o.datum)}: passet är ${tim(o.arbetad_min)} tim (${tider}) — stämmer det?`
-      : `${dagText(o.datum)}: rasten är längre än passet (${tider}, rast ${o.rast_min} min)`, dag(o.datum), "Se dagen");
+      ? `${dagText(o.datum)} · passet är ${tim(o.arbetad_min)} tim (${tider}) — stämmer det?`
+      : `${dagText(o.datum)} · rasten är längre än passet (${tider}, rast ${o.rast_min} min)`, dag(o.datum), "Se dagen");
   }
   for (const r of m.rast_langa || []) {
     const ovrigt = (r.avbrott || []).filter((a: any) => /övrigt|default/i.test(`${a.typ} ${a.kategori || ""}`));
     const stopp = ovrigt.length > 0 ? ` · maskinen stod still ${ovrigt.map((a: any) => `${a.minuter} min`).join(", ")} samtidigt` : "";
-    kolla(`rast-${r.datum}`, `${dagText(r.datum)}: rast ${r.rast_min} min${stopp}`, dag(r.datum), "Se dagen");
+    kolla(`rast-${r.datum}`, `${dagText(r.datum)} · rast ${r.rast_min} min${stopp}`, dag(r.datum), "Se dagen");
   }
-  for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)}: kortpass ${k.minuter} min · räknas inte som arbetsdag`, dag(k.datum), "Se dagen");
+  for (const k of m.kortpass || []) kolla(`kort-${k.datum}`, `${dagText(k.datum)} · kortpass ${k.minuter} min · räknas inte som arbetsdag`, dag(k.datum), "Se dagen");
   // Id:t följer DATUMET (inte ordningen i listan): en kvittering ska inte hoppa till en annan dag när listan ändras.
   // diff_min = förarens bekräftade tid − maskinens. Tiderna står i dagen ("Se dagen"), inte här.
   (m.synk || []).filter((s: any) => synkVisas(s.diff_min)).forEach((s: any) => kolla(`synk-${s.datum}`, `${dagText(s.datum)} · ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "mer" : "mindre"} än maskinen`, dag(s.datum), "Se dagen"));
-  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)}: godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dag(k.datum), "Se dagen"));
-  if ((m.obekraftade || 0) > 0) kolla("obekr", `${m.obekraftade} obekräftad${m.obekraftade === 1 ? "" : "e"} arbetsdag${m.obekraftade === 1 ? "" : "ar"}`, dagar, "Se dagarna");
+  (m.ledighetskollision || []).forEach((k: any, i: number) => kolla(`led-${k.datum}${i > 0 && m.ledighetskollision[i - 1]?.datum === k.datum ? `-${i}` : ""}`, `${dagText(k.datum)} · godkänd ledighet (${k.typ}) och ${fmtMin(k.arbetad_min)} arbete`, dag(k.datum), "Se dagen"));
+  if ((m.obekraftade || 0) > 0) kolla("obekr", `${m.obekraftade} obekräftad${m.obekraftade === 1 ? "" : "e"} arbetsdag${m.obekraftade === 1 ? "" : "ar"}`, { typ: "dagar", obekr: true }, "Se dagarna");
   (m.byten || []).forEach((b: any, i: number) => {
     const text = `Bytesdag: ${dagText(b.ledig)} ersätter ${b.ersatterNamn} ${dagText(b.ersatter)}`
       + (b.ledigArbetad ? " — men den lediga dagen har arbete" : !b.ersatterArbetad ? " — men ingen arbetstid den röda dagen" : "");
@@ -158,11 +164,11 @@ export function byggForarKort(m: any, oenighet: any[] = [], kvitteringar: Kvitte
     info("sjuk", `Sjuk ${Number(m.sjuk.timmar).toLocaleString("sv-SE")} tim · ${sjuk.length} ${sjuk.length === 1 ? "dag" : "dagar"} (${sjuk.map(d => dagText(d.datum) + (d.del ? ` ${Number(d.timmar).toLocaleString("sv-SE")} tim` : "")).join(", ")}) – 8 tim per sjuk vardag`);
   }
   (m.deldagar || []).filter((dd: any) => String(dd.typ).toLowerCase() !== "sjuk").forEach((dd: any, i: number) =>
-    info(`deldag-${i}`, `Deldag ${dagText(dd.datum)}: ${dd.typ} ${dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`} · ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade ${tim(dd.arbetad_min)} tim`));
+    info(`deldag-${i}`, `Deldag ${dagText(dd.datum)} · ${dd.typ} ${dd.fran_tid ? `från ${dd.fran_tid}` : `till ${dd.till_tid}`} · ${Number(dd.timmar).toLocaleString("sv-SE")} tim frånvaro, arbetade ${tim(dd.arbetad_min)} tim`));
   unikaUtjamningar(m.utjamning).forEach((u, i) => info(`utj-${i}`, utjamningsRad(u)));
   if ((m.ob?.obesvarade || 0) > 0) info("ob-obesvarad", `${m.ob.obesvarade} tidig start väntar på förarens brandrisk-svar`);
   for (const o of oenighet.filter((x: any) => x.svar.some((s: any) => s.medarbetare_id === m.medarbetare_id))) {
-    info(`oen-${o.datum}`, `${dagText(o.datum)}: förarna svarar olika på brandriskfrågan (${o.svar.map((s: any) => `${s.namn} ${s.brandrisk_beordrad ? "ja" : "nej"}`).join(", ")})`);
+    info(`oen-${o.datum}`, `${dagText(o.datum)} · förarna svarar olika på brandriskfrågan (${o.svar.map((s: any) => `${s.namn} ${s.brandrisk_beordrad ? "ja" : "nej"}`).join(", ")})`);
   }
   (m.varningar || []).filter((v: string) => !REDAN_VISAD.test(v)).forEach((v: string, i: number) => {
     const fr = franvaroRad(v);

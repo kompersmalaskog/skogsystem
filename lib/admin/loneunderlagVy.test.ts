@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, dagText, arKvitterbar, SYNK_VISA_FRAN_MIN } from "./loneunderlagVy";
+import { byggForarKort, saknarAnstallningsdatum, antalAttKolla, dagText, arKvitterbar, SYNK_VISA_FRAN_MIN, nyDatumText } from "./loneunderlagVy";
 
 const forare = (extra: any = {}) => ({ medarbetare_id: "m1", namn: "Mats Eriksson", status: "utkast", anstallningsnummer: "1006", ...extra });
 const alltText = (k: ReturnType<typeof byggForarKort>) => [...k.helglon, ...k.kolla.map(r => r.text), ...k.info.map(r => r.text)].join(" | ");
@@ -23,18 +23,18 @@ describe("Löneunderlaget per förare: en sak per rad, samma sak aldrig två gå
 
   it("lång rast: en kort rad med knapp till dagen, utan paragrafcitatet", () => {
     const k = byggForarKort(forare({ rast_langa: [{ datum: "2026-08-11", rast_min: 114, avbrott: [] }] }));
-    expect(k.kolla).toEqual([{ id: "rast-2026-08-11", text: "11 aug: rast 114 min", mal: { typ: "dagar", datum: "2026-08-11" }, knapp: "Se dagen" }]);
+    expect(k.kolla).toEqual([{ id: "rast-2026-08-11", text: "11 aug · rast 114 min", mal: { typ: "dagar", datum: "2026-08-11" }, knapp: "Se dagen" }]);
     expect(alltText(k)).not.toMatch(/§5|Skogsavtalet|Redigera|lunch/i);
   });
 
   it("lång rast med stillestånd samma tid säger det kort", () => {
     const k = byggForarKort(forare({ rast_langa: [{ datum: "2026-08-11", rast_min: 114, avbrott: [{ typ: "Övrigt", kategori: "Default", minuter: 100, klockslag: "11:00" }] }] }));
-    expect(k.kolla[0].text).toBe("11 aug: rast 114 min · maskinen stod still 100 min samtidigt");
+    expect(k.kolla[0].text).toBe("11 aug · rast 114 min · maskinen stod still 100 min samtidigt");
   });
 
   it("orimligt pass och rast längre än passet: en rad var, med knapp", () => {
     const k = byggForarKort(forare({ orimliga: [{ datum: "2026-08-12", slag: "lang", arbetad_min: 1002, start_tid: "04:00:00", slut_tid: "22:00:00", rast_min: 60 }, { datum: "2026-08-13", slag: "negativ", arbetad_min: -20, start_tid: "08:00", slut_tid: "09:00", rast_min: 80 }] }));
-    expect(k.kolla.map(r => r.text)).toEqual(["12 aug: passet är 16,7 tim (04:00–22:00) — stämmer det?", "13 aug: rasten är längre än passet (08:00–09:00, rast 80 min)"]);
+    expect(k.kolla.map(r => r.text)).toEqual(["12 aug · passet är 16,7 tim (04:00–22:00) — stämmer det?", "13 aug · rasten är längre än passet (08:00–09:00, rast 80 min)"]);
     expect(k.kolla.every(r => r.knapp === "Se dagen")).toBe(true);
   });
 
@@ -177,6 +177,12 @@ describe("kvittering av 'Att kolla' ('Ser rätt ut')", () => {
     expect(k.kolla).toHaveLength(1);
     expect(k.kolla[0].kvitterad).toBe(true);
     expect(antalAttKolla([k], 0, false)).toBe(0);
+  });
+  it("datumet skrivs '11 aug · …' på varje rad; en kvittering sparad med den gamla texten ('11 aug: …') gäller fortfarande", () => {
+    const k = byggForarKort(forare({ rast_langa: [lang], orimliga: [] }), [], [kv()]);
+    expect(k.kolla[0].text).toBe("11 aug · rast 114 min");
+    expect(k.kolla[0].kvitterad).toBe(true);
+    expect(nyDatumText("Deldag 12 aug: vab")).toBe("Deldag 12 aug: vab");   // bara datumet först på raden
   });
   it("utan kvittering är raden som förut (inget kvitterad-fält alls)", () => {
     const k = byggForarKort(forare({ rast_langa: [lang] }));
