@@ -8,10 +8,10 @@ import { TraktAnalysRad, analysSammanfattning, type Kontroll } from './TraktAnal
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const NAMN = ['Vatten', 'Reservat', 'Natura 2000', 'Fornlämning', 'Nyckelbiotop', 'Biotopskydd', 'Skog & historia'];
 const sju = (over: Record<number, Partial<Kontroll>> = {}): Kontroll[] => NAMN.map((label, i) => ({ type: 't' + i, label, lage: 'ingen' as const, traffar: [], ...(over[i] ?? {}) }));
-function visa(status: 'laddar' | 'fel' | 'klar', kontroller: Kontroll[]) {
+function visa(status: 'laddar' | 'fel' | 'klar', kontroller: Kontroll[], extra: { onForsokIgen?: () => void; onOppnaLank?: (u: string) => void } = {}) {
   const cont = document.createElement('div'); document.body.appendChild(cont);
   const root = createRoot(cont);
-  act(() => { root.render(<TraktAnalysRad status={status} kontroller={kontroller} />); });
+  act(() => { root.render(<TraktAnalysRad status={status} kontroller={kontroller} {...extra} />); });
 }
 const t = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 const klick = (el: Element | null) => act(() => { (el as HTMLElement).click(); });
@@ -60,5 +60,26 @@ describe('Traktanalys på en rad', () => {
     expect(analysSammanfattning(sju()).farg).toBe('dam');
     expect(analysSammanfattning(sju({ 0: { lage: 'traff', traffar: [{ name: 'x' }] } })).farg).toBe('rod');
     expect(analysSammanfattning(sju({ 0: { lage: 'osaker' } })).farg).toBe('orange');
+  });
+
+  // Den gamla bottenpanelen (Traktanalys – Trakt N, Kör igen/Stäng) är borta: det den kunde som raden inte kunde ligger nu här.
+  it('fel: "Försök igen" kör analysen om (ersätter Kör igen i den gamla panelen)', () => {
+    let antal = 0;
+    visa('fel', [], { onForsokIgen: () => { antal++; } });
+    klick(t('traktanalys-forsok-igen'));
+    expect(antal).toBe(1);
+  });
+  it('en träff visar sin varning och sin länk inne i kortet; länken öppnas via appens openExternal', () => {
+    const oppnade: string[] = [];
+    visa('klar', sju({ 0: { type: 'vattenskydd', lage: 'traff', traffar: [{ name: 'Vattenskydd Skälviken', details: 'Zon 2', warning: 'Särskilda föreskrifter gäller', url: 'https://x.se/vs/12' }] } }), { onOppnaLank: (u) => oppnade.push(u) });
+    expect(t('traktanalys-varning')!.textContent).toBe('Särskilda föreskrifter gäller');
+    const lank = t('traktanalys-lank') as HTMLAnchorElement;
+    expect(lank.textContent).toContain('Föreskrifter');
+    klick(lank);
+    expect(oppnade).toEqual(['https://x.se/vs/12']);
+  });
+  it('en träff utan egen adress får reservlänken för sin kontroll (Sök i Skyddad natur)', () => {
+    visa('klar', sju({ 2: { type: 'natura2000', lage: 'traff', traffar: [{ name: 'Natura 2000 Skälviken' }] } }));
+    expect(t('traktanalys-lank')!.textContent).toContain('Sök i Skyddad natur');
   });
 });

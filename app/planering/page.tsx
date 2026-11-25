@@ -141,7 +141,8 @@ import { dagManad } from '@/lib/klarFormat';
 import { useRiskLast } from '@/lib/hooks/useRiskLast';
 import { arHansynsyta, arOvrigYta } from '@/lib/vidaYtaTyp';
 
-import { oppnaRing, slutRing, flyttaHorn, laggTillHorn, taBortHorn, kantMittpunkter, ringMitt } from '../../lib/ringEdit'
+import { oppnaRing, slutRing, taBortHorn, kantMittpunkter, ringMitt, forenklaRing, skjutInSteg, angraSteg, ringAvtryck } from '../../lib/ringEdit'
+import { kopplaHornRedigering } from '../../lib/hornRedigering'
 import { valjKlickKategori, kategoriForLager, bastaKategoriFeatures, ALLA_KLICK_LAGER, type KlickKategori } from '../../lib/klickPrioritet'
 import { vinnandeKategoriNara, narmasteTraff, ragangToleransM, stapelOrdning, stapelRang } from '../../lib/klickNara'
 import { medAreal } from '../../lib/traktAreal'
@@ -298,7 +299,7 @@ import { signaturer, lasSett, sparaSett, behoverVisas, baraEgetNytt, nyaMarkerin
 import { kommentarTecken, laggTillTeckenBilder, teckenHornLager, teckenFriLager, teckenPunkter, TECKEN_KALLA, TECKEN_HORN_LAGER } from '../../lib/kommentarTecken'
 import { FOTO_UPPE_EVENT, laggFotoIKo, prenumereraFotoKo, tomFotoForMarkering, vantandeFotoNycklar, type FotoUppeDetail } from '@/lib/markeringFotoKo'
 import { fotoNyckel } from '@/lib/fotoKo'
-import { prenumereraMarkeringSynk, antalVantandeMarkeringar } from '@/lib/markeringSynkKo'
+import { prenumereraMarkeringSynk, antalVantandeMarkeringar, skickaVantandeForst, vantandeMarkeringar } from '@/lib/markeringSynkKo'
 import { useMarkeringarSynk } from '@/lib/hooks/useMarkeringarSynk'
 import type { ServerRad } from '@/lib/markeringSynk'
 import MarkeringFoto from './MarkeringFoto'
@@ -1272,7 +1273,10 @@ export default function PlannerPage() {
   // om TMA + traktanalys på den nya markören. Bara planerare.
   const justeraGrans = (key: string, ringLatLon: { lat: number; lon: number }[]) => {
     if (!ringLatLon || ringLatLon.length < 3) return;
-    const path = ringLatLon.map(p => latLonToSvg(p.lat, p.lon));
+    // Vidas ring har många hörn (Brokamåla 61): förenkla med 2 m tolerans (minst 4 hörn) så den går att redigera utan att dra ett hörn bland 61.
+    const forenklad = forenklaRing(ringLatLon.map(p => [p.lon, p.lat] as [number, number]), 2, 4);
+    const path = slutRing(forenklad.ring).map(([lng, lat]) => latLonToSvg(lat, lng));
+    visaHornKvitto(forenklad.efter < forenklad.fore ? `Gränsen förenklad: ${forenklad.fore} → ${forenklad.efter} hörn` : `Gränsen har ${forenklad.fore} hörn`, 'ok');
     // fromVidaTd = bitens partKey → kopian ÄRVER bitens serienummer (numreraObjekt). Inget lagrat nummer.
     const nyGrans: any = { id: Date.now(), isLine: true, lineType: 'boundary', path, fromVidaTd: key };
     saveToHistory([...markers]);
@@ -2239,8 +2243,15 @@ export default function PlannerPage() {
     map.addLayer({ id: 'hornedit-base', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.fara, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'hornedit-stripe', type: 'line', source: 'hornedit-poly-source', paint: { 'line-color': LEGEND.gul, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 13, 5, 17, 8] as any, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addSource('hornedit-pts-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'hornedit-mid', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 6, 'circle-color': 'rgba(255,255,255,0.5)', 'circle-stroke-color': 'rgba(0,0,0,0.6)', 'circle-stroke-width': 1.5 } });
-    map.addLayer({ id: 'hornedit-vertex', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'vertex'], paint: { 'circle-radius': 8, 'circle-color': '#fff', 'circle-stroke-color': LEGEND.fara, 'circle-stroke-width': 2.5 } });
+    // Mittpunkterna är små, svaga handtag (dra ett för att göra ett nytt hörn); hörnen är vita med snitselfärgad kant. Markerat hörn = större med mörk ring; det dragna = störst.
+    map.addLayer({ id: 'hornedit-mid', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'mid'], paint: { 'circle-radius': 3.5, 'circle-color': 'rgba(255,255,255,0.35)', 'circle-stroke-color': 'rgba(0,0,0,0.35)', 'circle-stroke-width': 1 } });
+    map.addLayer({ id: 'hornedit-stem', type: 'line', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'stem'], paint: { 'line-color': 'rgba(255,255,255,0.7)', 'line-width': 1.5, 'line-dasharray': [2, 2] } });
+    map.addLayer({ id: 'hornedit-vertex', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'vertex'], paint: {
+      'circle-radius': ['case', ['==', ['get', 'drag'], true], 11, ['==', ['get', 'sel'], true], 10, 7],
+      'circle-color': '#fff',
+      'circle-stroke-color': ['case', ['==', ['get', 'sel'], true], '#000', LEGEND.fara],
+      'circle-stroke-width': ['case', ['==', ['get', 'sel'], true], 3, 2.5] } });
+    map.addLayer({ id: 'hornedit-finger', type: 'circle', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'finger'], paint: { 'circle-radius': 7, 'circle-color': 'rgba(255,255,255,0.25)', 'circle-stroke-color': 'rgba(255,255,255,0.8)', 'circle-stroke-width': 1.5 } });
     map.addLayer({ id: 'hornedit-nr', type: 'symbol', source: 'hornedit-pts-source', filter: ['==', ['get', 'kind'], 'nr'], layout: { 'text-field': ['to-string', ['coalesce', ['get', 'nr'], '']], 'text-size': 15, 'text-font': ['Open Sans Bold'], 'text-allow-overlap': true }, paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.8 } });
 
     // Ensure base map layer visibility matches current mapType.
@@ -3054,6 +3065,15 @@ export default function PlannerPage() {
   useEffect(() => { hornEditActiveRef.current = hornEditActive; }, [hornEditActive]);
   const hornEditRingRef = useRef<[number, number][]>([]);   // öppen ring i [lng,lat]
   const hornEditNrRef = useRef<string>('');
+  const hornAngraRef = useRef<[number, number][][]>([]);          // ångra-stapeln: ringen FÖRE varje handling, hela redigeringen (lib/ringEdit skjutInSteg/angraSteg)
+  const [hornAngraAntal, setHornAngraAntal] = useState(0);       // antal steg att ångra (styr Ångra-knappen)
+  const [hornAntal, setHornAntal] = useState(0);                 // antal hörn i ringen just nu (listen säger det)
+  const [hornVal, setHornVal] = useState<number | null>(null);   // markerat hörn (tryck) → "Ta bort hörn" vid det
+  const hornValRef = useRef<number | null>(null);
+  const hornDragRef = useRef<{ index: number; finger: [number, number] | null } | null>(null);   // under ett drag: vilket hörn och var fingret är
+  const [hornKvitto, setHornKvitto] = useState<{ text: string; ton: 'ok' | 'fel' } | null>(null);   // kvitto efter Justera gräns / Spara (visas också i planeringsläget, där körvyns kvitto inte ritas)
+  const hornKvittoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hornKnappRef = useRef<HTMLDivElement | null>(null);       // "Ta bort hörn"-knappen följer hörnet imperativt (ingen omrendering av sidan per kartrörelse)
   // Freehand drawing refs (avoid stale closures in document-level listeners)
   const freehandCoordsRef = useRef<[number, number][]>([]);
   const freehandActiveRef = useRef(false);
@@ -6508,95 +6528,41 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords, larmPlacering]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // === "Redigera hörn" (corner-drag): pekar-handtag på hörnen. Dra hörn = flytta, tryck mittpunkt =
-  // lägg till hörn, håll på hörn = ta bort. Snitsel + siffra uppdateras live ur ringen (ritaHornEdit).
-  // Samma DOM-event-mönster som freehand (canvas mousedown/touchstart + document move/up + dragPan).
+  // === "Redigera hörn": pekar-handtag på hörnen (lib/hornRedigering — Pointer Events, ett tryck räknas EN gång). Dra ett hörn = flytta, dra en mittpunkt = nytt
+  // hörn, tryck på ett hörn = markera det ("Ta bort hörn" vid det). Ett tryck på en mittpunkt gör ingenting. Snitsel + siffra uppdateras live ur ringen (ritaHornEdit).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady || !hornEditActive) return;
-    const canvas = map.getCanvas();
     // Handtagslagren överst så de är tappbara ovanpå allt annat.
-    for (const id of ['hornedit-fill', 'hornedit-casing', 'hornedit-base', 'hornedit-stripe', 'hornedit-mid', 'hornedit-vertex', 'hornedit-nr']) {
+    for (const id of ['hornedit-fill', 'hornedit-casing', 'hornedit-base', 'hornedit-stripe', 'hornedit-mid', 'hornedit-vertex', 'hornedit-stem', 'hornedit-finger', 'hornedit-nr']) {
       if (map.getLayer(id)) { try { map.moveLayer(id); } catch { /* */ } }
     }
     ritaHornEdit();
-
-    const toCanvas = (clientX: number, clientY: number) => { const r = canvas.getBoundingClientRect(); return { x: clientX - r.left, y: clientY - r.top }; };
-    const VERTEX_HIT = 22, MID_HIT = 18;
-    let dragIndex: number | null = null;
-    let longPress: any = null;
-    let downAt = { x: 0, y: 0 };
-
-    const narmasteHorn = (cx: number, cy: number) => {
-      const ring = hornEditRingRef.current; let best = -1, bd = VERTEX_HIT;
-      ring.forEach((p, i) => { const s = map.project([p[0], p[1]] as any); const d = Math.hypot(s.x - cx, s.y - cy); if (d < bd) { bd = d; best = i; } });
-      return best;
-    };
-    const narmasteKant = (cx: number, cy: number) => {
-      let bestKant = -1, bd = MID_HIT;
-      for (const m of kantMittpunkter(hornEditRingRef.current)) { const s = map.project([m.pt[0], m.pt[1]] as any); const d = Math.hypot(s.x - cx, s.y - cy); if (d < bd) { bd = d; bestKant = m.kantIndex; } }
-      return bestKant;
-    };
-
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const { x, y } = toCanvas(clientX, clientY);
-      downAt = { x, y };
-      const vi = narmasteHorn(x, y);
-      if (vi >= 0) {
-        dragIndex = vi;
-        map.dragPan.disable();
-        // Håll (utan att röra) → ta bort hörnet.
-        longPress = setTimeout(() => {
-          const ny = taBortHorn(hornEditRingRef.current, vi);
-          if (ny.length !== hornEditRingRef.current.length) { hornEditRingRef.current = ny; ritaHornEdit(); if (navigator.vibrate) navigator.vibrate(15); }
-          dragIndex = null; longPress = null; map.dragPan.enable();
-        }, 550);
-        return;
-      }
-      const kant = narmasteKant(x, y);
-      if (kant >= 0) {
-        // Tryck på kantens mitt → lägg till hörn där.
-        const m = kantMittpunkter(hornEditRingRef.current).find(mm => mm.kantIndex === kant);
-        if (m) { hornEditRingRef.current = laggTillHorn(hornEditRingRef.current, kant, m.pt); ritaHornEdit(); if (navigator.vibrate) navigator.vibrate(10); }
-        return;
-      }
-      // Inte på ett handtag → låt kartan panorera (dragPan kvar på).
-    };
-    const onMove = (e: MouseEvent | TouchEvent) => {
-      if (dragIndex == null) return;
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const { x, y } = toCanvas(clientX, clientY);
-      if (longPress && Math.hypot(x - downAt.x, y - downAt.y) > 6) { clearTimeout(longPress); longPress = null; }   // rörelse → drag, inte "håll"
-      const ll = map.unproject([x, y] as any);
-      hornEditRingRef.current = flyttaHorn(hornEditRingRef.current, dragIndex, [ll.lng, ll.lat]);
-      ritaHornEdit();
-    };
-    const onUp = () => {
-      if (longPress) { clearTimeout(longPress); longPress = null; }
-      if (dragIndex != null) { dragIndex = null; map.dragPan.enable(); }
-    };
-
-    canvas.addEventListener('mousedown', onDown);
-    canvas.addEventListener('touchstart', onDown, { passive: true });
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('touchmove', onMove, { passive: true });
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchend', onUp);
-    return () => {
-      canvas.removeEventListener('mousedown', onDown);
-      canvas.removeEventListener('touchstart', onDown);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchend', onUp);
-      if (longPress) clearTimeout(longPress);
-      if (map.dragPan) map.dragPan.enable();
-    };
+    return kopplaHornRedigering(map as any, {
+      hamtaRing: () => hornEditRingRef.current,
+      sattRing: (r) => { hornEditRingRef.current = r; ritaHornEdit(); },
+      fore: () => hornSkjutInAngra(),
+      valj: (i) => hornValj(i),
+      hamtaValt: () => hornValRef.current,
+      drag: (d) => { hornDragRef.current = d; ritaHornEdit(); if (d === null) setHornAntal(hornEditRingRef.current.length); },
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hornEditActive, mapLibreReady]);
+
+  // "Ta bort hörn"-knappen följer det markerade hörnet när kartan rör sig (direkt på elementet — ingen omrendering av sidan per kartbild).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !hornEditActive || hornVal == null) return;
+    const flytta = () => {
+      const el = hornKnappRef.current; const p = hornEditRingRef.current[hornVal];
+      if (!el || !p) return;
+      const px = map.project([p[0], p[1]] as any); const r = map.getCanvas().getBoundingClientRect();
+      el.style.transform = `translate(${Math.round(r.left + px.x)}px, ${Math.round(r.top + px.y)}px)`;
+    };
+    flytta();
+    map.on('move', flytta);
+    return () => { map.off('move', flytta); };
+  }, [hornEditActive, hornVal, mapLibreReady]);
 
   // === Larmkoordinat-märke: dödcentrerad RÖD prick + vitt kors — mitten på koordinaten ===
   // Röd = akut (larm), blå är reserverat för arbete. Ligger ÖVERST i z-ordningen (moveLayer
@@ -7282,12 +7248,47 @@ export default function PlannerPage() {
       const ptsSrc = map.getSource('hornedit-pts-source') as any;
       if (ptsSrc) {
         const feats: any[] = [];
-        ring.forEach((p, i) => feats.push({ type: 'Feature', properties: { kind: 'vertex', i }, geometry: { type: 'Point', coordinates: [p[0], p[1]] } }));
+        const sel = hornValRef.current, dr = hornDragRef.current;
+        ring.forEach((p, i) => feats.push({ type: 'Feature', properties: { kind: 'vertex', i, sel: sel === i, drag: dr?.index === i }, geometry: { type: 'Point', coordinates: [p[0], p[1]] } }));
         for (const m of kantMittpunkter(ring)) feats.push({ type: 'Feature', properties: { kind: 'mid', kantIndex: m.kantIndex }, geometry: { type: 'Point', coordinates: [m.pt[0], m.pt[1]] } });
+        // På touch ritas det dragna hörnet ovanför fingret: en tunn linje + en liten prick visar var fingret är.
+        if (dr?.finger && ring[dr.index]) {
+          feats.push({ type: 'Feature', properties: { kind: 'stem' }, geometry: { type: 'LineString', coordinates: [[ring[dr.index][0], ring[dr.index][1]], [dr.finger[0], dr.finger[1]]] } });
+          feats.push({ type: 'Feature', properties: { kind: 'finger' }, geometry: { type: 'Point', coordinates: [dr.finger[0], dr.finger[1]] } });
+        }
         if (hornEditNrRef.current) { const c = ringMitt(ring); feats.push({ type: 'Feature', properties: { kind: 'nr', nr: hornEditNrRef.current }, geometry: { type: 'Point', coordinates: [c[0], c[1]] } }); }
         ptsSrc.setData({ type: 'FeatureCollection', features: feats });
       }
     } catch { /* source not ready */ }
+  };
+  // Ångra-stapeln och markeringen av ett hörn (Redigera hörn). EN ångra-steg = en handling (ett drag, ett nytt hörn, ett borttaget hörn).
+  const visaHornKvitto = (text: string, ton: 'ok' | 'fel') => {
+    if (hornKvittoTimerRef.current) clearTimeout(hornKvittoTimerRef.current);
+    setHornKvitto({ text, ton });
+    hornKvittoTimerRef.current = setTimeout(() => { setHornKvitto(null); hornKvittoTimerRef.current = null; }, ton === 'ok' ? 4000 : 6000);
+  };
+  const hornSkjutInAngra = () => {
+    hornAngraRef.current = skjutInSteg(hornAngraRef.current, hornEditRingRef.current);
+    setHornAngraAntal(hornAngraRef.current.length);
+  };
+  const hornValj = (i: number | null) => { hornValRef.current = i; setHornVal(i); ritaHornEdit(); };
+  const hornAngra = () => {
+    const r = angraSteg(hornAngraRef.current);
+    if (!r.ring) return;
+    hornAngraRef.current = r.steg; setHornAngraAntal(r.steg.length);
+    hornEditRingRef.current = r.ring; setHornAntal(r.ring.length);
+    hornValRef.current = null; setHornVal(null);
+    ritaHornEdit();
+  };
+  const hornTaBort = () => {
+    const i = hornValRef.current; const ring = hornEditRingRef.current;
+    if (i == null) return;
+    const ny = taBortHorn(ring, i);
+    if (ny.length === ring.length) return;   // en yta behöver minst tre hörn
+    hornSkjutInAngra();
+    hornEditRingRef.current = ny; setHornAntal(ny.length);
+    hornValRef.current = null; setHornVal(null);
+    ritaHornEdit();
   };
   // Starta corner-drag på en boundary-markör. Öppnar ringen (unika hörn), döljer originalet, tänder handtagen.
   const startaHornEdit = (marker: any) => {
@@ -7295,6 +7296,8 @@ export default function PlannerPage() {
     const ringLL = oppnaRing(marker.path.map((p: any) => { const { lat, lon } = svgToLatLon(p.x, p.y); return [lon, lat] as [number, number]; }));
     if (ringLL.length < 3) return;
     hornEditRingRef.current = ringLL;
+    hornAngraRef.current = []; setHornAngraAntal(0); setHornAntal(ringLL.length);
+    hornValRef.current = null; setHornVal(null); hornDragRef.current = null;
     redigeraGransRef.current = { ...marker };
     const num = numreringRef.current;
     const n = num.visaGransNummer ? num.gransNr.get(String(marker.id)) : null;
@@ -7312,8 +7315,24 @@ export default function PlannerPage() {
       const svgPath = slutRing(ring).map(([lng, lat]) => latLonToSvg(lat, lng));
       const uppdaterad = { ...marker, path: svgPath };
       setMarkers((prev: any[]) => prev.map((m: any) => String(m.id) === String(marker.id) ? uppdaterad : m));
-      saveMarkerToDb(uppdaterad);
+      // Sparat lokalt först, sedan skickas kön direkt och kvittot säger SANNINGEN: "Gränsen är sparad" först när servern tagit emot den, annars att den väntar.
+      const oid = valtObjekt?.id ? String(valtObjekt.id) : null;
+      void (async () => {
+        try {
+          await saveMarkerToDb(uppdaterad);
+          await skickaVantandeForst(8000);
+          // Kön kan ha ett varv igång (en annan flik/startaren): vänta in att markeringen lämnar kön, högst ~8 s, innan kvittot säger att den väntar.
+          let kvar = true;
+          for (let i = 0; i < 16 && kvar; i++) {
+            kvar = oid ? (await vantandeMarkeringar(oid)).some((v) => v.markerId === String(marker.id)) : true;
+            if (kvar) await new Promise((r) => setTimeout(r, 500));
+          }
+          visaHornKvitto(kvar ? 'Gränsen är sparad på enheten · skickas när nätet finns' : 'Gränsen är sparad', 'ok');
+        } catch { visaHornKvitto('Gränsen kunde inte sparas – försök igen', 'fel'); }
+      })();
     }
+    hornAngraRef.current = []; setHornAngraAntal(0);
+    hornValRef.current = null; setHornVal(null); hornDragRef.current = null;
     setHornEditActive(false);
     redigeraGransRef.current = null;
     hornEditRingRef.current = [];
@@ -7818,7 +7837,6 @@ export default function PlannerPage() {
 
   // === TRAKTANALYS ===
   const [tractAnalysis, setTractAnalysis] = useState<Record<string, TraktAnalysisResult>>({}); // per boundary id
-  const [tractAnalysisOpen, setTractAnalysisOpen] = useState<string | null>(null); // boundary id for open panel
   const tractAnalysisCheckedRef = useRef<Record<string, string>>({}); // boundary id → hash
 
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
@@ -7932,7 +7950,7 @@ export default function PlannerPage() {
     // Kolla varje boundary individuellt
     for (const bm of alla) {
       const bmId = bm.id;
-      const hash = bmId + ':' + (bm.path?.length || 0);
+      const hash = bmId + ':' + ringAvtryck(bm.path || []);   // GEOMETRIN, inte antalet hörn: ett flyttat hörn ger en ny kontroll (traktkortets rad visar sedan det nya resultatet)
       if (tmaCheckedRef.current[bmId] === hash) continue; // Redan kontrollerad
       tmaCheckedRef.current[bmId] = hash;
 
@@ -7973,7 +7991,6 @@ export default function PlannerPage() {
       const hits = data.hits || [];
       const errors = data.errors || [];
       setTractAnalysis(prev => ({ ...prev, [id]: { status: 'done', hits, errors, timestamp: Date.now() } }));
-      if (hits.length > 0) setTractAnalysisOpen(id);
       if (cacheKey) {
         setTraktData(prev => ({
           ...prev,
@@ -8010,7 +8027,7 @@ export default function PlannerPage() {
     // Egenritade: kör vid varje öppning (som idag).
     for (const bm of boundaryMarkers) {
       const bmId = String(bm.id);
-      const hash = bmId + ':' + (bm.path?.length || 0);
+      const hash = bmId + ':' + ringAvtryck(bm.path || []);   // GEOMETRIN, inte antalet hörn: ett flyttat hörn ger en ny kontroll (traktkortets rad visar sedan det nya resultatet)
       if (tractAnalysisCheckedRef.current[bmId] === hash) continue;
       tractAnalysisCheckedRef.current[bmId] = hash;
       console.log('[TractAnalysis] Startar analys för boundary', bmId);
@@ -8040,7 +8057,7 @@ export default function PlannerPage() {
   // ÖVER — även när resultatet är TOMT. Ett tomt FÄRDIGT resultat är giltigt: hittar omkörningen
   // (med rätt origo) inga restriktioner ska de gamla ERSÄTTAS, aldrig ligga kvar. Tidigare returnerade
   // vi vid tomt → gamla fel-restriktioner (t.ex. felaktig Halen från gammalt origo) låg kvar i DB fast
-  // panelen visade "Inga kända restriktioner" (panelen läser live-analysen, översikten den sparade).
+  // traktkortets rad sa "inget hittat" (raden läser live-analysen, översikten den sparade).
   useEffect(() => {
     // Skriv BARA när minst en analys körts KLART ('done'). Innan dess (inga analyser än / laddar /
     // fel) rör vi INTE restriktioner — annars wipe:as sparad data under laddning eller vid analysfel.
@@ -16960,11 +16977,11 @@ export default function PlannerPage() {
                     const kontroller: Kontroll[] = analysStatus !== 'klar' || !vA ? [] : KONTROLLER.map((k) => {
                       const felad = (vA.errors || []).some(e => e.startsWith(k.felPrefix));
                       const traffar = vA.hits.filter(h => h.type === k.type);
-                      return { type: k.type, label: k.label, lage: felad ? 'osaker' as const : traffar.length > 0 ? 'traff' as const : 'ingen' as const, traffar: traffar.map(h => ({ name: h.name, details: h.details })) };
+                      return { type: k.type, label: k.label, lage: felad ? 'osaker' as const : traffar.length > 0 ? 'traff' as const : 'ingen' as const, traffar: traffar.map(h => ({ name: h.name, details: h.details, warning: h.warning, url: h.url })) };
                     });
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.l, paddingTop: AVSTAND.m, borderTop: `1px solid ${FARG.linje}` }}>
-                        <TraktAnalysRad status={analysStatus} kontroller={kontroller} />
+                        <TraktAnalysRad status={analysStatus} kontroller={kontroller} onOppnaLank={openExternal} onForsokIgen={() => korTraktAnalysPolygon(vida.synthId, vida.ringLatLon, boundaryId == null ? vida.key : undefined)} />
                         {vagar.length > 0 && (
                           <div>
                             <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'rgba(255,255,255,0.35)', marginBottom: '6px' }}>Vägkontroll (TMA)</div>
@@ -17097,12 +17114,29 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* "Redigera hörn" (corner-drag) — instruktion + Klar/Avbryt. Dra hörn, tryck mittpunkt för nytt hörn, håll för att ta bort. */}
+      {/* "Redigera hörn": EN rad nertill som övriga ritlägen — antal hörn, Ångra (hela redigeringen, ett steg i taget), Spara, Avbryt. Dra ett hörn, dra en mittpunkt för ett nytt, tryck på ett hörn för att ta bort det. */}
       {hornEditActive && (
-        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 16px)', left: '50%', transform: 'translateX(-50%)', zIndex: 400, display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(20,20,22,0.96)', color: '#fff', fontSize: '13.5px', fontWeight: 500, padding: '10px 12px', borderRadius: '14px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', maxWidth: '94vw', border: '1px solid rgba(255,255,255,0.12)' }}>
-          <span style={{ lineHeight: 1.35 }}>Dra hörn · tryck mittpunkt = nytt hörn · håll = ta bort</span>
-          <button onClick={() => avslutaHornEdit(true)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: '10px', border: 'none', background: '#1d9e75', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Klar</button>
-          <button onClick={() => avslutaHornEdit(false)} style={{ flexShrink: 0, padding: '7px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#fff', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Avbryt</button>
+        <KorvyNertillList
+          testid="hornedit-list"
+          smal={smalSkarm}
+          text={`${hornAntal} hörn · dra hörn · dra mittpunkt = nytt`}
+          knappar={[
+            { etikett: 'Ångra', onClick: hornAngra, av: hornAngraAntal === 0, testid: 'hornedit-angra' },
+            { etikett: 'Spara', onClick: () => avslutaHornEdit(true), gron: true, testid: 'hornedit-spara' },
+            AVBRYT_KNAPP(() => avslutaHornEdit(false), 'hornedit-avbryt'),
+          ]}
+        />
+      )}
+      {hornKvitto && !hornEditActive && (
+        <KorvyKvitto text={hornKvitto.text} ton={hornKvitto.ton} smal={smalSkarm} />
+      )}
+      {/* "Ta bort hörn" vid det markerade hörnet (följer hörnet när kartan rör sig). Inte under tre hörn: en yta behöver minst tre. */}
+      {hornEditActive && hornVal != null && hornAntal > 3 && (
+        <div ref={hornKnappRef} data-testid="hornedit-tabort-ram" style={{ position: 'fixed', left: 0, top: 0, zIndex: 410, pointerEvents: 'none', willChange: 'transform' }}>
+          <button type="button" data-testid="hornedit-tabort" onClick={hornTaBort} className="press-dim"
+            style={{ ...KNAPP.sekundar, pointerEvents: 'auto', width: 'auto', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.l}px`, background: FARG.kort, border: `1px solid ${FARG.linje}`, color: FARG.rod, whiteSpace: 'nowrap', transform: `translate(-50%, calc(-100% - ${AVSTAND.l}px))` }}>
+            Ta bort hörn
+          </button>
         </div>
       )}
 
@@ -20826,262 +20860,6 @@ export default function PlannerPage() {
           border: none;
         }
       `}</style>
-
-      {/* === TRAKTANALYS PANEL === */}
-      {tractAnalysisOpen && tractAnalysis[tractAnalysisOpen] && (() => {
-        const analysis = tractAnalysis[tractAnalysisOpen];
-        const boundaryId = tractAnalysisOpen;
-        const boundaryIds = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1).map(m => String(m.id));
-        const traktIndex = boundaryIds.indexOf(boundaryId) + 1;
-        const traktLabel = traktIndex > 0 ? `Trakt ${traktIndex}` : 'Trakt';
-
-        const typeConfig: Record<string, { icon: string; color: string; label: string; link?: string }> = {
-          vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://skyddadnatur.naturvardsverket.se/' },
-          naturreservat: { icon: '🛑', color: '#30d158', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
-          natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000', link: 'https://skyddadnatur.naturvardsverket.se/' },
-          fornlamning: { icon: '🏛️', color: FARG_KULTUR, label: 'Fornlämning' },
-          nyckelbiotop: { icon: '🌿', color: '#30d158', label: 'Nyckelbiotop', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
-          biotopskydd: { icon: '🛡️', color: '#16a34a', label: 'Biotopskydd', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
-          skogochhistoria: { icon: '🏚️', color: '#a16207', label: 'Skog och Historia' },
-        };
-
-        return (
-          <div style={{
-            position: 'fixed',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 600,
-            background: '#000',
-            borderTop: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '16px 16px 0 0',
-            maxHeight: '70vh',
-            overflowY: 'auto',
-            padding: '20px 16px',
-            paddingBottom: 'max(20px, env(safe-area-inset-bottom))',
-          }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff' }}>Traktanalys</div>
-                <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>{traktLabel}</div>
-              </div>
-              <button
-                onClick={() => setTractAnalysisOpen(null)}
-                style={{
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '36px',
-                  height: '36px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#fff',
-                  fontSize: '17px',
-                }}>
-                ✕
-              </button>
-            </div>
-
-            {/* Loading */}
-            {analysis.status === 'loading' && (
-              <div style={{
-                padding: '32px 0',
-                textAlign: 'center',
-                color: '#8e8e93',
-                fontSize: '13px',
-              }}>
-                <div style={{ fontSize: '28px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }}>🔍</div>
-                Analyserar trakten mot register...
-              </div>
-            )}
-
-            {/* Results */}
-            {analysis.status === 'done' && (
-              <>
-                {analysis.hits.length === 0 ? (
-                  <div style={{
-                    background: 'rgba(34,197,94,0.1)',
-                    border: '1px solid rgba(34,197,94,0.3)',
-                    borderRadius: '12px',
-                    padding: '20px',
-                    textAlign: 'center',
-                  }}>
-                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
-                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#30d158' }}>Inga kända restriktioner</div>
-                    <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '4px' }}>
-                      Inga träffar i vattenskydd, naturreservat, Natura 2000, nyckelbiotoper, biotopskydd eller fornlämningsregister
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {(() => {
-                      const unika = Array.from(new Set(analysis.hits.map(h => h.type)));
-                      if (unika.length < 2) return null;
-                      return (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '2px' }}>
-                          {unika.map(t => {
-                            const c = typeConfig[t] || { icon: '❓', color: '#888', label: t };
-                            return (
-                              <span key={t} style={{ fontSize: '10px', fontWeight: '700', letterSpacing: '0.4px', textTransform: 'uppercase', color: c.color, border: `1px solid ${c.color}`, borderRadius: '6px', padding: '3px 7px' }}>{c.label}</span>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                    {analysis.hits.map((hit, i) => {
-                      const cfg = typeConfig[hit.type] || { icon: '❓', color: '#888', label: hit.type };
-                      // Länktexten följer det FAKTISKA målet: djuplänk → "Föreskrifter"/"Visa området",
-                      // topp-nivå (t.ex. Natura 2000 utan id) → "Sök i ..." så föraren vet att den får leta själv.
-                      const linkTarget = hit.url || cfg.link || '';
-                      const linkToppniva = linkTarget === '' || linkTarget === 'https://skyddadnatur.naturvardsverket.se/' || linkTarget === 'https://www.skogsstyrelsen.se/skogensparlor';
-                      const linkText = linkToppniva
-                        ? (linkTarget.includes('skogsstyrelsen') ? 'Sök hos Skogsstyrelsen' : 'Sök i Skyddad natur')
-                        : ((hit.type === 'vattenskydd' || hit.type === 'naturreservat') ? 'Föreskrifter' : 'Visa området');
-                      return (
-                        <div key={i} style={{
-                          background: '#0a0a0a',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '12px',
-                          padding: '14px 16px',
-                          borderLeft: `3px solid ${cfg.color}`,
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '11px', fontWeight: '700', color: cfg.color, letterSpacing: '0.6px', textTransform: 'uppercase', marginBottom: '3px' }}>{cfg.label}</div>
-                              <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
-                              {hit.details && (
-                                <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>{hit.details}</div>
-                              )}
-                              {hit.warning && (
-                                <div style={{
-                                  fontSize: '13px',
-                                  color: '#fbbf24',
-                                  marginTop: '6px',
-                                  padding: '6px 8px',
-                                  background: 'rgba(251,191,36,0.08)',
-                                  borderRadius: '6px',
-                                  lineHeight: '1.4',
-                                }}>⚠️ {hit.warning}</div>
-                              )}
-                            </div>
-                            {(hit.url || cfg.link) && (
-                              <a
-                                href={hit.url || cfg.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); openExternal(e.currentTarget.href); }}
-                                style={{
-                                  background: 'rgba(255,255,255,0.08)',
-                                  border: 'none',
-                                  borderRadius: '8px',
-                                  padding: '6px 12px',
-                                  color: cfg.color,
-                                  fontSize: '13px',
-                                  fontWeight: '500',
-                                  textDecoration: 'none',
-                                  whiteSpace: 'nowrap',
-                                }}>
-                                {linkText} ↗
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Errors */}
-                {analysis.errors.length > 0 && (
-                  <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
-                    <div style={{ fontSize: '13px', color: 'rgba(239,68,68,0.8)' }}>
-                      {analysis.errors.map((e, i) => <div key={i}>{e}</div>)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Summary footer */}
-                <div style={{
-                  marginTop: '16px',
-                  display: 'flex',
-                  gap: '8px',
-                  justifyContent: 'center',
-                }}>
-                  <button
-                    onClick={() => {
-                      const bm = markers.find(m => String(m.id) === boundaryId);
-                      if (bm?.path) runTractAnalysis(boundaryId, bm.path);
-                    }}
-                    style={{
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '10px',
-                      padding: '10px 20px',
-                      color: '#fff',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                    }}>
-                    🔄 Kör igen
-                  </button>
-                  <button
-                    onClick={() => setTractAnalysisOpen(null)}
-                    style={{
-                      background: 'rgba(255,255,255,0.08)',
-                      border: '1px solid rgba(255,255,255,0.15)',
-                      borderRadius: '10px',
-                      padding: '10px 20px',
-                      color: '#fff',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                    }}>
-                    Stäng
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Error state */}
-            {analysis.status === 'error' && (
-              <div style={{
-                background: 'rgba(239,68,68,0.1)',
-                border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: '12px',
-                padding: '20px',
-                textAlign: 'center',
-              }}>
-                <div style={{ fontSize: '32px', marginBottom: '8px' }}>❌</div>
-                <div style={{ fontSize: '13px', color: 'rgba(239,68,68,0.8)' }}>Analysen misslyckades</div>
-                {analysis.errors.map((e, i) => (
-                  <div key={i} style={{ fontSize: '13px', color: '#8e8e93', marginTop: '4px' }}>{e}</div>
-                ))}
-                <button
-                  onClick={() => {
-                    const bm = markers.find(m => String(m.id) === boundaryId);
-                    if (bm?.path) runTractAnalysis(boundaryId, bm.path);
-                  }}
-                  style={{
-                    marginTop: '12px',
-                    background: 'rgba(255,255,255,0.1)',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    borderRadius: '8px',
-                    padding: '8px 16px',
-                    color: '#fff',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                  }}>
-                  Försök igen
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* Autospar av avlägg/brand/TMA kunde inte läsa sparade uppgifter → ändringar där sparas inte; säg det och låt föraren försöka igen */}
       {valtObjekt?.id && delarSomText(autosparFel) !== '' && (
