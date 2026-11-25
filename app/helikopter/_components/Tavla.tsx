@@ -396,7 +396,7 @@ function OrdnadTraktRad({ nr, namn, under, maskin, ingen, ton, tal, kryss, onMas
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
         <span style={{ ...TYP.text, color: text, overflowWrap: 'anywhere' }}>{namn}</span>
         {under.map((u, k) => <span key={k} style={{ ...TYP.meta, ...TNUM, color: FARG.text2 }} data-tid="">{u}</span>)}
-        <span style={{ ...TYP.meta, ...TNUM, color: maskin ? FARG.text2 : FARG.orange }} data-maskin-rad="">{maskinText}</span>
+        <span style={{ ...TYP.meta, ...TNUM, color: maskin ? FARG.text2 : ton === 'dampad' ? FARG.text3 : FARG.orange }} data-maskin-rad="">{maskinText}</span>
       </span>
     </span>
   )
@@ -488,7 +488,10 @@ function PlaneraRollAvsnitt({ spar, roll, manadNamn, nastaNamn, kanFlytta, onFly
   const tillTrakt = (t: TavlaBehov['behovs'][number] | TavlaSkot['rader'][number], flyttbar: boolean): PlaneraTrakt => ({ objekt_id: t.objekt_id, namn: t.namn, maskin: t.maskin, kvar: t.kvar, behovs: t.behovs, dagar: t.dagar, till: t.till, fast: t.fast, pagar: t.pagar === true, flyttbar })
   const grupper: { koors: PlaneraTrakt[]; utan: PlaneraTrakt[]; inte: PlaneraTrakt[] } = roll === 'skordare'
     ? { koors: (behov?.behovs ?? []).map(t => tillTrakt(t, false)), utan: [], inte: (behov?.inte ?? []).map(t => tillTrakt(t, t.flyttbar)) }
-    : { koors: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => tillTrakt(t, false)), utan: (skot?.rader ?? []).filter(t => t.maskin == null).map(t => tillTrakt(t, false)), inte: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs <= 0).map(t => tillTrakt(t, false)) }
+    : { koors: (skot?.rader ?? []).filter(t => t.maskin != null && t.behovs > 0).map(t => tillTrakt(t, false)),
+        // Räcker trakterna med skotare till beställningen behövs en trakt utan skotare inte: den ligger under "Behövs inte" och är ingen uppgift.
+        utan: (skot?.saknas ?? 1) > 0 ? (skot?.rader ?? []).filter(t => t.maskin == null).map(t => tillTrakt(t, false)) : [],
+        inte: (skot?.rader ?? []).filter(t => (t.maskin != null && t.behovs <= 0) || (t.maskin == null && (skot?.saknas ?? 1) <= 0)).map(t => tillTrakt(t, false)) }
   const ordnade = [...grupper.koors, ...grupper.inte]
   const nr = new Map<string, number>([...ordnade.map((t, i) => [t.objekt_id, i + 1] as const), ...grupper.utan.map((t, i) => [t.objekt_id, i + 1] as const)])
   const pilGrupp = (utanMaskin: boolean) => (utanMaskin ? grupper.utan : ordnade).filter(t => !t.fast && !t.pagar).map(t => t.objekt_id)

@@ -142,11 +142,11 @@ describe('räcker trakterna', () => {
   it('skotaren: skog nog, även den som saknar maskin räknas som skog att ta', () => {
     expect(rad('slutavverkning', 'skotare')).toMatchObject({ ord: 'Räcker', ton: 'gron' })
   })
-  it('Vad kan du göra: saknas först, sedan trakter utan maskin, sist för mycket', () => {
-    expect(t.gor.map(g => g.slag)).toEqual(['saknas', 'utan', 'formycket'])
+  it('Vad kan du göra: saknas först, sist för mycket — en trakt utan skotare är ingen uppgift när trakterna med skotare redan räcker', () => {
+    // Krokshult saknar skotare men Edestad (med skotare) täcker skotarens behov: ingen "utan"-rad.
+    expect(t.gor.map(g => g.slag)).toEqual(['saknas', 'formycket'])
     expect(t.gor[0]).toMatchObject({ text: 'Lägg in en ny trakt i slutavverkning', under: `Skördare saknar ${fmt(378)} m³` })
-    expect(t.gor[1]).toMatchObject({ slag: 'utan', text: '1 trakt har ingen skotare' })
-    expect(t.gor[2].text).toBe('Gallring har för mycket inlagt')
+    expect(t.gor[1].text).toBe('Gallring har för mycket inlagt')
   })
   it('vilka trakter som behövs: de första i körordning som täcker behovet, resten kan vänta (gallring november)', () => {
     const b = rad('gallring', 'skordare').behov!
@@ -258,6 +258,8 @@ describe('räcker trakterna', () => {
     const sk = byggTavla(d).spar[0].racker.find(r => r.roll === 'skotare')!.skot!
     // Behov 1 000; A (med skotare) ger 500 → saknas 500 trots att B (900, utan skotare) finns.
     expect(sk).toMatchObject({ behov: 1000, saknas: 500, utanSumma: 900 })
+    // Här räcker inte trakterna med skotare: trakten utan skotare är en uppgift.
+    expect(byggTavla(d).gor.map(g => g.slag)).toContain('utan')
     expect(sk.rader.find(r => r.namn === 'A')!.behovs).toBe(500)
     expect(sk.rader.find(r => r.namn === 'B')!.behovs).toBe(0)
   })

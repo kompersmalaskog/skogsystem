@@ -583,6 +583,8 @@ function tavlaGor(spar: TavlaSpar[]): TavlaGor[] {
     }
     for (const b of s.block) {
       if (b.utan.length === 0) continue
+      // Räcker trakterna som har skotare till beställningen behöver en trakt utan skotare inte åtgärdas: den behövs inte i månaden.
+      if (b.roll === 'skotare' && (s.racker.find(r => r.roll === 'skotare')?.skot?.saknas ?? 1) <= 0) continue
       const antal = b.utan.length
       const vol = b.utan.reduce((a, u) => a + Math.round(u.volym), 0)
       const vem = b.roll === 'skordare' ? 'skördare' : 'skotare'
