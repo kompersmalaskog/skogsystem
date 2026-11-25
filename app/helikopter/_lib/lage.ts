@@ -95,6 +95,8 @@ export type TidsBar = {
   /** Dagen maskinen är klar på trakten (ISO), bara för trakten den är på nu. */
   klarDatum?: string | null
 }
+/** En trakt i maskinens kö, i körordning: volym kvar och om beställningen behöver den. behovs null = går inte att avgöra. */
+export type KoPost = { objekt_id: string; namn: string; kvar: number; behovs: number | null; fast: boolean }
 export type TidsRad = {
   maskin_id: string
   namn: string
@@ -102,6 +104,8 @@ export type TidsRad = {
   barer: TidsBar[]
   /** Maskinen kör annat just nu (GROT, energiklippning …): kortet säger bara det, ingen kö och ingen prognos. */
   korAnnat?: boolean
+  /** Hela kön i körordning (med det som behövs för beställningen), så ordningen går att läsa och ändra. */
+  ko?: KoPost[]
   /** Trakter som står efter en trakt utan prognos (starten går inte att räkna), eller väntar på skördaren — i ord under raden. */
   not: string | null
 }
@@ -162,6 +166,9 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
     for (const r of b?.inte ?? []) inteBehovs.add(r.objekt_id)
   }
 
+  const skotBehov = new Map<string, number>()
+  for (const s of tavla.spar) for (const r of s.racker.find(x => x.roll === 'skotare')?.skot?.rader ?? []) skotBehov.set(r.objekt_id, r.behovs)
+
   const rader: TidsRad[] = []
   for (const m of [...klar.maskiner].sort((a, b) => Number(b.roll === 'skotare') - Number(a.roll === 'skotare'))) {
     const ko = koer.get(m.maskin_id) ?? []
@@ -209,7 +216,12 @@ export function byggTidslinje(d: TavlaIndata, tavla: Tavla): Tidslinje | null {
       b.stil = i === 0 ? 'nasta' : 'darefter'
     })
     const not = [...(efterOkand.length > 0 ? [`Sedan: ${efterOkand.join(', ')}`] : [])].join(' · ') || null
-    if (barer.length > 0 || not) rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer, not })
+    const koPoster: KoPost[] = ko.filter(r => r.kvar > 0).map(r => {
+      const id = r.trakt.objekt_id
+      const behov = m.roll === 'skordare' ? (inteBehovs.has(id) ? 0 : behovs.get(id)?.behovs ?? null) : skotBehov.get(id) ?? null
+      return { objekt_id: id, namn: traktVy(r, null, sista).namn, kvar: Math.round(r.kvar), behovs: behov, fast: r.trakt.forra_manaden === true }
+    })
+    if (barer.length > 0 || not || koPoster.length > 0) rader.push({ maskin_id: m.maskin_id, namn: m.namn, roll: m.roll, barer, not, ko: koPoster })
   }
   return { dagar: dagar.map((x, i) => dagEtikett(x, i === 0 ? null : dagar[i - 1])), slut, rader }
 }

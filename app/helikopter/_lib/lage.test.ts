@@ -129,6 +129,10 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
     const efter = t2.rader.find(r => r.maskin_id === 'EK26')!.barer.filter(x => x.namn.startsWith('Efter'))
     expect(efter.length).toBeGreaterThan(0)
     for (const x of efter) { expect(x.stil).toBe('darefter'); expect(barSvar(x, t2).klar).toBe('därefter') }
+    // Kön står i körordning med volym kvar, och varje trakt säger om beställningen behöver den (eller null när det inte går att avgöra).
+    const ko = t2.rader.find(r => r.maskin_id === 'EK26')!.ko!
+    expect(ko.map(k => k.namn.startsWith('Lång'))[0]).toBe(true)
+    expect(ko.every(k => k.kvar > 0 && (k.behovs == null || k.behovs >= 0))).toBe(true)
   })
 
   it('maskinen är inte på någon köad trakt (eller okänt var den är): första står "nästa", inget datum', () => {

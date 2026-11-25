@@ -3,12 +3,14 @@
 // KALENDER (2026-11-25, Martin: "bara från idag och framåt", hela skärmen, Apple-design som skissen): vem gör vad, dag för dag, från idag.
 // BARA DATA: en stapel finns bara för trakten maskinen är på nu (längd = det som är kvar på maskinens egen takt). Trakterna efter står som text — nästa och
 // därefter — utan stapel och datum. Maskin som kör annat får bara det den kör. Logiken är _lib/lage.ts (byggTidslinje); den här filen ritar.
+import Ikon from '@/components/design/Ikon'
 import Sektion from '@/components/design/Sektion'
-import { AVSTAND, FARG, KORT, RADIE, TNUM, TRAFFYTA, TYP, underTopbar } from '@/lib/design/tokens'
+import { AVSTAND, FARG, IKON, KORT, RADIE, TNUM, TRAFFYTA, TYP, underTopbar } from '@/lib/design/tokens'
 import { rollFarg } from '@/lib/sparStil'
 import { KLAR_TYP_NAMN, type KlarTyp } from '../_lib/klar'
-import { fmtDag, relativTid } from '../_lib/format'
-import type { TidsBar, TidsRad, Tidslinje } from '../_lib/lage'
+import { fmt, fmtDag, relativTid } from '../_lib/format'
+import type { KoPost, TidsBar, TidsRad, Tidslinje } from '../_lib/lage'
+import { OrdningsBar, pilar, type OrdningsStyrning } from './Tavla'
 import type { KorNu } from '../_lib/queries'
 
 /** Sidan fyller skärmen nedåt: höjden är fönstret minus toppfältet och rubrikerna över kortet. */
@@ -27,13 +29,34 @@ function Stapel({ b, farg, n }: { b: TidsBar; farg: string; n: number }) {
   return <span data-kal-stapel={b.stil} title={text} style={{ ...bas, background: bg, color: FARG.bg }}>{text}</span>
 }
 
-function MaskinRad({ r, t, nu }: { r: TidsRad; t: Tidslinje; nu?: KorNu }) {
+/** Kön i körordning: en rad per trakt med vad som behövs för beställningen, och pilar när du får ändra ordningen. */
+function KoLista({ ko, st }: { ko: KoPost[]; st?: OrdningsStyrning }) {
+  const grupp = ko.filter(k => !k.fast).map(k => k.objekt_id)
+  return (
+    <div data-kal-ko="" style={{ display: 'flex', flexDirection: 'column' }}>
+      {ko.map((k, i) => {
+        const p = pilar(grupp, k.objekt_id, st)
+        const status = k.behovs == null ? '' : k.behovs > 0 ? 'behövs' : 'behövs inte'
+        const pil = (ikon: string, on: (() => void) | null | undefined, etikett: string) => (
+          <button type="button" aria-label={`${etikett}: ${k.namn}`} onClick={on ?? undefined} disabled={!on} data-kal-pil={ikon} style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, background: 'none', border: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: on ? 1 : 0.25 }}><Ikon namn={ikon === 'up' ? 'keyboard_arrow_up' : 'keyboard_arrow_down'} storlek={IKON.rad} farg={FARG.text2} /></button>
+        )
+        return (
+          <div key={k.objekt_id} data-kal-ko-rad={k.objekt_id} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min }}>
+            <span style={{ ...TYP.meta, ...TNUM, color: FARG.text3, minWidth: AVSTAND.l }}>{i + 1}</span>
+            <span style={{ ...TYP.text, color: status === 'behövs inte' ? FARG.text2 : FARG.text, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{k.namn}</span>
+            <span style={{ ...TYP.meta, ...TNUM, color: FARG.text2, whiteSpace: 'nowrap' }}>{fmt(k.kvar)} m³{status ? ` · ${status}` : ''}</span>
+            {st && <span style={{ display: 'flex' }}>{pil('up', p.upp, 'Flytta upp')}{pil('down', p.ner, 'Flytta ned')}</span>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function MaskinRad({ r, t, nu, ordning }: { r: TidsRad; t: Tidslinje; nu?: KorNu; ordning?: OrdningsStyrning }) {
   const farg = rollFarg(r.roll)
   const n = t.dagar.length
   const stapel = r.barer.filter(arStapel)
-  const efter = r.barer.filter(b => !arStapel(b))
-  const nasta = efter.filter(b => b.stil === 'nasta').map(b => b.namn)
-  const darefter = efter.filter(b => b.stil === 'darefter').map(b => b.namn)
   const typ = nu?.typ && nu.typ !== 'slutavverkning' && nu.typ !== 'gallring' ? ` (${KLAR_TYP_NAMN[nu.typ as KlarTyp] ?? nu.typ})` : ''
   return (
     <div data-kal-maskin={r.maskin_id} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: AVSTAND.s, padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}` }}>
@@ -52,16 +75,14 @@ function MaskinRad({ r, t, nu }: { r: TidsRad; t: Tidslinje; nu?: KorNu }) {
               {stapel.map(b => <Stapel key={b.id} b={b} farg={farg} n={n} />)}
             </div>
           )}
-          {nasta.length > 0 && <div data-kal-nasta="" style={{ ...TYP.text, color: FARG.text2 }}>Nästa: {nasta.join(' · ')}</div>}
-          {darefter.length > 0 && <div data-kal-darefter="" style={{ ...TYP.meta, color: FARG.text3 }}>Därefter: {darefter.join(' · ')}</div>}
-          {stapel.length === 0 && nasta.length === 0 && darefter.length === 0 && <div style={{ ...TYP.text, color: FARG.text2 }}>Inget i kön</div>}
+          {(r.ko?.length ?? 0) > 0 ? <KoLista ko={r.ko ?? []} st={ordning} /> : <div style={{ ...TYP.text, color: FARG.text2 }}>Inget i kön</div>}
         </>
       )}
     </div>
   )
 }
 
-export default function Kalender({ tidslinje, korNu, manadNamn, ar }: { tidslinje: Tidslinje | null; korNu: KorNu[] | null; manadNamn: string; ar: number }) {
+export default function Kalender({ tidslinje, korNu, manadNamn, ar, ordning }: { tidslinje: Tidslinje | null; korNu: KorNu[] | null; manadNamn: string; ar: number; ordning?: OrdningsStyrning }) {
   if (!tidslinje || tidslinje.rader.length === 0) {
     return <div data-kalender="" style={{ ...TYP.text, color: FARG.text2, padding: `${AVSTAND.l}px 0` }}>Kalendern visas för en pågående månad med maskinernas köer.</div>
   }
@@ -72,7 +93,8 @@ export default function Kalender({ tidslinje, korNu, manadNamn, ar }: { tidslinj
   return (
     <div data-kalender="" style={{ display: 'flex', flexDirection: 'column', minHeight: `calc(100dvh - ${underTopbar(OVER_KORTET)})` }}>
       <h1 style={{ margin: 0, padding: `${AVSTAND.l}px 0 ${AVSTAND.xs}px`, ...TYP.titel, color: FARG.text }}>Kalender</h1>
-      <p style={{ margin: `0 0 ${AVSTAND.xl}px`, ...TYP.text, color: FARG.text2 }}>Från idag, {manadNamn.toLowerCase()} {ar}. Stapeln är trakten maskinen är på nu; resten av kön står utan datum.</p>
+      <p style={{ margin: `0 0 ${AVSTAND.xl}px`, ...TYP.text, color: FARG.text2 }}>Från idag, {manadNamn.toLowerCase()} {ar}. Stapeln är trakten maskinen är på nu. Under den står kön i körordning och vad som behövs för beställningen — utan datum.</p>
+      {ordning && <OrdningsBar st={ordning} primar />}
       <Sektion rubrik="Vem gör vad, dag för dag" kort={false} className="hk-kal-sektion">
         <div style={{ ...KORT, display: 'flex', flexDirection: 'column', flex: 1 }}>
           <div style={{ position: 'relative', paddingTop: AVSTAND.l }}>
@@ -86,7 +108,7 @@ export default function Kalender({ tidslinje, korNu, manadNamn, ar }: { tidslinj
             </div>
           </div>
           <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
-            {t.rader.map(r => <MaskinRad key={r.maskin_id} r={r} t={t} nu={korNu?.find(k => k.maskin_id === r.maskin_id)} />)}
+            {t.rader.map(r => <MaskinRad key={r.maskin_id} r={r} t={t} nu={korNu?.find(k => k.maskin_id === r.maskin_id)} ordning={ordning} />)}
             {t.slut < n && <span aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: `${andel * 100}%`, width: AVSTAND.xs / 2, marginLeft: -AVSTAND.xs / 4, background: FARG.orange, borderRadius: AVSTAND.xs / 4, pointerEvents: 'none' }} />}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: AVSTAND.l, ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.l }}>
