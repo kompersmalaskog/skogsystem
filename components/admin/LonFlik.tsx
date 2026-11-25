@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { sistaDagenIManaden } from "@/lib/datumLokal";
 import { AVSTAND, FARG, RADIE, TYP, KNAPP, TRAFFYTA, VIKT } from "@/lib/design/tokens";
 import { Kort, Ikon, Lista, Rad, Lank } from "./ui";
-import { StatusRad, AttKolla } from "./ForarKortDelar";
+import { ForarListRad, AttKolla } from "./ForarKortDelar";
 import { useAdminNav } from "./nav";
 import { tidigarelagdMonster } from "@/lib/tidigarelagdStart";
 import { enhetForMangd, fmtMangd } from "@/lib/lonesystem/loneart";
@@ -19,7 +19,7 @@ import Svarsrad from "@/components/design/Svarsrad";
 // (FortnoxExportSektion) — de kommer ur dry_run-svaret, samma kodväg som exporten.
 import LonesystemUnderflik from "./LonesystemUnderflik";
 import LonearterUnderflik from "./LonearterUnderflik";
-import { LoneradLista, SaknasKort, SkickaDialog, lonerader as loneraderAv } from "./LoneraderForhandsvisning";
+import { SaknasKort, SkickaDialog } from "./LoneraderForhandsvisning";
 import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
@@ -322,9 +322,13 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
   const tlMon = tidigarelagdMonster(tidigarelagdAlla);
   const fmtH = (min: number) => { const h = Math.floor(min / 60), mm = min % 60; return mm ? `${h} tim ${mm} min` : `${h} tim`; };
 
-  /** Vart en rad leder. "Se dagen" öppnar Dagar på samma arbetsmånad, bara avvikelserna. */
+  /**
+   * Vart en rad leder. "Se dagen" i Förare · Månad öppnar just den dagen i SAMMA ark (man stannar i arket och fortsätter med nästa
+   * punkt); ett andra tryck på samma dag byter värde i adressen så att arket rullar dit igen. Utan dag: Dagar, bara avvikelserna.
+   */
   const gaMal = (mal: Mal) => {
-    if (mal.typ === "dagar") {
+    if (mal.typ === "dagar" && mal.datum && nav.params.forare) sattParam("dag", nav.params.dag === mal.datum ? `${mal.datum}!` : mal.datum);
+    else if (mal.typ === "dagar") {
       const nu = new Date();
       const [å, m] = arbetsManad.split("-").map(Number);
       gaTill({ flik: "lon", underflik: "dagar", params: { dagper: "M", dagoff: String((å - nu.getFullYear()) * 12 + (m - 1 - nu.getMonth())), avv: "1" } });
@@ -384,7 +388,9 @@ function Loneunderlag({ currentUser }: { currentUser: CurrentUser }) {
       {/* Förare · Månad: varför blev lönen, övertiden och milen som de blev. Förarens id står i adressen (?forare=…). */}
       {(() => {
         const m = fortnoxData?.ok ? (fortnoxData.medarbetare || []).find((x: any) => x.medarbetare_id === nav.params.forare) : null;
-        return m ? <ForarManadArk m={m} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
+        const k = m ? byggForarKort(m, fortnoxData.oenighet || [], kvitteringar || []) : null;
+        return m ? <ForarManadArk m={m} attKolla={k && !k.ledare ? <AttKolla k={k} kanKvittera={kvitteringar !== null} onMal={gaMal}
+          onKvittera={rad => kvittera(m.medarbetare_id, rad)} onAngra={rad => angraKvittering(m.medarbetare_id, rad)} /> : null} arbetsManad={arbetsManad} dag={nav.params.dag} pagaende={pagaende} onSkickaUtanGodkannande={pagaende ? undefined : skickaUtanGodkannande} onStang={() => {
           // Kom man från Dagar (dagper i adressen) går man tillbaka dit, på samma period och månad och med samma filter.
           if (nav.params.dagper) gaTill({ flik: "lon", underflik: "dagar", params: { dagper: nav.params.dagper, dagoff: nav.params.dagoff ?? "0", avv: nav.params.avv ?? "1" } });
           else { sattParam("forare", null); sattParam("dag", null); }
@@ -586,45 +592,15 @@ function FortnoxExportSektion({
         )}
       </Lista>
 
-      {/* Per förare: godkännande, vad som går till Fortnox, och det som ska kollas. (Ett kort per förare med detaljvy är en senare, större ändring.) */}
-      <Card style={{ padding: 0 }}>
-        {lonMedarbetare.length === 0 && <p style={{ margin: 0, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, ...TYP.meta, color: FARG.text2 }}>Inga förare med lön den här månaden.</p>}
-        {lonMedarbetare.map((m: any, mi: number) => {
-          const k: ForarKort = kort[mi];
-          return (
-            // Hela kortet är en rad (iOS): tryck öppnar Förare · Månad. Knapparna inuti (Se dagen, Påminn, Fyll i …) gör sitt eget och öppnar inget.
-            <div key={m.medarbetare_id} data-forare={m.medarbetare_id} role="button" tabIndex={0} aria-label={`${m.namn}, öppna månaden`}
-              onClick={e => { if (!(e.target as HTMLElement).closest("button")) onForare(m.medarbetare_id); }}
-              onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onForare(m.medarbetare_id); } }}
-              style={{
-                padding: `${AVSTAND.m}px ${AVSTAND.l}px`, cursor: "pointer",
-                borderBottom: mi === lonMedarbetare.length - 1 ? "none" : `1px solid ${FARG.linje}`,
-              }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ ...TYP.listtitel, fontWeight: 600, color: FARG.text }}>{m.namn}</span>
-                <Ikon namn="chevron_right" farg={FARG.text3} />
-              </div>
-              {!pagaende && <StatusRad k={k} paminn={paminnStatus[m.medarbetare_id]} onPaminn={() => onPaminn(m.medarbetare_id)} />}
-              {k.saknarAnstNr && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.s, marginBottom: AVSTAND.s }}>
-                  <span style={{ ...TYP.meta, color: FARG.rod }}>Anställningsnummer saknas — går inte att skicka</span>
-                  <Lank smal onClick={() => onMal({ typ: "person", id: m.medarbetare_id })}>Fyll i</Lank>
-                </div>
-              )}
-
-              {/* Lönerader: varje löneart som har ett antal. */}
-              <div style={{ marginTop: AVSTAND.s }}>
-                <LoneradLista rader={loneraderAv(m)} />
-                {k.helglon.map(t => <p key={t} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{t}</p>)}
-              </div>
-
-              <AttKolla k={k} kanKvittera={kvitteringar !== null} onMal={onMal}
-                onKvittera={rad => onKvittera(m.medarbetare_id, rad)} onAngra={rad => onAngraKvittering(m.medarbetare_id, rad)} />
-              {k.info.map(r => <p key={r.id} {...(r.id.startsWith("utj-") ? { "data-utjamning-period": "" } : {})} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>{r.text}</p>)}
-            </div>
-          );
-        })}
-      </Card>
+      {/* Per förare: EN rad var — läget i ord och hur mycket som är kvar att kolla. Lönerader, uträkning och det som ska kollas står i
+          Förare · Månad, som raden öppnar. */}
+      <Lista>
+        {lonMedarbetare.length === 0 && <Rad rubrik="Inga förare med lön den här månaden." dampad sista />}
+        {kort.map((k: ForarKort, mi: number) => (
+          <ForarListRad key={k.id} k={k} pagaende={pagaende} paminn={paminnStatus[k.id]} onPaminn={() => onPaminn(k.id)}
+            onOppna={() => onForare(k.id)} sista={mi === kort.length - 1} />
+        ))}
+      </Lista>
     </>
   );
 }
