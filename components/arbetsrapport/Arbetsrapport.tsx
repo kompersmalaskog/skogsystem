@@ -975,7 +975,6 @@ export default function Arbetsrapport() {
   const arForetagsledare = medarbetare?.foretagsledare === true;
   const synligaVilobrott = arForetagsledare ? [] : aktuellaVilobrott;
   // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
-  const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
   // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
   // vid flödesstart och byggs INTE om från re-fetchad aktuellaVilobrott — annars
   // skulle besvarade brott försvinna ur listan och idx peka fel.
@@ -1003,12 +1002,7 @@ export default function Arbetsrapport() {
   const [byteFraga, setByteFraga] = useState<{ datum: string; namn: string; valjer: boolean; ledig: string; fel: string | null; sparar: boolean } | null>(null);
   // Felrad i Redigera-vyn — ersätter window.alert (app-egna dialoger).
   const [redFel, setRedFel] = useState<string | null>(null);
-  const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
-  const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
-  const [vilaÅrExpand, setVilaÅrExpand] = useState<number|null>(null);
-  const [visaAllaDygnsvila, setVisaAllaDygnsvila] = useState(false);
-  const [visaAllaVeckovila, setVisaAllaVeckovila] = useState(false);
   const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'>('översikt');
   const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
   const [atkValSparat, setAtkValSparat] = useState<any>(null);
@@ -1334,26 +1328,13 @@ export default function Arbetsrapport() {
     if (steg !== "mintid" || minTidFlik !== 'vila') return;
     if (!medarbetare?.id) return;
 
+    // En månad i taget; marginal 7 dagar bakåt för rullande veckovila.
     const nu = new Date();
-    let from: Date, to: Date;
-    if (vilaPeriod === '7d') {
-      from = new Date(nu); from.setDate(nu.getDate() - 7);
-      to = new Date(nu);
-    } else if (vilaPeriod === '30d') {
-      from = new Date(nu); from.setDate(nu.getDate() - 30);
-      to = new Date(nu);
-    } else if (vilaPeriod === 'månad') {
-      from = new Date(nu.getFullYear(), vilaMånad, 1);
-      to = new Date(nu.getFullYear(), vilaMånad + 1, 0);
-    } else {
-      from = new Date(nu.getFullYear(), 0, 1);
-      to = new Date(nu.getFullYear(), 11, 31);
-    }
-    // Marginal-fönster
-    const fromMarginal = new Date(from); fromMarginal.setDate(from.getDate() - 7);
-
-    const isoFrom = fromMarginal.toISOString().slice(0, 10);
-    const isoTo = to.toISOString().slice(0, 10);
+    const fromMarginal = new Date(nu.getFullYear(), vilaMånad, 1 - 7);
+    const to = new Date(nu.getFullYear(), vilaMånad + 1, 0);
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const isoFrom = iso(fromMarginal);
+    const isoTo = iso(to);
 
     let cancelled = false;
     setPeriodVilobrott(null);
@@ -1365,7 +1346,7 @@ export default function Arbetsrapport() {
         setPeriodVilobrott([]);
       });
     return () => { cancelled = true; };
-  }, [steg, minTidFlik, medarbetare?.id, vilaPeriod, vilaMånad]);
+  }, [steg, minTidFlik, medarbetare?.id, vilaMånad]);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -1718,7 +1699,7 @@ export default function Arbetsrapport() {
   // Prediktiv orange "kort dygnsvila sedan igår" — INTE ett brott, bara
   // förvarning i zonen mellan krav_h och varning_h. Brotts-varningar kommer
   // från DB-loopen ovan.
-  if (trosklar) {
+  if (trosklar && !arForetagsledare) {
     const senaste = [...årsData].filter(r=>r.slut_tid && r.datum < idagKey).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
     if (senaste) {
       const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
@@ -4235,7 +4216,8 @@ export default function Arbetsrapport() {
         <header style={{ position:"sticky",top:HEADER_TOP,zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:`0 ${AVSTAND.sidmarginal}px`,paddingTop:AVSTAND.l }}>
           <h1 style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.titel,color:FARG.text }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs,marginBottom:AVSTAND.m,overflowX:"auto" }}>
-            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila']] as const).map(([k,l])=>(
+            {/* Företagsledare: vilan och övertidstaket (arbetstidslagen) gäller inte — ingen Vila-flik. */}
+            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila']] as const).filter(([k])=>!(arForetagsledare&&k==='vila')).map(([k,l])=>(
               <button key={k} onClick={()=>setMinTidFlik(k)} style={{ flex:1, minHeight:TRAFFYTA.min, padding:`0 ${AVSTAND.s}px`, borderRadius:RADIE.rad, border:"none", ...TYP.meta, fontWeight:minTidFlik===k?VIKT.halvfet:VIKT.normal, cursor:"pointer", fontFamily:"inherit", background:minTidFlik===k?FARG.fyllning:"transparent", color:minTidFlik===k?FARG.text:FARG.text2, whiteSpace:"nowrap" }}>{l}</button>
             ))}
           </div>
@@ -4243,7 +4225,7 @@ export default function Arbetsrapport() {
 
         <main style={{ paddingTop:AVSTAND.l,paddingLeft:AVSTAND.sidmarginal,paddingRight:AVSTAND.sidmarginal,paddingBottom:SCROLL_BOTTOM }}>
 
-          {minTidFlik==='översikt'&&<>
+          {(minTidFlik==='översikt'||(arForetagsledare&&minTidFlik==='vila'))&&<>
           {/* Staplarna tillbaka (2026-09-29) — nu med talet över, dagen under och
               dagens stapel vit, så de läses utan etikett (TimmarGraf). */}
           <TimmarGraf vecka={veckoDagar} ar={årsStaplar} />
@@ -4470,7 +4452,7 @@ export default function Arbetsrapport() {
 
           </>}
 
-          {minTidFlik==='översikt'&&<>
+          {minTidFlik==='översikt'&&!arForetagsledare&&<>
           {/* Övertid året — taket ur avtalet; färgen förstärker ett ord. */}
           <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Övertid {nu.getFullYear()}</h3>
@@ -4490,7 +4472,7 @@ export default function Arbetsrapport() {
 
           </>}
 
-          {minTidFlik==='vila'&&<>
+          {minTidFlik==='vila'&&!arForetagsledare&&<>
           {/* Dygnsvila med periodväljare */}
           {(()=>{
             // Beräkna anledning för dagar i ett gap
@@ -4534,43 +4516,19 @@ export default function Arbetsrapport() {
             }
             const vilaRev=[...allVila].reverse();
 
-            // Filter baserat på vald period
+            // EN månad i taget (Martin 2026-11-25: "så ett barn förstår") — ‹ November 2026 ›.
+            // 7 dagar / 30 dagar / År är borta: Sammanfattningen överst säger läget nu,
+            // månaden visar nätterna och det som var under kravet.
             const nu5=new Date();
-            let filtVila=vilaRev;
-            let periodLabel='';
-            if(vilaPeriod==='7d'){
-              const cutoff=new Date(nu5); cutoff.setDate(nu5.getDate()-7);
-              filtVila=vilaRev.filter(r=>r.datum>=cutoff.toISOString().split('T')[0]);
-              periodLabel='senaste 7 dagarna';
-            } else if(vilaPeriod==='30d'){
-              const cutoff=new Date(nu5); cutoff.setDate(nu5.getDate()-30);
-              filtVila=vilaRev.filter(r=>r.datum>=cutoff.toISOString().split('T')[0]);
-              periodLabel='senaste 30 dagarna';
-            } else if(vilaPeriod==='månad'){
-              const mp=`${nu5.getFullYear()}-${String(vilaMånad+1).padStart(2,'0')}`;
-              filtVila=vilaRev.filter(r=>r.datum.startsWith(mp));
-              periodLabel=`${['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'][vilaMånad]} ${nu5.getFullYear()}`;
-            } else {
-              filtVila=vilaRev;
-              periodLabel=`${nu5.getFullYear()}`;
-            }
-            // TODO vid release: förarna måste informeras om att veckovila-vyn nu visar
-            // rullande 7-dagars-brott istället för ISO-veckor. Den gamla vyn var bug
-            // enligt arbetsmiljölagen (rullande fönster är rätt tolkning). Lite för-info
-            // i app eller mail innan deploy hjälper förståelsen.
-
+            const vilaÅr=nu5.getFullYear();
+            const mp=`${vilaÅr}-${String(vilaMånad+1).padStart(2,'0')}`;
+            const filtVila=vilaRev.filter(r=>r.datum.startsWith(mp));
+            const periodLabel=`${['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'][vilaMånad]} ${vilaÅr}`;
             // Brott läses från vilobrott-tabellen (en sanning). Render-filtret
             // håller perioden konsekvent — marginal-fönstret vid fetch (-7d) är
             // bara där för att fånga rullande brott som överlappar perioden.
-            const periodFrom = vilaPeriod==='7d' ? (()=>{ const d=new Date(nu5); d.setDate(nu5.getDate()-7); return d.toISOString().slice(0,10); })()
-              : vilaPeriod==='30d' ? (()=>{ const d=new Date(nu5); d.setDate(nu5.getDate()-30); return d.toISOString().slice(0,10); })()
-              : vilaPeriod==='månad' ? `${nu5.getFullYear()}-${String(vilaMånad+1).padStart(2,'0')}-01`
-              : `${nu5.getFullYear()}-01-01`;
-            const periodTo = vilaPeriod==='månad'
-              ? new Date(nu5.getFullYear(), vilaMånad+1, 0).toISOString().slice(0,10)
-              : vilaPeriod==='år'
-                ? `${nu5.getFullYear()}-12-31`
-                : nu5.toISOString().slice(0,10);
+            const periodFrom = `${mp}-01`;
+            const periodTo = `${mp}-${String(new Date(vilaÅr, vilaMånad+1, 0).getDate()).padStart(2,'0')}`;
             const dbBrottIPeriod = (arForetagsledare ? [] : (periodVilobrott || [])).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
             const dbDygn = dbBrottIPeriod.filter(b => b.typ === 'dygnsvila');
             const dbVeck = dbBrottIPeriod.filter(b => b.typ === 'veckovila');
@@ -4694,181 +4652,94 @@ export default function Arbetsrapport() {
                 </div>
               );
             };
-            const VilaKort = ({r}:{r:typeof allVila[0]}) => {
-              const b = brottForRad(r);
-              const ok = !b;
-              // Rött bara för OBESVARADE brott; besvarat = grått med svaret under.
-              const besvarad = !!b?.besvarat_av_forare;
-              const brottFarg = besvarad ? FARG.text2 : FARG.rod;
-              const expanderad = b && !besvarad && vilaKortExpanded === b.id;
-              const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
-              return (
-                <div
-                  onClick={b && !besvarad ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
-                  style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${ok?FARG.linje:FARG.upphojt}`,cursor: b && !besvarad ? "pointer" : "default" }}>
-                  <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{fD(d1)}</p>
-                  <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,color:FARG.text2 }}>Slutade kl {r.slutTid}</p>
-                  <p style={{ margin:`0 0 ${AVSTAND.m}px`,...TYP.meta,color:FARG.text2 }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
-                  <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                    {!ok&&<span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>}
-                    <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:ok?FARG.gron:brottFarg,...TNUM }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
-                    {ok&&<span className="material-symbols-outlined" style={{ color:FARG.gron,fontSize:IKON.text }}>check</span>}
-                    {!ok&&<span style={{ ...TYP.meta,color:brottFarg }}>(kräver {krav_h}h)</span>}
-                  </div>
-                  {r.anledning&&<p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{r.anledning}</p>}
-                  {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
-                  {b && besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
-                  {expanderad && b && (
-                    <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                      <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                    </div>
-                  )}
-                </div>
-              );
-            };
+            // Ett brott som föraren inte svarat på öppnar dagen — där frågan "Varför bröts vilan?" står.
+            const SvaraKnapp = ({datum}:{datum:string}) => (
+              <button data-vila-svara="" onClick={()=>öppnaRedigera(datum)} style={{ ...KNAPP.tertiar, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs, padding:0, marginTop:AVSTAND.s, minHeight:TRAFFYTA.min, ...TYP.meta }}>
+                Svara<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>chevron_right</span>
+              </button>
+            );
+            // Under kravet i månaden: dygnsvila (en natt) och veckovila (rullande fönster), äldst sist.
+            const underKravet = [
+              ...brott.map(r => ({ nyckel:`d-${r.slutDatum}`, datum:r.slutDatum, b:brottForRad(r)!, titel:'Dygnsvila', vilaH:r.vila, rad:`Slutade ${r.slutTid} · startade igen ${fD(new Date(r.startDatum))} ${r.startTid}` })),
+              ...dbVeck.map(b => ({ nyckel:`v-${b.id}`, datum:b.datum, b, titel:'Veckovila', vilaH:Number(b.vila_h), rad:b.beskrivning || '' })),
+            ].sort((x,y)=>y.datum.localeCompare(x.datum));
+            const aktuellMånad = vilaMånad === nu5.getMonth();
 
             return (<>
-            {/* Sammanfattning: faktiska siffror — föraren ser SIN vila, inte bara "uppfylld" */}
+            {/* Läget nu: senaste dygnsvilan och veckovilan */}
             <section style={{ marginBottom:AVSTAND.xl }}>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:AVSTAND.m }}>
                 <SammanfattningsKort label="Senaste dygnsvila" vilaH={senasteVilaRad?.vila ?? 0} kravH={krav_h} saknas={!senasteVilaRad} brott={!!senasteVilaRad && !!brottForRad(senasteVilaRad)} besvarat={!!senasteVilaRad && !!brottForRad(senasteVilaRad)?.besvarat_av_forare} />
-                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem} besvarat={vvHarProblem && dbVeck.every(b => b.besvarat_av_forare)} />
+                <SammanfattningsKort label={`Veckovila (${veckoFonsterDagar} dagar)`} vilaH={veckoLangstaH} kravH={veckoKravH} saknas={!harVeckoData} brott={vvHarProblem && aktuellMånad} besvarat={vvHarProblem && dbVeck.every(b => b.besvarat_av_forare)} />
               </div>
             </section>
 
-            {/* Dygnsvila */}
-            <section style={{ marginBottom:AVSTAND.xl }}>
-              <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Dygnsvila</h3>
-              <div style={{ display:"flex",gap:0,marginBottom:AVSTAND.l,background:FARG.linje,borderRadius:RADIE.rad,padding:AVSTAND.xs }}>
-                {([['7d','7 dagar'],['30d','30 dagar'],['månad','Månad'],['år','År']] as const).map(([k,l])=>(
-                  <button key={k} onClick={()=>{setVilaPeriod(k);setVisaAllaDygnsvila(false);}} style={{ flex:1,minHeight:TRAFFYTA.min,padding:0,borderRadius:RADIE.rad,border:"none",...TYP.meta,fontWeight:VIKT.halvfet,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?FARG.fyllning:"transparent",color:vilaPeriod===k?FARG.text:FARG.text2 }}>{l}</button>
-                ))}
-              </div>
-              {vilaPeriod==='månad'&&(
-                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:AVSTAND.l,marginBottom:AVSTAND.l }}>
-                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center" }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span></button>
-                  <span style={{ ...TYP.listtitel,color:FARG.text,minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
-                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center" }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span></button>
-                </div>
-              )}
+            {/* Månaden: ‹ November 2026 › */}
+            <div data-vila-manad="" style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:AVSTAND.m }}>
+              <button aria-label="Förra månaden" disabled={vilaMånad===0} onClick={()=>setVilaMånad(m=>Math.max(0,m-1))} style={{ background:"none",border:"none",cursor:vilaMånad===0?"default":"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center",opacity:vilaMånad===0?0.3:1 }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_left</span></button>
+              <span style={{ ...TYP.listtitel,color:FARG.text,textTransform:"capitalize" }}>{periodLabel}</span>
+              <button aria-label="Nästa månad" disabled={aktuellMånad} onClick={()=>setVilaMånad(m=>Math.min(nu5.getMonth(),m+1))} style={{ background:"none",border:"none",cursor:aktuellMånad?"default":"pointer",padding:0,width:TRAFFYTA.min,height:TRAFFYTA.min,display:"flex",alignItems:"center",justifyContent:"center",opacity:aktuellMånad?0.3:1 }}><span className="material-symbols-outlined" style={{ color:FARG.bla,fontSize:IKON.rad }}>chevron_right</span></button>
+            </div>
 
-              {/* Default: kompakt eller problem */}
-              {!visaAllaDygnsvila&&vilaPeriod!=='år'?(
-                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
-                  {!harProblem?(
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.xs}px 0` }}>
-                      {/* Siffrorna bor i sammanfattnings-korten ovanför — här bara vägen till detaljerna */}
-                      <span style={{ ...TYP.meta,color:FARG.text2,...TNUM }}>{filtVila.length} {filtVila.length===1?'viloperiod':'viloperioder'} {periodLabel}</span>
-                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Se alla nätter →</button>
-                    </div>
-                  ):(
-                    <>
-                      {brott.map((r,i)=><VilaKort key={i} r={r} />)}
-                      <div style={{ padding:0,borderTop:`1px solid ${FARG.linje}` }}>
-                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Se alla {filtVila.length} nätter →</button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ):vilaPeriod==='år'?(
-                /* Årsvy per månad */
-                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
-                  {(()=>{
-                    // Brott ur TABELLEN (samma sanning som Dag-vyn och listan ovan) — inte
-                    // en lokal jämförelse mot hårdkodade 11 h.
-                    const mån=Array.from({length:12},(_,m)=>{const mv=allVila.filter(r=>r.månad===m);return{m,mv,brott:mv.filter(r=>!!brottForRad(r)).length,obes:mv.filter(r=>{const b=brottForRad(r);return !!b&&!b.besvarat_av_forare;}).length};}).filter(x=>x.mv.length>0);
-                    return mån.length===0?<p style={{ padding:`${AVSTAND.l}px 0`,margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data</p>:mån.map((x,i)=>{
-                      const nm=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][x.m];
-                      const exp=vilaÅrExpand===x.m;
-                      return (<div key={x.m}>
-                        <div onClick={()=>setVilaÅrExpand(exp?null:x.m)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0`,borderBottom:!exp&&i<mån.length-1?`1px solid ${FARG.linje}`:"none",cursor:"pointer" }}>
-                          <span style={{ ...TYP.listtitel }}>{nm}</span>
-                          <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                            <span style={{ fontSize:IKON.text,color:x.obes>0?FARG.rod:FARG.text2,display:"inline-flex",alignItems:"center",gap:AVSTAND.xs }}>{x.mv.length} dagar{x.brott>0?` · ${x.brott}`:''}<span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{x.obes>0?'warning':'check'}</span></span>
-                            <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.text2,transform:exp?"rotate(180deg)":"",transition:`transform ${RORELSE.byte}ms ${RORELSE.kurva}` }}>expand_more</span>
-                          </div>
-                        </div>
-                        {exp&&<div style={{ padding:`${AVSTAND.s}px 0` }}>{x.mv.map((r,j)=><VilaKort key={j} r={r} />)}</div>}
-                      </div>);
-                    });
-                  })()}
-                </div>
-              ):(
-                /* Expanderad lista med kort */
-                <div>
-                  {filtVila.length===0?<div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}><p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Ingen data för perioden</p></div>:
-                  filtVila.map((r,i)=><VilaKort key={i} r={r} />)}
-                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:AVSTAND.xs,background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",minHeight:TRAFFYTA.min,padding:0 }}>Dölj detaljer</button>
-                </div>
-              )}
-            </section>
-
-            {/* Veckovila — rullande fönster från DB:n. Inga ISO-vecka-grupperingar. */}
+            {/* Svaret för månaden: räckte vilan? Bara det som var under kravet visas som kort. */}
             <section style={{ marginBottom:AVSTAND.xl }}>
-              <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Veckovila</h3>
               {periodLaddar ? (
-                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
-                  <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Laddar viloperioder…</p>
+                <div style={KORT}><p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Läser vilan…</p></div>
+              ) : underKravet.length === 0 ? (
+                <div data-vila-ok="" style={{ ...KORT, display:"flex", alignItems:"center", gap:AVSTAND.s }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.gron }}>check_circle</span>
+                  <span style={{ ...TYP.meta,color:FARG.text }}>{filtVila.length === 0 ? `Inga pass i ${periodLabel.split(' ')[0]}` : `Vilan räckte hela ${periodLabel.split(' ')[0]}`}</span>
                 </div>
-              ) : !visaAllaVeckovila?(
-                <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.xs}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:`${AVSTAND.l}px 0` }}>
-                    {/* Aktuell veckovila-siffra bor i sammanfattnings-kortet ovanför —
-                        den här sektionen redovisar BROTT i vald period */}
-                    <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                      {vvObesvarade>0&&<span className="material-symbols-outlined" style={{ fontSize:IKON.text,color:FARG.rod }}>warning</span>}
-                      {/* Rött bara för obesvarade; är alla besvarade är raden grå. */}
-                      <span style={{ ...TYP.meta,color:vvObesvarade>0?FARG.text:FARG.text2 }}>{!vvHarProblem?`Inga brott ${periodLabel}`:vvObesvarade>0?`${dbVeck.length} brott mot veckovila`:`${dbVeck.length} ${dbVeck.length===1?'brott':'brott'} mot veckovila · ${dbVeck.length===1?'besvarat':'alla besvarade'}`}</span>
+              ) : (<>
+                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Under kravet</h3>
+                {underKravet.map(u => {
+                  const besvarad = !!u.b.besvarat_av_forare;
+                  const farg = besvarad ? FARG.text2 : FARG.rod;
+                  return (
+                    <div key={u.nyckel} data-vila-brott="" style={{ ...KORT, marginBottom:AVSTAND.s }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m }}>
+                        <span style={{ ...TYP.listtitel,color:FARG.text }}>{u.titel} · {fD(new Date(u.datum))}</span>
+                        <span style={{ ...TYP.listtitel,color:farg,...TNUM,whiteSpace:"nowrap" }}>{fmtVilaH(u.vilaH)}</span>
+                      </div>
+                      <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2 }}>Kravet är {Number(u.b.krav_h)}h{u.rad ? ` · ${u.rad}` : ''}</p>
+                      {besvarad
+                        ? <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(u.b)}</p>
+                        : <SvaraKnapp datum={u.datum} />}
                     </div>
-                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:FARG.bla,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Visa alla →</button>}
-                  </div>
-                </div>
-              ):(
-                <div>
-                  {dbVeck.length===0 ? (
-                    <div style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.xl}px`,border:`1px solid ${FARG.linje}` }}>
-                      <p style={{ margin:0,...TYP.meta,color:FARG.text2 }}>Inga brott i perioden</p>
-                    </div>
-                  ) : dbVeck.map(b => {
-                    const dt = new Date(b.datum);
-                    const besvarad = !!b.besvarat_av_forare;
-                    const brottFarg = besvarad ? FARG.text2 : FARG.rod;
-                    const expanderad = !besvarad && vilaKortExpanded === b.id;
+                  );
+                })}
+              </>)}
+            </section>
+
+            {/* Alla nätter i månaden: en rad per viloperiod, nyast först. */}
+            {filtVila.length > 0 && (
+              <section style={{ marginBottom:AVSTAND.xl }}>
+                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Alla nätter</h3>
+                <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
+                  {filtVila.map((r,i) => {
+                    const b = brottForRad(r);
+                    const farg = !b ? FARG.text : b.besvarat_av_forare ? FARG.text2 : FARG.rod;
                     return (
-                      <div key={b.id}
-                        onClick={besvarad ? undefined : () => setVilaKortExpanded(expanderad ? null : b.id)}
-                        style={{ background:FARG.kort,borderRadius:RADIE.kort,padding:`${AVSTAND.l}px ${AVSTAND.l}px`,marginBottom:AVSTAND.s,border:`1px solid ${FARG.linje}`,cursor:besvarad?"default":"pointer" }}>
-                        <p style={{ margin:`0 0 ${AVSTAND.xs}px`,...TYP.meta,fontWeight:VIKT.halvfet,color:FARG.text,textTransform:"capitalize" }}>{fD(dt)}</p>
-                        <p style={{ margin:`0 0 ${AVSTAND.s}px`,...TYP.meta,color:FARG.text2 }}>{b.beskrivning}</p>
-                        <div style={{ display:"flex",alignItems:"center",gap:AVSTAND.s }}>
-                          <span className="material-symbols-outlined" style={{ color:brottFarg,fontSize:IKON.text }}>{besvarad?'check':'warning'}</span>
-                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:brottFarg,...TNUM }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
-                          <span style={{ ...TYP.meta,color:brottFarg }}>(kräver {Number(b.krav_h)}h)</span>
+                      <div key={`${r.slutDatum}-${r.startDatum}`} data-vila-natt="" style={{ padding:`${AVSTAND.m}px 0`, borderBottom: i < filtVila.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:AVSTAND.m }}>
+                          <span style={{ ...TYP.meta,color:FARG.text }}>{(t => t.charAt(0).toUpperCase() + t.slice(1))(fD(new Date(r.startDatum)))}</span>
+                          <span style={{ ...TYP.meta,fontWeight:VIKT.halvfet,color:farg,...TNUM,whiteSpace:"nowrap" }}>{fmtStor(r.vila)}</span>
                         </div>
-                        {/* Svaret syns direkt under, utan att kortet behöver fällas ut. */}
-                        {besvarad && <p style={{ margin:`${AVSTAND.s}px 0 0`,...TYP.meta,color:FARG.text2 }}>{besvaratText(b)}</p>}
-                        {expanderad && (
-                          <div style={{ marginTop:AVSTAND.m,paddingTop:AVSTAND.m,borderTop:`1px solid ${FARG.linje}` }}>
-                            <p style={{ margin:0,...TYP.meta,color:FARG.orange }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
-                          </div>
-                        )}
+                        <p style={{ margin:`${AVSTAND.xs}px 0 0`,...TYP.meta,color:FARG.text2,...TNUM }}>{r.slutTid} → {r.startTid}{r.anledning ? ` · ${r.anledning}` : ''}</p>
                       </div>
                     );
                   })}
-                  <div style={{ padding:0,borderTop:`1px solid ${FARG.linje}` }}>
-                    <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:FARG.text2,...TYP.meta,fontWeight:VIKT.normal,cursor:"pointer",fontFamily:"inherit",padding:0,minHeight:TRAFFYTA.min,display:"inline-flex",alignItems:"center" }}>Dölj detaljer</button>
-                  </div>
                 </div>
-              )}
-            </section>
+              </section>
+            )}
 
-            {/* Export + Löneunderlag */}
-            <section style={{ paddingTop:AVSTAND.l,borderTop:`1px solid ${FARG.linje}`,display:"flex",flexDirection:"column",gap:AVSTAND.m }}>
-              <button onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:AVSTAND.s,width:"100%",background:"none",border:"none",padding:`${AVSTAND.m}px 0`,cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ color:FARG.text2,fontSize:IKON.text }}>print</span>
-                <span style={{ ...TYP.text,fontWeight:VIKT.normal,color:FARG.text2 }}>Exportera PDF →</span>
+            {/* Utskrift av månaden (t.ex. till Arbetsmiljöverket) — en handling: blå text. */}
+            {filtVila.length > 0 && (
+              <button data-vila-skriv-ut="" onClick={exportPDF} style={{ ...KNAPP.tertiar, display:"flex", alignItems:"center", gap:AVSTAND.s, padding:0, minHeight:TRAFFYTA.min, ...TYP.meta }}>
+                <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>print</span>
+                Skriv ut {periodLabel.split(' ')[0]}
               </button>
-            </section>
+            )}
             </>);
           })()}
           </>}

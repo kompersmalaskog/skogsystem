@@ -116,3 +116,32 @@ describe("vilofrågan och företagsledare", () => {
     expect(k).toContain("(arForetagsledare ? [] : (periodVilobrott || []))");
   });
 });
+
+// Min tid: Vila-fliken och Övertid-taket hör till arbetstidslagen — inte till en företagsledare (2026-11-25).
+describe("Min tid och företagsledare", () => {
+  const knappar = () => Array.from(behallare!.querySelectorAll("button")).map(b => (b.textContent || "").trim());
+  const tryck = async (text: string) => {
+    const b = Array.from(behallare!.querySelectorAll<HTMLElement>("nav > *")).find(x => (x.textContent || "").trim().endsWith(text));
+    expect(b, text).toBeTruthy();
+    await act(async () => { b!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    for (let i = 0; i < 4; i++) await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+  };
+  it("en förare har Vila-fliken och ser Övertid-taket", async () => {
+    await montera();
+    await tryck("Min tid");
+    expect(knappar()).toContain("Vila");
+    expect(behallare!.textContent).toMatch(/Övertid \d{4}/);
+  });
+  it("en företagsledare har ingen Vila-flik och inget Övertid-tak", async () => {
+    FORARE.foretagsledare = true;
+    await montera();
+    await tryck("Min tid");
+    expect(knappar()).toContain("Översikt");
+    expect(knappar()).not.toContain("Vila");
+    expect(behallare!.textContent).not.toMatch(/Övertid \d{4}/);
+  });
+  it("källvakt: ingen prediktiv 'Kort dygnsvila' för en företagsledare", () => {
+    const k = fs.readFileSync(path.resolve(__dirname, "Arbetsrapport.tsx"), "utf8");
+    expect(k).toContain("if (trosklar && !arForetagsledare) {");
+  });
+});

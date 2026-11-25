@@ -164,13 +164,13 @@ describe("Kolumnen: källvakter (rötter, nav, ark)", () => {
 });
 
 describe("Tryckytor ≥ 44 px", () => {
-  it("Min tid → Vila: segmenten, 'Se alla nätter →' och månadspilarna", async () => {
+  it("Min tid → Vila: en månad i taget — inga periodsegment, månadspilarna 44 px", async () => {
     await montera();
     await klicka("Min tid"); await klicka("Vila", true);
-    for (const t of ["7 dagar", "30 dagar", "Månad", "År"]) expect(knapp(t, true)?.style.minHeight, t).toBe(`${TRAFFYTA.min}px`);
-    const alla = knapp("Se alla nätter");
-    if (alla) expect(alla.style.minHeight).toBe(`${TRAFFYTA.min}px`);
-    await klicka("Månad", true);
+    for (const t of ["7 dagar", "30 dagar", "År", "Se alla nätter"]) expect(knapp(t, true), t).toBeFalsy();
+    expect(behallare!.querySelector("[data-vila-manad]")).toBeTruthy();
+    const skrivUt = behallare!.querySelector<HTMLElement>("[data-vila-skriv-ut]");
+    if (skrivUt) expect(skrivUt.style.minHeight).toBe(`${TRAFFYTA.min}px`);
     const pilar = Array.from(behallare!.querySelectorAll("button")).filter(b => /^chevron_(left|right)$/.test((b.textContent || "").trim()));
     expect(pilar.length).toBe(2);
     for (const b of pilar) expect([b.style.width, b.style.height]).toEqual([`${TRAFFYTA.min}px`, `${TRAFFYTA.min}px`]);
