@@ -52,7 +52,7 @@ function GransRad({ g, forareId, sista }: { g: Gransstatus; forareId: string; si
       <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text2, overflowWrap: "anywhere" }}>{g.mening}</p>
       {g.atgard && <p data-arbetstid-atgard="" style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.orange, overflowWrap: "anywhere" }}>{g.atgard}</p>}
       <button type="button" aria-expanded={varfor} aria-controls={`varfor-${forareId}-${g.id}`} onClick={() => setVarfor(v => !v)}
-        style={{ ...KNAPP.tertiar, display: "flex", width: "auto", padding: 0 }}>
+        style={{ ...KNAPP.tertiar, display: "flex", width: "auto", padding: 0, color: FARG.bla }}>
         Varför?
       </button>
       {varfor && (
