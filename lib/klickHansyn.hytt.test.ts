@@ -52,7 +52,6 @@ async function bygg(pg: any, vy: 'plan' | 'hytt', areal = false) {
     map.addSource('trakt-geo-source', { type: 'geojson', data: fc([poly(rektangel(15.0, 57.0, 0.0012, 0.0006), { _lager: 'L_TILLAGGSYTOR', _typ: 'hänsynsyta', TYP: '24', FLBESKR: 'Kant mot vatten O', LOPNR: '1', ...arg.areal ? { 'SHAPE.STAr': 2231.07080078 } : {} })]) });
     map.addSource('grans-source', { type: 'geojson', data: fc([poly(rektangel(14.9915, 57.0, 0.0025, 0.003), { id: 'omrade-1' })]) });
     map.addSource('punkter', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [14.9992, 57.0] } } });
-    map.addSource('tma', { type: 'geojson', data: { type: 'Feature', properties: { markerId: 'm1' }, geometry: { type: 'LineString', coordinates: [[15.0006, 56.9996], [15.0006, 57.0004]] } } });
     map.addSource('spar', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[14.9985, 57.0], [15.0015, 57.0]] } } });
     // Sidans skapandeordning (zone-fill först, sedan trakt-gr-fill, hänsyn, … grans-fill); lagerordningen lägger sedan om dem som i appen.
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
@@ -61,7 +60,6 @@ async function bygg(pg: any, vy: 'plan' | 'hytt', areal = false) {
     map.addLayer({ id: 'grans-fill', type: 'fill', source: 'grans-source', paint: { 'fill-color': '#ff453a', 'fill-opacity': 0 } });
     const sparId = arg.vy === 'hytt' ? 'hyttspar-egen-0' : 'planspar-skordare-0';
     map.addLayer({ id: sparId, type: 'line', source: 'spar', paint: { 'line-color': '#bf5af2', 'line-width': 10 } });
-    map.addLayer({ id: 'tma-warning-hitbox', type: 'line', source: 'tma', paint: { 'line-color': '#ff9f0a', 'line-width': 12, 'line-opacity': 0.01 } });
     map.addLayer({ id: 'markers-hit', type: 'circle', source: 'punkter', paint: { 'circle-radius': 14, 'circle-color': '#0a84ff', 'circle-opacity': 0.01 } });
     LO.installeraLagerOrdning(map);
     W.__map = map;
@@ -92,8 +90,6 @@ async function tryck(pg: any, lngLat: [number, number], gammal: boolean): Promis
     const fra = (layers: string[]) => { const l = layers.filter((x) => map.getLayer(x)); return l.length ? map.queryRenderedFeatures(pt, { layers: l }) : []; };
     // handleMarkerFeatureClick: bara när symbol vinner.
     if (vinnare === 'symbol') ut.push('symbol');
-    // tma-lyssnaren: förut utan prioritet, nu bara när 'tma' vinner.
-    if (fra(['tma-warning-hitbox']).length && (gammal || vinnare === 'tma')) ut.push('tma');
     // Trakt-lyssnaren (onKlick): frågar sina egna lager, avstår för larm/ytnummer, väljer minsta ytan och avstår om en annan kategori vann.
     const LAGER = ['trakt-punkt-circle', 'trakt-raa-point', 'trakt-raa-line', 'trakt-hansyn-fill', 'trakt-ovrigt-fill', 'trakt-nb-fill', 'trakt-raa-fill', 'trakt-gr-fill'];
     const traffar = fra(LAGER);
@@ -119,13 +115,12 @@ const HANSYN: [number, number] = [15.0, 57.0];             // mitt i Vida-hänsy
 const ZON: [number, number] = [15.002, 57.002];            // egen zon inne i traktdelen
 const TRAKTDEL: [number, number] = [15.003, 56.997];       // bara traktdelen
 const SYMBOL: [number, number] = [14.9992, 57.0];          // en symbol inne i hänsynen
-const TMA: [number, number] = [15.0006, 57.0];             // väg-⚠ inne i hänsynen
 const OMRADE: [number, number] = [14.9915, 57.0];         // eget område (grans-fill), utanför traktdelen
 
 describe.skipIf(!CHROMIUM)('Tryck på hänsyn — riktig Chromium + MapLibre', () => {
   for (const vy of ['plan', 'hytt'] as const) {
     for (const areal of [true, false]) {
-      it(`${vy === 'plan' ? 'planeringsvyn' : 'körvyn'}, ${areal ? 'med arealer i datan (Brokamålas SHAPE.STAr)' : 'utan arealer'}: hänsyn, egen zon, traktdel, symbol, väg-⚠ och eget område — rätt kort, ett i taget, körspåret tar inget tryck`, async () => {
+      it(`${vy === 'plan' ? 'planeringsvyn' : 'körvyn'}, ${areal ? 'med arealer i datan (Brokamålas SHAPE.STAr)' : 'utan arealer'}: hänsyn, egen zon, traktdel, symbol och eget område — rätt kort, ett i taget, körspåret tar inget tryck`, async () => {
         const lib = await bunta();
         const b = await CHROMIUM!.launch({});
         try {
@@ -145,7 +140,6 @@ describe.skipIf(!CHROMIUM)('Tryck på hänsyn — riktig Chromium + MapLibre', (
           expect(await tryck(pg, ZON, false), 'egen zon → zonens kort, inte traktens').toEqual(['marker:zon']);
           expect(await tryck(pg, TRAKTDEL, false), 'bara traktdelen → traktens kort').toEqual(['trakt:traktdel']);
           expect(await tryck(pg, SYMBOL, false), 'symbol över hänsynen → symbolen').toEqual(['symbol']);
-          expect(await tryck(pg, TMA, false), 'väg-⚠ över hänsynen → varningen').toEqual(['tma']);
           expect(await tryck(pg, OMRADE, false), 'eget område → områdets kort').toEqual(['marker:omrade']);
         } finally { await b.close(); }
       }, 120000);

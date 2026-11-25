@@ -18,9 +18,10 @@ describe('klickkoppling i planeringssidan (planeringsvyn och körvyn delar den)'
     expect(m![1]).toBe('traktyta');
   });
 
-  it('egna zoner (zone-fill) är fortfarande kategori yta, och väg-⚠ går bara när den vinner', () => {
+  it('egna zoner (zone-fill) är fortfarande kategori yta, och traktgränsen har ingen tryckbar väg-⚠-linje längre', () => {
     expect(page).toMatch(/const onZoneClick = [\s\S]{0,400}vinnandeKategoriForKarta\(map, e\.point\) !== 'yta'\) return;/);
-    expect(page).toContain("if (vinnandeKategoriForKarta(map, e.point) !== 'tma') return;   // larm och symboler är högre → avstå (lib/klickPrioritet)");
+    expect(page).not.toContain("!== 'tma'");
+    expect(page).not.toContain('tma-warning');
   });
 
   it('körspår tar aldrig emot tryck: ingen lyssnare på hyttspår-, planspår- eller körordningslager', () => {

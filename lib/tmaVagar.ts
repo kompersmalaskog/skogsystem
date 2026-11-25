@@ -1,6 +1,7 @@
-// Vägvarningen (traktgräns nära väg, röd linje + ⚠) räknas EN gång per väg och objekt — inte en gång per traktdel och inte en gång per vägsträcka (Martin 2026-11-25, Brokamåla: två gränser längs väg 538 gav
+// Vägvarningen (traktgräns nära väg: band över vägen + ⚠/✓) räknas EN gång per väg och objekt — inte en gång per traktdel och inte en gång per vägsträcka (Martin 2026-11-25, Brokamåla: två gränser längs väg 538 gav
 // två röda linjer och två ⚠). Varje traktdel kontrolleras fortfarande för sig (checkBoundaryTma, panelen och traktkortet läser sitt eget resultat), men det som RITAS och räknas är den här sammanställningen:
-// en väg får EN ägare (delen som ligger närmast vägen, helst en del som kan visa ⚠, annars lägsta id) och EN röd linje (alla delars träffar på samma vägsträcka sammanslagna).
+// en väg får EN ägare (delen som ligger närmast vägen, helst en del som kan visa ⚠, annars lägsta id) och EN linje per vägsträcka (alla delars träffar på samma vägsträcka sammanslagna).
+// Färgen (orange/grön/röd) kommer av ägarens riskbedömning och ritas av lib/vagRisk.
 // Ren funktion, testad i lib/tmaVagar.test.ts.
 
 export interface LatLon { lat: number; lon: number }
@@ -25,11 +26,11 @@ export interface Vagvarning {
   ref?: string;
   /** Kortaste avståndet från någon del. */
   avstand: number;
-  /** Delen som äger varningen (det är den som får ⚠ och pulserande kant). */
+  /** Delen som äger varningen (det är den vars riskbedömning bestämmer färgen och som får ⚠/✓). */
   agare: string;
   /** Alla delar som ser vägen. */
   delar: string[];
-  /** Vägens röda linje: en linje per vägsträcka (OSM-väg), med alla delars nära noder sammanslagna. */
+  /** Vägens linjer (bandet ritas över dem): en linje per vägsträcka (OSM-väg), med alla delars nära noder sammanslagna. */
   linjer: LatLon[][];
   /** Alla punkter på linjerna (för närhetskontroll mot ägarens gräns). */
   punkter: LatLon[];
