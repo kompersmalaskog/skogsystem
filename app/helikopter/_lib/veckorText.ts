@@ -23,7 +23,7 @@ function rad(namn: string, varde: number, plan: number | null, status: VeckaRad[
   if (varde >= plan) return { text, ord: 'Klart', klart: true }
   const skillnad = fmt(plan - varde)
   // Jämnt flöde: en avslutad vecka står för sig och för inget vidare. Bara veckan som pågår säger vad som är kvar.
-  return { text, ord: status === 'pagar' ? `${skillnad} kvar` : '', klart: false }
+  return { text, ord: status === 'pagar' ? `${skillnad} kvar` : 'Nådde inte', klart: false }
 }
 
 /** Veckans två rader. Utan beställning (plan saknas) står bara volymen, inget ord. */

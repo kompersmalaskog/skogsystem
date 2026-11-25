@@ -228,7 +228,7 @@ function SparBlock({ manad, veckor, vald, onVald, manuella, onAndraOrsak }: {
                   <div key={k}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: AVSTAND.s, marginTop: AVSTAND.xs, ...TYP.text, color: x.klart ? FARG.text : FARG.text2, fontWeight: x.klart ? 600 : 400 }}>
                       <span style={TNUM}>{x.text}</span>
-                      <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? { color: FARG.orange, fontWeight: 600 } : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
+                      <span style={{ ...TNUM, display: 'flex', alignItems: 'center', gap: AVSTAND.xs, ...(x.ord && !x.klart ? (x.ord === 'Nådde inte' ? { color: FARG.text2 } : { color: FARG.orange, fontWeight: 600 }) : null) }}>{x.klart && <Ikon namn="check" storlek={IKON.text} farg={FARG.gron} />}{x.ord}</span>
                     </div>
                     {k === 1 && r.egen && <div data-egen="1" style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>{r.egen}</div>}
                     {k === 1 && r.alla && <div data-alla="1" style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>{r.alla}</div>}

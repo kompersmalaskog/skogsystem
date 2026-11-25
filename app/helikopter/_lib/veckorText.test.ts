@@ -14,7 +14,7 @@ describe('Veckor — orden', () => {
   it('låst: Klart vid plan eller över, annars "under"', () => {
     const r = veckoRader(v({ status: 'last', plan: 909, skordat: 980, skotat: 780 }))
     expect(r.skordat.ord).toBe('Klart')
-    expect(r.skotat).toMatchObject({ ord: '', klart: false })   // jämnt flöde: avslutad vecka säger inget om vad som "saknas"
+    expect(r.skotat).toMatchObject({ ord: 'Nådde inte', klart: false })   // jämnt flöde: avslutad vecka säger bara "Nådde inte", ingen siffra
     expect(r.skordat).toMatchObject({ ord: 'Klart', klart: true })
     expect(veckoRader(v({ status: 'last', plan: 909, skordat: 909 })).skordat.klart).toBe(true)   // exakt plan = nått
   })
