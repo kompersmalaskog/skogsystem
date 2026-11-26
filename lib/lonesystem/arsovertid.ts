@@ -57,7 +57,7 @@
 import { getRödaDagar } from "../roda-dagar";
 import { isoVecka } from "../vilobrott";
 import { arArbetsdag } from "../arbetsdagRegler";
-import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, hemskickadMinuter, arDeldag, schemaTimmarPerDag, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
+import { franvaroPerDatum, deldagarPerDatum, deldagTimmar, hemskickadMinuter, hemskickadGaller, arDeldag, schemaTimmarPerDag, FRANVARO_STATUS_GALLER, type FranvaroRad } from "../franvaro";
 import { manadensOrdinarie, overlapparUtjamning, type OrdinarieLedighet } from "./manadsordinarie";
 import { helglonDagar } from "./helglon";
 
@@ -248,7 +248,7 @@ export function beraknaArsovertid(
   for (const r of franvaro) {
     if (r.typ !== "hemskickad" || !arDeldag(r) || !(FRANVARO_STATUS_GALLER as readonly string[]).includes(r.status)) continue;
     const d = r.startdatum;
-    if (!d || d < arStart || d > tomDatum || hemPerDatum.has(d)) continue;
+    if (!d || d < arStart || d > tomDatum || hemPerDatum.has(d) || !hemskickadGaller(d)) continue;   // helg/röd dag: som lönen
     hemPerDatum.set(d, hemskickadMinuter(minPerDatum.get(d) || 0));
   }
   hemPerDatum.forEach((hemMin, datum) => { if (hemMin > 0) minPerDatum.set(datum, (minPerDatum.get(datum) || 0) + hemMin); });

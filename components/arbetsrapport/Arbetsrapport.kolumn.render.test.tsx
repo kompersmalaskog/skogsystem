@@ -177,7 +177,8 @@ describe("Tryckytor ≥ 44 px", () => {
   });
   it("Redigeras länkar ('Åkte hem …', 'Byt mot ledig dag') ligger på egen rad, vänsterställda, utan minHeight:0", () => {
     for (const text of ["Åkte hem sjuk, VAB, föräldraledig eller hemskickad?", "Byt mot ledig dag"]) {
-      const i = kalla.indexOf(`>${text}</button>`);
+      // Texten kan stå direkt i knappen eller i ett uttryck i den ("Åkte hem …" har en kortare text på helg och röd dag).
+      const i = Math.max(kalla.indexOf(`>${text}</button>`), kalla.indexOf(`"${text}"`));
       expect(i, text).toBeGreaterThan(0);
       const stil = kalla.slice(kalla.lastIndexOf("<button", i), i);
       expect(stil, text).toContain("...KNAPP.lank");
