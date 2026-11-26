@@ -5,15 +5,14 @@
 import { useEffect, useState } from "react";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
 import type { ArbetstidForare, Niva } from "@/lib/arbetstidsgranser";
-import { adminRader, adminSvar, type AdminRad } from "@/lib/arbetstidVisning";
+import { ADMIN_GRUPPER, adminRader, adminSvar, type AdminRad } from "@/lib/arbetstidVisning";
 import Svarsrad from "@/components/design/Svarsrad";
 import GransLista from "@/components/arbetstid/GransLista";
-import { Etikett, Fel, Laddar, Lank, Lista, Rad, Sheet, Stod } from "./ui";
+import { Fel, Laddar, Lank, Lista, Rad, Sektion, Sheet, Stod } from "./ui";
 
 type Svar = { ok: boolean; forare?: ArbetstidForare[]; varningar?: string[]; meddelande?: string };
 
 const FARG_NIVA: Record<Niva, string> = { lugn: FARG.text2, gul: FARG.orange, rod: FARG.rod };
-const ORD_NIVA: Record<Niva, string | null> = { lugn: null, gul: "Nära gränsen", rod: "Över gränsen" };
 
 export default function ArbetstidUnderflik() {
   const [svar, setSvar] = useState<Svar | null>(null);
@@ -40,19 +39,23 @@ export default function ArbetstidUnderflik() {
   return (
     <div data-arbetstid-sida="">
       <Svarsrad rubrik={rader.length === 0 ? "Ingen förare har arbetstid i år än" : s.text} avvikelse={s.niva !== "lugn"} />
+      {ADMIN_GRUPPER.map(({ niva, rubrik }) => {
+        const grupp = rader.filter(r => r.niva === niva);
+        if (grupp.length === 0) return null;
+        return (
+          <div key={niva} data-arbetstid-grupp={niva}>
+            <Sektion orange={niva !== "lugn"}>{rubrik}</Sektion>
+            <Lista>
+              {grupp.map((r, i) => (
+                <Rad key={r.id} attr={{ "data-arbetstid-rad": r.id, "data-niva": r.niva }} chevron onClick={() => setOppen(r.id)} sista={i === grupp.length - 1}
+                  rubrik={r.namn} detalj={<DelarText rad={r} />} />
+              ))}
+            </Lista>
+          </div>
+        );
+      })}
       {rader.length > 0 && (
-        <div>
-          <Lista>
-            {rader.map((r, i) => (
-              <Rad key={r.id} attr={{ "data-arbetstid-rad": r.id, "data-niva": r.niva }} chevron onClick={() => setOppen(r.id)} sista={i === rader.length - 1}
-                rubrik={<span style={{ display: "inline-flex", alignItems: "center", gap: AVSTAND.s, flexWrap: "wrap" }}>
-                  {r.namn}{ORD_NIVA[r.niva] && <Etikett farg={FARG_NIVA[r.niva]}>{ORD_NIVA[r.niva]}</Etikett>}
-                </span>}
-                detalj={<DelarText rad={r} />} />
-            ))}
-          </Lista>
-          <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Månad t.o.m. igår · vecka i snitt över 4 månader. Samma tal som föraren ser i Min tid.</p>
-        </div>
+        <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text3 }}>Tryck på en förare för att se alla gränser. Samma tal som föraren ser i Min tid.</p>
       )}
       {(svar.varningar || []).map(v => <Stod key={v} farg={FARG.orange} attr={{ "data-arbetstid-varning": "" }}>{v}</Stod>)}
 
@@ -66,15 +69,13 @@ export default function ArbetstidUnderflik() {
   );
 }
 
-/** "Månad 32 / 50 · År 180 / 250 · Vecka 44 / 48" — en del som är nära eller över får sin färg. */
+/** Bara gränserna som är nära eller över, i ord. Inget att säga = "Allt inom gränserna". */
 function DelarText({ rad }: { rad: AdminRad }) {
+  if (rad.delar.length === 0) return <span data-arbetstid-delar="">Allt inom gränserna</span>;
   return (
     <span data-arbetstid-delar="">
-      {rad.delar.map((d, i) => (
-        <span key={d.id} data-del={d.id} data-niva={d.niva}>
-          {i > 0 && " · "}
-          <span style={{ color: d.niva === "lugn" ? undefined : FARG_NIVA[d.niva] }}>{d.text}</span>
-        </span>
+      {rad.delar.map(d => (
+        <span key={d.id} data-del={d.id} data-niva={d.niva} style={{ display: "block", color: FARG_NIVA[d.niva] }}>{d.text}</span>
       ))}
     </span>
   );

@@ -3802,23 +3802,24 @@ describe("Lön › Arbetstid: alla förares gränser, samma som i Min tid", () =
     expect(text()).toContain("Arbetstid");
   });
 
-  it("alla inom gränserna: svaret säger det, en rad per förare med månad, år och vecka", async () => {
+  it("alla inom gränserna: svaret säger det, en grupp, och raden säger 'Allt inom gränserna' — inga tal", async () => {
     g.__arbetstid = svar([forareMed("a", "Anna Berg", 10), forareMed("b", "Bo Ek", 40)]);
     await monter("flik=lon&underflik=arbetstid");
     expect(ren(sida())).toContain("Alla håller sig inom gränserna");
     expect(rader()).toHaveLength(2);
-    const t = ren(rader()[0]);
-    expect(t).toMatch(/Månad .* \/ 50/);
-    expect(t).toMatch(/År .* \/ 250/);
-    expect(t).toMatch(/Vecka .* \/ 48/);
+    expect(Array.from(cont.querySelectorAll("[data-arbetstid-grupp]")).map(e => e.getAttribute("data-arbetstid-grupp"))).toEqual(["lugn"]);
+    expect(ren(rader()[0])).toContain("Allt inom gränserna");
+    expect(ren(rader()[0])).not.toMatch(/\d/);
   });
 
-  it("den som är över en gräns står först, med ordet bredvid färgen, och svaret säger vem", async () => {
+  it("grupperna Över · Nära · Inom gränserna, raden bär bara gränsen det gäller, och svaret säger vem", async () => {
     g.__arbetstid = svar([forareMed("a", "Anna Berg", 10), forareMed("s", "Stefan Karlsson", 262), forareMed("g", "Gul Person", 230)]);
     await monter("flik=lon&underflik=arbetstid");
+    expect(Array.from(cont.querySelectorAll("[data-arbetstid-grupp]")).map(e => e.getAttribute("data-arbetstid-grupp"))).toEqual(["rod", "gul", "lugn"]);
+    expect(ren(cont.querySelector('[data-arbetstid-grupp="rod"]'))).toContain("Över gränsen");
     expect(rader().map(r => r.getAttribute("data-arbetstid-rad"))).toEqual(["s", "g", "a"]);
-    expect(ren(rader()[0])).toContain("Över gränsen");
-    expect(ren(rader()[1])).toContain("Nära gränsen");
+    expect(ren(rader()[0])).toContain("Året 262 av 250 tim");
+    expect(ren(rader()[0])).not.toContain("Månad");
     expect(ren(sida())).toContain("Stefan är över årets gräns");
   });
 

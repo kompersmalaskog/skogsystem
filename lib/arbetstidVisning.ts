@@ -39,27 +39,45 @@ export function synligaGranser(granser: Gransstatus[]): Gransstatus[] {
 const tal = (n: number) => Number(n).toLocaleString("sv-SE");
 const RANG: Record<Niva, number> = { lugn: 0, gul: 1, rod: 2 };
 
-/** Kortnamnen på förarens rad i admin. */
-const KORT: Record<string, string> = { overtid_manad: "Månad", allman_overtid_ar: "År", extra_overtid_ar: "Extra", snitt_48: "Vecka" };
+/** Namnen på förarens rad i admin. */
+const KORT: Record<string, string> = { overtid_manad: "Månad", allman_overtid_ar: "Året", extra_overtid_ar: "Extra övertid", snitt_48: "Snitt per vecka" };
 /** Hur gränsen sägs i svaret överst ("närmar sig månadens gräns"). */
 const GRANS_ORD: Record<string, string> = {
   overtid_manad: "månadens gräns", allman_overtid_ar: "årets gräns", extra_overtid_ar: "gränsen för extra övertid", snitt_48: "veckogränsen",
 };
 
+/** Hela timmar — utom när avrundningen skulle dölja att gränsen är passerad (48,4 av 48 är inte "48 av 48"). */
+function heltal(v: number, grans: number, niva: Niva): string {
+  const r = Math.round(v);
+  if (niva === "rod" && r <= grans) return tal(Math.round(v * 10) / 10);
+  return tal(r);
+}
+
 export type AdminDel = { id: string; text: string; niva: Niva };
 export type AdminRad = { id: string; namn: string; niva: Niva; delar: AdminDel[]; granser: Gransstatus[]; notiser: string[] };
 
-/** En rad per förare (inte företagsledare). Den som ligger närmast en gräns först. */
+/** En rad per förare (inte företagsledare). Den som ligger närmast en gräns först. Raden bär BARA gränserna som är nära
+ *  eller över ("Snitt per vecka 49 av 48 tim"); allt annat står i arket. */
 export function adminRader(forare: ArbetstidForare[]): AdminRad[] {
   const rader = forare.filter(f => !f.foretagsledare).map(f => {
     const granser = synligaGranser(f.granser);
     const niva = granser.reduce<Niva>((v, g) => (RANG[g.niva] > RANG[v] ? g.niva : v), "lugn");
-    const delar = granser.map(g => ({ id: g.id, niva: g.niva, text: `${KORT[g.id]} ${g.varde == null ? "–" : tal(g.varde)} / ${tal(g.grans)}` }));
+    const delar = granser
+      .filter(g => g.niva !== "lugn" && g.varde != null)
+      .sort((a, b) => RANG[b.niva] - RANG[a.niva] || (b.andel ?? 0) - (a.andel ?? 0))
+      .map(g => ({ id: g.id, niva: g.niva, text: `${KORT[g.id]} ${heltal(g.varde as number, g.grans, g.niva)} av ${tal(g.grans)} tim` }));
     return { id: f.medarbetare_id, namn: f.namn, niva, delar, granser, notiser: f.notiser, narmast: Math.max(0, ...granser.map(g => g.andel ?? 0)) };
   });
   rader.sort((a, b) => RANG[b.niva] - RANG[a.niva] || b.narmast - a.narmast || a.namn.localeCompare(b.namn, "sv"));
   return rader.map(({ narmast: _n, ...r }) => r);
 }
+
+/** Grupperna på sidan, i ordning. En tom grupp finns inte. */
+export const ADMIN_GRUPPER: { niva: Niva; rubrik: string }[] = [
+  { niva: "rod", rubrik: "Över gränsen" },
+  { niva: "gul", rubrik: "Nära gränsen" },
+  { niva: "lugn", rubrik: "Inom gränserna" },
+];
 
 const fornamn = (namn: string) => namn.split(/\s+/)[0] || namn;
 const ochLista = (n: string[]) => (n.length === 1 ? n[0] : `${n.slice(0, -1).join(", ")} och ${n[n.length - 1]}`);
@@ -72,7 +90,7 @@ export function adminSvar(rader: AdminRad[]): { text: string; niva: Niva } {
     const verb = niva === "rod" ? "är över" : "närmar sig";
     if (vilka.length === 1) {
       const g = vilka[0].granser.filter(x => x.niva === niva);
-      const ord = g.length === 1 ? GRANS_ORD[g[0].id] : "gränserna";
+      const ord = ochLista(g.map(x => GRANS_ORD[x.id]));
       return { niva, text: `${fornamn(vilka[0].namn)} ${verb} ${ord}` };
     }
     const namn = vilka.length <= 3 ? ochLista(vilka.map(r => fornamn(r.namn))) : `${vilka.length} förare`;
