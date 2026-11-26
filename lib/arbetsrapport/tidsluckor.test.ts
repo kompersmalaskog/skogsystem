@@ -67,3 +67,31 @@ describe("tidsluckor", () => {
     expect(luckansSegment(l, [{ start_tid: "07:00:00", slut_tid: "08:00:00" }])).toBeNull();
   });
 });
+
+import { luckansRest } from "./tidsluckor";
+describe("luckansRest — två saker i samma lucka", () => {
+  const l = { start: "05:30", slut: "06:30", minuter: 60 };
+  it("första halvan svarad: resten är en egen fråga", () => {
+    expect(luckansRest(l, [{ start_tid: "05:30:00", slut_tid: "06:00:00" }])).toEqual([{ start: "06:00", slut: "06:30", minuter: 30 }]);
+  });
+  it("hela svarad: inget kvar", () => {
+    expect(luckansRest(l, [{ start_tid: "05:30:00", slut_tid: "06:30:00" }])).toEqual([]);
+  });
+  it("rest under en kvart frågas inte", () => {
+    expect(luckansRest(l, [{ start_tid: "05:30:00", slut_tid: "06:20:00" }])).toEqual([]);
+  });
+  it("mitten svarad: två rester", () => {
+    expect(luckansRest(l, [{ start_tid: "05:45:00", slut_tid: "06:15:00" }]).map(x => x.start)).toEqual(["05:30", "06:15"]);
+  });
+});
+
+import { forstaVal } from "./mestAnvanda";
+describe("forstaVal", () => {
+  it("ingen historik = alla", () => { expect(forstaVal({})).toBeNull(); });
+  it("sex, i appens ordning", () => {
+    const v = forstaVal({ brandkontroll: 5, service: 1 })!;
+    expect(v).toHaveLength(6);
+    expect(v).toContain("brandkontroll");
+    expect(v[0]).toBe("service");
+  });
+});

@@ -27,7 +27,7 @@ import { AKTIVITETER, EXTRA_ARBETE_TYPER, aktLabel, faktureringsEtikett, type Ak
 import { delaKorning, korningDelarText } from "@/lib/arbetsdagKorning";
 import { tidsFragor, VILA_ORSAKER, vilaSvarText, arDagensVilobrott, type VilaOrsak } from "@/lib/dagFragor";
 import PeriodForm, { type PeriodVarden, type PeriodSteg } from "./PeriodForm";
-import { tidsluckor, luckansSegment, avvikelseVidTidsandring } from "@/lib/arbetsrapport/tidsluckor";
+import { tidsluckor, luckansSegment, luckansRest, avvikelseVidTidsandring } from "@/lib/arbetsrapport/tidsluckor";
 import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, omanalyseraVilobrott, raknaOmVilobrottEfterAndring, stadaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 import { arAutomatiskFlytt, flyttBortaRad } from "@/lib/flyttRad";
 import { arFlyttloggsRad } from "@/lib/flyttloggRad";
@@ -745,6 +745,9 @@ export default function Arbetsrapport() {
   // efter Spara med Från = föregående Till). Bara för 'ny', aldrig synk/tidigarelagd.
   // tabell: vilken rad som redigeras — 'segment' (arbetsdag_segment, inom passet)
   // eller 'extra' (extra_tid). Ny period avgörs av systemet i sparaPeriod.
+  // Kvittot efter en snabbsparning (se visaPeriodKvitto). Hooks före alla tidiga returer.
+  const [periodKvitto, setPeriodKvitto] = useState<null | { text: string; rad: any; tabell: 'segment' | 'extra' }>(null);
+  const kvittoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [periodForm, setPeriodForm] = useState<null | { lage: 'ny' | 'redigera'; tabell?: 'segment' | 'extra'; datum: string; rad?: any; varden: PeriodVarden; pass: { start_tid: string | null; slut_tid: string | null } | null; sparade?: string[]; startSteg?: PeriodSteg }>(null);
   const [periodSparar, setPeriodSparar] = useState(false);
   const [periodFel, setPeriodFel] = useState<string | null>(null);
@@ -2361,13 +2364,21 @@ export default function Arbetsrapport() {
     if (harPass) {
       const seg = segmentFor(datum);
       for (const l of tidsluckor(rad)) {
-        const s = luckansSegment(l, seg);
         const franTl = !!rad.tidigarelagd_start && String(rad.tidigarelagd_start.angiven_start || '').slice(0, 5) === l.start;
-        fragor.push({ nyckel: `lucka-${l.start}`, titel: `Vad gjorde du ${l.start}–${l.slut}?`,
-          fraga: `${fmt(l.minuter)} som maskinen inte gick`,
-          svar: s ? `${aktLabel(s.aktivitet_typ)}${s.debiterbar ? ' · faktureras' : ''}` : null,
-          oppna: () => s ? oppnaSegmentRedigera(s)
-            : oppnaPeriodNy(datum, { gap: { start: l.start, slut: l.slut }, ...(franTl ? { fromTidigarelagd: true } : { fromSynk: true }) }) });
+        // Det som är kvar av luckan är en egen fråga: gjorde föraren två saker svarar han en i taget.
+        const rest = luckansRest(l, seg);
+        for (const r of rest) {
+          fragor.push({ nyckel: `lucka-${r.start}`, titel: `Vad gjorde du ${r.start}–${r.slut}?`,
+            fraga: `${fmt(r.minuter)} som maskinen inte gick`, svar: null,
+            oppna: () => oppnaPeriodNy(datum, { gap: { start: r.start, slut: r.slut }, ...(franTl ? { fromTidigarelagd: true } : { fromSynk: true }) }) });
+        }
+        if (rest.length === 0) {
+          const s = luckansSegment(l, seg);
+          if (s) fragor.push({ nyckel: `lucka-${l.start}`, titel: `Vad gjorde du ${l.start}–${l.slut}?`,
+            fraga: `${fmt(l.minuter)} som maskinen inte gick`,
+            svar: `${aktLabel(s.aktivitet_typ)}${s.debiterbar ? ' · faktureras' : ''}`,
+            oppna: () => oppnaSegmentRedigera(s) });
+        }
       }
     }
     // Rast/pass som avviker. Svaret ligger i databasen (arbetsdag.tidsfragor_svar) så frågan inte
@@ -2692,9 +2703,23 @@ export default function Arbetsrapport() {
     if (!rad.slut_tid) setPagaendeAktiviteter(arr => arr.some(x => x.id === rad.id) ? arr : [...arr, rad]);
     else setPagaendeAktiviteter(arr => arr.filter(x => x.id !== rad.id));
   };
-  const sparaPeriod = async () => {
-    if (!periodForm || !medarbetare?.id) return;
-    const v = periodForm.varden;
+  // KVITTOT efter en snabbsparning: "Sparat · Service 05:30–06:30 · faktureras · Bondeskog" + Ändra.
+  // Bygger på raden databasen gav tillbaka. Står kvar 6 s.
+  const visaPeriodKvitto = (rad: any, tabell: 'segment' | 'extra') => {
+    if (!rad) return;
+    const objNamn = rad.objekt_id ? (objektLista.find(o => o.id === rad.objekt_id)?.namn || null) : null;
+    const text = ['Sparat', `${aktLabel(rad.aktivitet_typ)} ${(rad.start_tid || '').slice(0, 5)}–${(rad.slut_tid || '').slice(0, 5)}`,
+      rad.debiterbar ? 'faktureras' : 'faktureras inte', objNamn].filter(Boolean).join(' · ');
+    setPeriodKvitto({ text, rad, tabell });
+    if (kvittoTimer.current) clearTimeout(kvittoTimer.current);
+    kvittoTimer.current = setTimeout(() => setPeriodKvitto(null), 6000);
+  };
+  // snabb = sista frågan besvarad i formuläret: värdena kommer med (React-staten
+  // hinner inte uppdateras), formuläret stängs och kvittot visar vad som sparades.
+  const sparaPeriod = async (snabb?: PeriodVarden) => {
+    if (!periodForm || !medarbetare?.id || periodSparar) return;
+    const v = snabb || periodForm.varden;
+    if (snabb) setPeriodForm(f => f ? { ...f, varden: snabb } : f);
     const min = periodMin(v.start, v.slut);
     if (!v.start || !v.slut || min <= 0) { setPeriodFel('Sluttiden måste vara efter starttiden.'); return; }
     if (v.deb === null) { setPeriodFel('Välj om tiden ska faktureras.'); return; }
@@ -2732,6 +2757,7 @@ export default function Arbetsrapport() {
         const avvik = sparatSkiljerSig(v, sparad);
         if (avvik) { setPeriodFel(avvik); return; }
         stangPeriodForm();
+        if (snabb) visaPeriodKvitto(sparad, 'segment');
         return;
       }
       if (periodForm.lage === 'redigera') {
@@ -2752,6 +2778,7 @@ export default function Arbetsrapport() {
         const avvik = sparatSkiljerSig(v, sparad);
         if (avvik) { setPeriodFel(avvik); return; }
         stangPeriodForm();
+        if (snabb) visaPeriodKvitto(sparad, 'extra');
         return;
       }
       // NY period: systemet avgör mot passet — inne = segment (redan betald,
@@ -2792,7 +2819,7 @@ export default function Arbetsrapport() {
         }
         // Synk-omriktning: kvittera avvikelsen när inget odäckt gap återstår.
         if (segForm?.fromSynk && rd?.synk_avvikelse && !rd.synk_avvikelse.kvitterad) {
-          const kvarGap = tidsluckor({ synk_avvikelse: rd.synk_avvikelse }).filter(g => !luckansSegment(g, nyaSegment));
+          const kvarGap = tidsluckor({ synk_avvikelse: rd.synk_avvikelse }).filter(g => luckansRest(g, nyaSegment).length > 0);
           if (kvarGap.length === 0) {
             const nyAvv = { ...rd.synk_avvikelse, kvitterad: new Date().toISOString(), val: 'markt_segment', aktivitet: v.typ, segment_id: data.id };
             const res = await uppdateraVerifierat(supabase, 'arbetsdag', { synk_avvikelse: nyAvv }, { id: rd.id });
@@ -2828,7 +2855,7 @@ export default function Arbetsrapport() {
       // Till (känd tid, inte gissad), samma aktivitet och objekt förvalda, Till
       // tom. Tre trakter blir en handling. Utgång: Klar eller Avbryt — aldrig
       // automatisk stängning. Inte för synk-/tidigarelagd-perioder (en och klar).
-      if (segForm) { stangPeriodForm(); return; }
+      if (segForm || snabb) { stangPeriodForm(); visaPeriodKvitto(sparadRad, lage === 'inne' ? 'segment' : 'extra'); return; }
       const kvitto = kvittoFranRad(sparadRad);
       setPeriodFel(null);
       setPeriodForm(f => f ? {
@@ -2915,6 +2942,19 @@ export default function Arbetsrapport() {
   };
 
   // DELAD UI (renderas i både Dag-vyn och Redigera): periodformuläret.
+  const periodKvittoUI = periodKvitto && !periodForm ? (
+    <div style={{ position: "fixed", left: AVSTAND.s, right: AVSTAND.s, bottom: medSafeBotten(NAV_HEIGHT + AVSTAND.s), zIndex: 1500, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+      <div role="status" aria-live="polite" data-period-kvitto className="tona-in"
+        style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: AVSTAND.s, width: "100%", maxWidth: KOLUMN.ark, boxSizing: "border-box", minHeight: TRAFFYTA.primar + AVSTAND.s, padding: `${AVSTAND.s}px ${AVSTAND.s}px ${AVSTAND.s}px ${AVSTAND.m}px`, borderRadius: RADIE.sheet, background: FARG.upphojt, color: FARG.text }}>
+        <span className="material-symbols-outlined" style={{ fontSize: IKON.rad, color: FARG.gron, flexShrink: 0 }}>check_circle</span>
+        <span style={{ flex: 1, minWidth: 0, ...TYP.meta, ...TNUM, color: FARG.text }}>{periodKvitto.text}</span>
+        <button data-kvitto-andra onClick={() => {
+          const k = periodKvitto; setPeriodKvitto(null);
+          if (k.tabell === 'segment') oppnaSegmentRedigera(k.rad); else oppnaPeriodRedigera(k.rad);
+        }} style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, padding: `0 ${AVSTAND.l}px` }}>Ändra</button>
+      </div>
+    </div>
+  ) : null;
   const efterStoppUI = periodForm ? (
     <PeriodForm
       rubrik={periodForm.lage === 'ny' ? 'Lägg till period' : periodForm.tabell === 'segment' ? 'Period inom passet' : periodForm.pass?.start_tid ? 'Extra arbete' : 'Period'}
@@ -3929,7 +3969,7 @@ export default function Arbetsrapport() {
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
 
       {/* "Vad gjorde du?"-sheeten + objektväljare — delad UI, se efterStoppUI */}
-      {efterStoppUI}
+      {efterStoppUI}{periodKvittoUI}
       {/* Bekräfta-frågorna (rast/pass) och bytesdags-frågan — Dag-vyn anropar
           samma bekraftaMedForcheck som Redigera och måste rendera samma sheets;
           rastfrågan saknades här (satte state utan att något syntes). */}
@@ -6586,7 +6626,7 @@ export default function Arbetsrapport() {
 
         {/* "Vad gjorde du?"-sheeten — delad UI så Loggad tid-raderna ovan
             faktiskt öppnar redigering även för historiska dagar */}
-        {efterStoppUI}
+        {efterStoppUI}{periodKvittoUI}
         {rastFragaUI}
         {byteFragaUI}
         {deldagSheetUI}

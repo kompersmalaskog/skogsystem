@@ -7,11 +7,14 @@
 //      sitt slut mot maskinen,
 //   4. tryck på en befintlig period (öppnas direkt på översikten).
 //
-// Stegen för en NY period:
-//   Vad gjorde du?  →  Ska det faktureras?  →  Vilken trakt?  →  översikt + Spara
-// Trakten frågas bara när perioden faktureras eller aktiviteten kräver den
-// (lib/aktiviteter OBJEKT_KRAVS). FAKTURERINGEN HAR INGET FÖRVAL: föraren väljer
-// alltid Ja eller Nej själv, och Spara går inte förrän det är valt.
+// SNABBT (Martin 2026-11-26: "det är ju inte smidigt"): en ny period sparas i
+// det tryck som besvarar sista frågan — ingen översikt, ingen Spara-knapp.
+//   Frågar appen om en tid (tiden känd):  Vad gjorde du?  →  Faktureras?  →  sparat
+//   Lägger föraren till själv:            Vad gjorde du?  →  När?  →  Faktureras?  →  sparat
+// Trakten frågas bara när perioden faktureras eller aktiviteten kräver den OCH
+// dagen saknar trakt — annars blir det dagens trakt. "Annat" får översikten
+// (kommentaren säger vad det var). Kvittot hos föräldern har Ändra.
+// FAKTURERINGEN HAR INGET FÖRVAL: föraren väljer alltid Ja eller Nej själv.
 //
 // FÖRÄLDERN avgör om perioden blir ett dagsegment (inom passet, redan betalt)
 // eller extra_tid (utanför, läggs till) — se klassificeraPeriod i lib/dagsegment.
@@ -25,6 +28,7 @@ import { useState, type ReactNode } from "react";
 import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, TRAFFYTA, TNUM, INAKTIV } from "@/lib/design/tokens";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, HELA_DAGEN_TYPER, objektKravs, type AktivitetTyp } from "@/lib/aktiviteter";
 import { klassificeraPeriod, periodMin, type PeriodLage } from "@/lib/dagsegment";
+import { forstaVal, lasRakning, noteraAnvandning } from "@/lib/arbetsrapport/mestAnvanda";
 
 export type PeriodVarden = {
   start: string;          // HH:MM
@@ -36,7 +40,7 @@ export type PeriodVarden = {
   objektId: string | null;
 };
 
-export type PeriodSteg = 'vad' | 'fakt' | 'trakt' | 'oversikt';
+export type PeriodSteg = 'vad' | 'tid' | 'fakt' | 'trakt' | 'oversikt';
 
 type Props = {
   rubrik: string;
@@ -52,7 +56,8 @@ type Props = {
   klassificera: boolean;
   fel?: string | null;
   sparar?: boolean;
-  onSpara: () => void | Promise<void>;
+  /** Med värden = snabbsparning (sista frågan besvarad); föräldern stänger och visar kvittot. */
+  onSpara: (snabb?: PeriodVarden) => void | Promise<void>;
   onTaBort?: () => void | Promise<void>;
   onAvbryt: () => void;
   /** Objektnamn för valt objekt (föräldern äger listan). */
@@ -102,6 +107,10 @@ export default function PeriodForm(p: Props) {
   const [bekraftaBort, setBekraftaBort] = useState(false);
   // En ny period har inget val än — typen i värdena är bara en platshållare.
   const [typValt, setTypValt] = useState(p.startSteg !== 'vad');
+  // Börjar formuläret på "Vad gjorde du?" är det snabbt: sista svaret sparar.
+  const snabb = p.startSteg === 'vad';
+  const [forsta] = useState(() => forstaVal(lasRakning()));
+  const [visaAlla, setVisaAlla] = useState(false);
   const v = p.varden;
   const akt = AKTIVITETER.find(a => a.typ === v.typ);
   const min = v.start && v.slut ? periodMin(v.start, v.slut) : 0;
@@ -121,12 +130,22 @@ export default function PeriodForm(p: Props) {
       return h.slice(0, -1);
     });
   };
-  // Efter ett val: nästa obesvarade steg, annars översikten.
-  const efterFakt = (nv: PeriodVarden) => ga(traktFragas(nv) ? 'trakt' : 'oversikt');
+  // Efter ett val: nästa obesvarade steg. Snabbt: sparar när inget mer behövs.
+  const klar = (nv: PeriodVarden) => {
+    if (p.sparar) return;
+    if (snabb && nv.typ !== 'annat' && periodKanSparas(nv, p.pass, p.klassificera)) { void p.onSpara(nv); return; }
+    ga('oversikt');
+  };
+  const efterFakt = (nv: PeriodVarden) => {
+    if (traktFragas(nv) && (!snabb || !nv.objektId)) { ga('trakt'); return; }
+    klar(nv);
+  };
+  const tidOk = !!v.start && !!v.slut && periodMin(v.start, v.slut) > 0 && !korsar;
 
   const tidText = v.start && v.slut ? `${v.start}–${v.slut}` : v.start ? `från ${v.start}` : null;
 
   const rubrik = steg === 'vad' ? 'Vad gjorde du?'
+    : steg === 'tid' ? 'När?'
     : steg === 'fakt' ? 'Ska det faktureras?'
     : steg === 'trakt' ? 'Vilken trakt?'
     : p.rubrik;
@@ -178,17 +197,35 @@ export default function PeriodForm(p: Props) {
   if (steg === 'vad') {
     innehall = (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
-        {EXTRA_ARBETE_TYPER.map(t => {
+        {(forsta && !visaAlla ? forsta : EXTRA_ARBETE_TYPER).map(t => {
           const a = AKTIVITETER.find(x => x.typ === t)!;
           const vald = typValt && v.typ === t;
           return valKnapp(t, a.icon, MJUK_DELNING[t] || a.label, vald, () => {
             const nv = { ...v, typ: t };
             p.onAndra(nv);
             setTypValt(true);
-            ga('fakt');
+            noteraAnvandning(t);
+            ga(nv.start && nv.slut ? 'fakt' : 'tid');
           });
         })}
+        {forsta && !visaAlla && valKnapp('fler', 'more_horiz', 'Fler', false, () => setVisaAlla(true))}
       </div>
+    );
+  } else if (steg === 'tid') {
+    innehall = (
+      <>
+        <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
+          {tidInput("Från", v.start, t => p.onAndra({ ...v, start: t }))}
+          {tidInput("Till", v.slut, t => p.onAndra({ ...v, slut: t }))}
+        </div>
+        {v.start && v.slut && <p data-tidrad style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: tidRad.varna ? FARG.orange : FARG.text2 }}>{tidRad.text}</p>}
+        {HELA_DAGEN_TYPER.includes(v.typ) && (
+          <button data-hela-dagen onClick={() => p.onAndra({ ...v, ...helaDagen(p.pass) })} style={{ ...KNAPP.tertiar, marginTop: AVSTAND.xs }}>
+            Hela dagen ({helaDagen(p.pass).start}–{helaDagen(p.pass).slut})
+          </button>
+        )}
+        <button data-nasta onClick={() => { if (tidOk) ga('fakt'); }} style={{ ...KNAPP.primar, marginTop: AVSTAND.l, ...(tidOk ? {} : INAKTIV) }}>Nästa</button>
+      </>
     );
   } else if (steg === 'fakt') {
     innehall = (
@@ -208,12 +245,12 @@ export default function PeriodForm(p: Props) {
         {v.objektId && p.objektNamn && (
           <>
             <p style={{ margin: `0 0 ${AVSTAND.s}px`, ...TYP.micro, color: FARG.text2 }}>Dagens trakt</p>
-            {valKnapp('dagens', 'forest', p.objektNamn, true, () => ga('oversikt'))}
+            {valKnapp('dagens', 'forest', p.objektNamn, true, () => klar(v))}
             <p style={{ margin: `${AVSTAND.l}px 0 0`, ...TYP.micro, color: FARG.text2 }}>Annan trakt</p>
           </>
         )}
         {p.renderObjektValjare
-          ? <div style={{ margin: `0 -${AVSTAND.l}px` }}>{p.renderObjektValjare(v.objektId, id => { p.onAndra({ ...v, objektId: id }); ga('oversikt'); }, traktBehovs)}</div>
+          ? <div style={{ margin: `0 -${AVSTAND.l}px` }}>{p.renderObjektValjare(v.objektId, id => { const nv = { ...v, objektId: id }; p.onAndra(nv); klar(nv); }, traktBehovs)}</div>
           : null}
       </div>
     );
@@ -302,6 +339,8 @@ export default function PeriodForm(p: Props) {
         <h2 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.rubrik, color: FARG.text }}>{rubrik}</h2>
         {underRubrik && <p style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>{underRubrik}</p>}
         <div key={steg} className="tona-in">{innehall}</div>
+        {steg !== 'oversikt' && p.fel && <p data-fel style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.rod }}>{p.fel}</p>}
+        {steg !== 'oversikt' && p.sparar && <p style={{ margin: `${AVSTAND.m}px 0 0`, ...TYP.meta, color: FARG.text2 }}>Sparar…</p>}
       </div>
     </div>
   );

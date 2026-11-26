@@ -273,6 +273,16 @@ describe("Redigera: redigerad_av skrivs vid varje redigering", () => {
     expect(text()).toMatch(/Vad gjorde du 09:00–10:00\?/);
     // Det gamla kortet finns inte längre.
     expect(text()).not.toMatch(/Maskintiden skiljer sig/);
+
+    // Två tryck och sparat: Service → Nej. Inget Spara, kvittot med Ändra.
+    await klick("Vad gjorde du 09:00–10:00?");
+    await klick("Service");
+    await klickKnapp("Nej");
+    await vänta(6, 40);
+    const seg = g.__skriv.find((x: any) => x.tabell === "arbetsdag_segment" && x.op === "insert");
+    expect(seg?.vals).toMatchObject({ start_tid: "09:00", slut_tid: "10:00", aktivitet_typ: "service", debiterbar: false });
+    expect(text()).toMatch(/Sparat · Service 09:00–10:00 · faktureras inte/);
+    expect(knapp("Ändra")).toBeTruthy();
   });
 
   it("bakåt rörs inget: gamla redigerade rader behåller redigerad_av = null", async () => {

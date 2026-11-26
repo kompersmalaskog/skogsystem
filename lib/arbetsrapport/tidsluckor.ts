@@ -94,3 +94,24 @@ export function tidsluckor(
 export function luckansSegment<T extends { start_tid: string | null; slut_tid: string | null }>(l: Lucka, segment: T[]): T | null {
   return segment.find(x => hhmm(x.start_tid) < l.slut && l.start < hhmm(x.slut_tid)) || null;
 }
+
+/**
+ * Det som återstår av luckan när segmenten dragits bort. Föraren som gjorde två
+ * saker (service 05:30–06:00, hämtade grejer 06:00–06:30) svarar på den första
+ * och får frågan igen för resten. Delar kortare än LUCKA_MIN räknas inte.
+ */
+export function luckansRest<T extends { start_tid: string | null; slut_tid: string | null }>(l: Lucka, segment: T[]): Lucka[] {
+  let kvar: { s: string; e: string }[] = [{ s: l.start, e: l.slut }];
+  for (const x of segment) {
+    const xs = hhmm(x.start_tid), xe = hhmm(x.slut_tid);
+    if (!xs || !xe) continue;
+    kvar = kvar.flatMap(k => {
+      if (xe <= k.s || xs >= k.e) return [k];
+      const delar: { s: string; e: string }[] = [];
+      if (xs > k.s) delar.push({ s: k.s, e: xs });
+      if (xe < k.e) delar.push({ s: xe, e: k.e });
+      return delar;
+    });
+  }
+  return kvar.map(k => ({ start: k.s, slut: k.e, minuter: periodMin(k.s, k.e) })).filter(k => k.minuter >= LUCKA_MIN);
+}
