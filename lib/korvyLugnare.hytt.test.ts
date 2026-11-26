@@ -1,6 +1,6 @@
 // @vitest-environment node
 // LUGNARE KÖRVY I RIKTIG CHROMIUM + MAPLIBRE (Martin 2026-11-23, Brokamåla 1:5): (1) en symbol som föraren tryckt Klar på är halvgenomskinlig men lika stor,
-// aldrig en fara/kultur/Viktigt; (2) etiketter ritas bara inom 100 m från maskinen — faror, kultur och Viktigt alltid. Samma funktioner som i appen (lib/korvyKlar,
+// aldrig en fara/kultur/Viktigt; (2) etiketter ritas bara inom 100 m från maskinen — faror och kultur alltid. Samma funktioner som i appen (lib/korvyKlar,
 // lib/korvyText), buntade med esbuild; lagerdefinitionerna är sidans (källvakt i korvyText.test.ts). KLAR_SKRIV=<mapp> sparar bilderna.
 // Finns ingen Chromium hoppas testet över (utom med KRAV_CHROMIUM=1).
 import path from 'node:path';
@@ -98,7 +98,7 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy — riktig Chromium + MapLibre', () =
     } finally { await b.close(); }
   }, 120000);
 
-  it('text bara inom 100 m: Hänsyn/nummer/avlägg göms längre bort, faror, kultur och Viktigt syns alltid; cirkeln följer maskinen; allt tillbaka när körvyn stängs', async () => {
+  it('text bara inom 100 m: Hänsyn/nummer/avlägg göms längre bort, faror och kultur syns alltid; cirkeln följer maskinen; allt tillbaka när körvyn stängs', async () => {
     const lib = await bunta();
     const b = await CHROMIUM!.launch({});
     try {
@@ -119,7 +119,6 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy — riktig Chromium + MapLibre', () =
         map.addSource('zones-etikett-source', fc([pkt(NARA, { zoneType: 'protected', nr: 3, n: 'zon-nara' }), pkt(LANGT, { zoneType: 'protected', nr: 4, n: 'zon-langt' }), { type: 'Feature', properties: { zoneType: 'fornlamning', n: 'kultur-langt' }, geometry: { type: 'Point', coordinates: [15.004, LANGT] } }]));
         map.addSource('yta-nr-source', fc([pkt(NARA, { nr: 1, n: 'nr-nara' }), pkt(LANGT, { nr: 2, n: 'nr-langt' })]));
         map.addSource('markers-source', fc([pkt(LANGT, { type: 'powerline', id: 'f1', n: 'fara-langt' }), pkt(NARA, { type: 'powerline', id: 'f2', n: 'fara-nara' })]));
-        map.addSource('viktigt-source', fc([pkt(LANGT, { n: 'viktigt-langt', text: '⚠ Kör inte här' })]));
         const text = (id: string, source: string, filter: any, falt: any) => map.addLayer({ id, type: 'symbol', source, ...(filter ? { filter } : {}),
           layout: { 'text-field': falt, 'text-size': 14, 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'] }, paint: { 'text-color': '#fff' } });
         text('trakt-hansyn-label', 'trakt-etikett-source', F.fokusEtikettFilter(['==', ['get', '_typ'], 'hänsynsyta']), 'Hänsyn 3');
@@ -127,11 +126,10 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy — riktig Chromium + MapLibre', () =
         text('zone-label', 'zones-etikett-source', ['in', ['get', 'zoneType'], ['literal', ['protected', 'fornlamning', 'wet']]], ['to-string', ['get', 'n']]);
         text('yta-nr-label', 'yta-nr-source', undefined as any, ['to-string', ['get', 'nr']]);
         text('markers-korvy-label', 'markers-source', ['match', ['get', 'type'], ['powerline', 'warning'], true, false], 'El-ledning');
-        text('viktigt-etikett', 'viktigt-source', undefined as any, ['get', 'text']);
         const synliga = () => {
           map.redraw();
           const per = (id: string) => map.queryRenderedFeatures({ layers: [id] }).map((f: any) => f.properties.n ?? f.properties.nr).sort();
-          return Object.fromEntries(['trakt-hansyn-label', 'trakt-raa-label', 'zone-label', 'yta-nr-label', 'markers-korvy-label', 'viktigt-etikett'].map((id) => [id, per(id)]));
+          return Object.fromEntries(['trakt-hansyn-label', 'trakt-raa-label', 'zone-label', 'yta-nr-label', 'markers-korvy-label'].map((id) => [id, per(id)]));
         };
         const vila = () => new Promise((r) => { map.once('render', () => map.once('idle', r)); map.triggerRepaint(); });
         await vila();
@@ -157,10 +155,9 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy — riktig Chromium + MapLibre', () =
       expect(r.nara['trakt-hansyn-label'], 'Hänsyn 3: bara den nära').toEqual(['nara']);
       expect(r.nara['yta-nr-label'], 'områdesnummer: bara det nära').toEqual(['nr-nara']);
       expect(r.nara['zone-label'], 'egen yta: den nära + kulturytan (alltid); den långt bort göms').toEqual(['kultur-langt', 'zon-nara']);
-      // Alltid: Vidas fornlämning, faror (också 400 m bort) och Viktigt.
+      // Alltid: Vidas fornlämning och faror (också 400 m bort).
       expect(r.nara['trakt-raa-label'], 'fornlämning (kultur) syns alltid').toEqual(['raa-langt']);
       expect(r.nara['markers-korvy-label'], 'faror syns alltid, nära och långt bort').toEqual(['fara-langt', 'fara-nara']);
-      expect(r.nara['viktigt-etikett'], 'Viktigt syns alltid').toEqual(['viktigt-langt']);
       // Cirkeln följer maskinen.
       expect(r.flyttad['trakt-hansyn-label']).toEqual(['langt']);
       expect(r.flyttad['yta-nr-label']).toEqual(['nr-langt']);

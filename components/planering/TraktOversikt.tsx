@@ -339,7 +339,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
         {/* 2b. VIKTIGT — gult, en nivå under fara: det någon skrivit som "Viktigt" på en yta, symbol eller linje, och på själva trakten. Aldrig nedtonat; tryck öppnar kortet. */}
         {(viktigaMark.length > 0 || viktigaHela.length > 0) && (
           <section data-testid="oversikt-viktigt">
-            <FargRubrik farg={FARG.gul}>Viktigt</FargRubrik>
+            <FargRubrik farg={FARG.orange}>Viktigt</FargRubrik>
             <Gruppkort>
               {viktigaMark.map((m, i) => (
                 <KartRad key={m.id} m={m} forsta={i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} />

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// VIKTIGT-RADEN PÅ KORTEN I RIKTIG CHROMIUM (Martin 2026-11-23): kartkortet (planeringsvyn) och instruktionskortet (maskinen vid inkörning) — Viktigt-raden överst, gul och fet,
+// VIKTIGT-RADEN PÅ KORTEN I RIKTIG CHROMIUM (Martin 2026-11-23): kartkortet (planeringsvyn) och instruktionskortet (maskinen vid inkörning) — Viktigt-raden överst, orange och fet,
 // Övrigt under, skrivformuläret med två fält, träffytor ≥ 44 px, ingen sidscroll. Pixlar och höjder går inte att mäta i jsdom: korten renderas i jsdom och HTML:en mäts i Chromium.
 // VIKTIGT_SKRIV=<mapp> sparar skärmbilderna (ikonen "warning" ritas där som ⚠, eftersom Material Symbols inte laddas i testet). Ingen Chromium → hoppas över.
 import React, { act } from 'react';
@@ -53,7 +53,7 @@ const viktig: Instruktion = { ref: 'k2', text: 'Bron håller inte för skördare
 const instrKort: InstruktionKortData = { nyckel: 'hansyn:1', namn: 'Hänsyn 1 · Kant mot vatten', avlagg: false, instruktioner: [viktig, egen], fler: 0 } as any;
 
 describe(`Viktigt på korten — mått i ${CHROMIUM ? 'Chromium' : 'HOPPAD ÖVER: ingen Chromium i miljön'}`, () => {
-  it.skipIf(!CHROMIUM)('Viktigt-raden överst, gul och fet, ingen sidscroll och träffytor ≥ 44 px — kartkortet, skrivformuläret och instruktionskortet, på telefon och maskindator', async () => {
+  it.skipIf(!CHROMIUM)('Viktigt-raden överst, orange och fet, ingen sidscroll och träffytor ≥ 44 px — kartkortet, skrivformuläret och instruktionskortet, på telefon och maskindator', async () => {
     const b = await CHROMIUM!.launch({});
     if (SKRIV) mkdirSync(SKRIV, { recursive: true });
     try {
@@ -82,11 +82,11 @@ describe(`Viktigt på korten — mått i ${CHROMIUM ? 'Chromium' : 'HOPPAD ÖVER
             };
           });
           expect(m.finns, `${f.namn} ${s.w}: Viktigt-raden finns`).toBe(true);
-          expect(m.farg, `${f.namn} ${s.w}: gul`).toBe('rgb(255, 214, 10)');
+          expect(m.farg, `${f.namn} ${s.w}: orange`).toBe('rgb(255, 159, 10)');
           expect(Number(m.vikt), `${f.namn} ${s.w}: fet`).toBeGreaterThanOrEqual(700);
           expect(m.storlek, `${f.namn} ${s.w}: större än brödtexten (19 px)`).toBeGreaterThanOrEqual(20);
           expect(m.underOvrigt, `${f.namn} ${s.w}: Övrigt står under Viktigt`).toBe(true);
-          expect(m.ovrigtFarg, `${f.namn} ${s.w}: Övrigt är vanlig text, inte gul`).not.toBe('rgb(255, 214, 10)');
+          expect(m.ovrigtFarg, `${f.namn} ${s.w}: Övrigt är vanlig text, inte orange`).not.toBe('rgb(255, 159, 10)');
           expect(m.viktigtForst, `${f.namn} ${s.w}: den översta kommentarsrutan bär Viktigt`).toBe(true);
           expect(m.sidled, `${f.namn} ${s.w}: sidscroll`).toBeLessThanOrEqual(0);
           expect(m.kantHoger, `${f.namn} ${s.w}: raden går inte utanför kortet`).toBeGreaterThanOrEqual(0);

@@ -216,6 +216,18 @@ export function kortKommentarer(i: {
   return [...rader.filter((r) => r.viktigt), ...rader.filter((r) => !r.viktigt)];
 }
 
+export interface KommentarRaderingsRad { id: string; text: string; viktigt: string | null; forfattare: string | null }
+
+/**
+ * Kommentarerna som ska synas i frågan "Den här har en kommentar – radera ändå?" (Martin 2026-11-26): alla kommentarer på markeringens nyckel (kartkommentarer och den äldre
+ * kommentaren i markeringens eget fält) som har något innehåll — Övrigt eller en Viktigt-rad. Tom lista = ingen fråga, markeringen raderas som förut.
+ */
+export function kommentarerForRadering(i: { rader: readonly KommentarVy[]; nyckel: string; objektId: string; aldreText?: string | null; nu?: Date }): KommentarRaderingsRad[] {
+  return kortKommentarer({ rader: i.rader, nyckel: i.nyckel, objektId: i.objektId, aldreText: i.aldreText, minId: null, arAdmin: false, nu: i.nu })
+    .filter((r) => r.text.trim() !== '' || !!r.viktigt)
+    .map((r) => ({ id: r.id, text: r.text, viktigt: r.viktigt ?? null, forfattare: r.forfattare ?? null }));
+}
+
 /** Texten som "nytt/ändrat"-signaturer (Hela trakten, instruktioner) räknar på: Övrigt som förut, med Viktigt först när den finns — så en ny eller ändrad Viktigt-rad räknas som nytt, och en kommentar utan Viktigt behåller sin signatur. */
 export const kommentarSigText = (r: { text: string; viktigt?: string | null }): string => (rensaViktigt(r.viktigt) ? `${rensaViktigt(r.viktigt)}\n${r.text}` : r.text);
 

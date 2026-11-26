@@ -20,9 +20,9 @@ describe('vilka etiketter som begränsas', () => {
   it('Hänsyn, Övrigt, nyckelbiotop, avläggsnummer, områdesnummer och egna ytors namn är nära-text', () => {
     expect([...NARA_TEXTLAGER_ID].sort()).toEqual(['trakt-hansyn-label', 'trakt-nb-label', 'trakt-ovrigt-label', 'trakt-punkt-label', 'yta-nr-label', 'zone-label']);
   });
-  it('faror, kultur och Viktigt står aldrig i listan', () => {
+  it('faror och kultur står aldrig i listan', () => {
     for (const id of ALLTID_TEXTLAGER) expect(NARA_TEXTLAGER_ID).not.toContain(id);
-    expect(ALLTID_TEXTLAGER).toEqual(['markers-korvy-label', 'trakt-raa-label', 'viktigt-etikett']);
+    expect(ALLTID_TEXTLAGER).toEqual(['markers-korvy-label', 'trakt-raa-label']);
   });
   it('egna kulturytor (zone-label) är undantagna — alla ytor i gruppen Kultur', () => {
     const zone = NARA_TEXTLAGER.find((l) => l.id === 'zone-label')!;

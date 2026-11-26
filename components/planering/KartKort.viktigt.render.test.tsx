@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// VIKTIGT på kartkortet (Martin 2026-11-23): Viktigt-raden står överst, gul, fet och med ⚠; Övrigt (det som alltid funnits) står under i vanlig text. Skrivformuläret har
+// VIKTIGT på kartkortet (Martin 2026-11-23): Viktigt-raden står överst, orange, fet och med ⚠; Övrigt (det som alltid funnits) står under i vanlig text. Skrivformuläret har
 // två fält. Före migrationen (kanViktigt false) är kortet exakt som förut.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
@@ -45,22 +45,22 @@ describe('KartKort — Viktigt-raden', () => {
     expect(alla('viktigt-rad')).toHaveLength(1);
   });
 
-  it('raden är gul, fet och har ⚠; Övrigt står under i vanlig text', () => {
+  it('raden är orange, fet och har ⚠; Övrigt står under i vanlig text', () => {
     visa({ kommentarer: [k('1', { text: 'Sumpigt i södra hörnet', viktigt: 'Kör inte över muren' })] });
     const rad = t('viktigt-rad')!;
     expect(rad.getAttribute('role')).toBe('note');
-    expect(rad.style.color).toBe('rgb(255, 214, 10)');   // FARG.gul
-    expect(FARG.gul.toLowerCase()).toBe('#ffd60a');
+    expect(rad.style.color).toBe('rgb(255, 159, 10)');   // FARG.orange
+    expect(FARG.orange.toLowerCase()).toBe('#ff9f0a');
     expect(rad.querySelector('.material-symbols-outlined')!.textContent).toBe('warning');
     const text = t('viktigt-text')!;
     expect(text.textContent).toBe('Kör inte över muren');
     expect(Number(text.style.fontWeight)).toBeGreaterThanOrEqual(700);
-    // Övrigt under Viktigt, i samma ruta, och inte gul:
+    // Övrigt under Viktigt, i samma ruta, och inte orange:
     const ruta = rad.closest('[data-testid="kartkort-kommentar-rad"]')!;
     const ovrigt = ruta.querySelector('[data-testid="kartkort-kommentar-text"]') as HTMLElement;
     expect(ovrigt.textContent).toBe('Sumpigt i södra hörnet');
     expect(rad.compareDocumentPosition(ovrigt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(ovrigt.style.color).not.toBe('rgb(255, 214, 10)');
+    expect(ovrigt.style.color).not.toBe('rgb(255, 159, 10)');
   });
 
   it('en kommentar utan Viktigt ritas exakt som förut: ingen Viktigt-rad, texten som Övrigt (ingen data försvinner)', () => {

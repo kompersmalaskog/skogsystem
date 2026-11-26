@@ -57,7 +57,7 @@ function App() {
     if (punkt) map.easeTo({ center: [plats.lng, plats.lat], zoom: Math.max(map.getZoom(), 17.5), padding, duration: 800 });
     else map.fitBounds(plats.bounds, { padding, maxZoom: YTA_MAX_ZOOM, duration: 800 });
     if (timer.current) clearTimeout(timer.current);
-    setYtaPuls({ id: 'nytt:' + post.nyckel, farg: post.ton === 'fara' ? FARG.rod : post.ton === 'viktigt' ? FARG.gul : FARG.text, geometri: plats.geometri });
+    setYtaPuls({ id: 'nytt:' + post.nyckel, farg: post.ton === 'fara' ? FARG.rod : post.ton === 'viktigt' ? FARG.orange : FARG.text, geometri: plats.geometri });
     timer.current = setTimeout(() => setYtaPuls(null), NYTT_PULS_MS);
   };
   const nytt = useNyttFranPlaneraren({
@@ -173,7 +173,7 @@ describe.skipIf(!CHROMIUM)('Nytt från … — riktig Chromium + MapLibre + touc
       await vanta(pg, 200);
       // första kommentarerna efter baslinjen (tom lista vid start) → ny
       r = await rad(pg);
-      expect(r).toMatchObject({ text: 'Nytt från Martin: Viktigt – Kör inte in i hänsynen, 330 m', ton: 'viktigt', bg: 'rgb(255, 214, 10)' });
+      expect(r).toMatchObject({ text: 'Nytt från Martin: Viktigt – Kör inte in i hänsynen, 330 m', ton: 'viktigt', bg: 'rgb(255, 159, 10)' });
       expect(await pg.evaluate(() => { const t = document.querySelector('[data-testid="nytt-fran-text"]') as HTMLElement; return t.scrollHeight <= t.clientHeight + 1; })).toBe(true);   // hela texten ryms (två rader), inget kapas
       await spara(pg, 'gul-viktigt.png');
       await tryckRad(pg);

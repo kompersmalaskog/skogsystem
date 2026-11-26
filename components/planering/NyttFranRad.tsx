@@ -14,7 +14,7 @@ export const NYTT_RAD_HOJD_PX = 64;
 
 const TON: Record<NyttTon, { bg: string; fg: string; kant: string }> = {
   fara: { bg: FARG.rod, fg: FARG.text, kant: FARG.rod },
-  viktigt: { bg: FARG.gul, fg: FARG.bg, kant: FARG.gul },
+  viktigt: { bg: FARG.orange, fg: FARG.bg, kant: FARG.orange },
   neutral: { bg: FARG.kort, fg: FARG.text, kant: FARG.linje },
 };
 

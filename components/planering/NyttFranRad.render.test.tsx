@@ -16,10 +16,10 @@ const visa = (ton: 'fara' | 'viktigt' | 'neutral', onTryck = () => {}) => {
 };
 
 describe('NyttFranRad', () => {
-  it('fara = röd, Viktigt = gul, annars neutral (kortets färg)', () => {
+  it('fara = röd, Viktigt = orange, annars neutral (kortets färg)', () => {
     expect(visa('fara').style.background).toBe(hex(FARG.rod));
     document.body.innerHTML = '';
-    expect(visa('viktigt').style.background).toBe(hex(FARG.gul));
+    expect(visa('viktigt').style.background).toBe(hex(FARG.orange));
     document.body.innerHTML = '';
     expect(visa('neutral').style.background).toBe(hex(FARG.kort));
   });

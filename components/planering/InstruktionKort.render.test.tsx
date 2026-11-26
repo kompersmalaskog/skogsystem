@@ -182,7 +182,7 @@ describe('InstruktionKortVy — Viktigt (Martin 2026-11-23)', () => {
     expect(rutor[0].querySelector('[data-testid="kartkort-kommentar-text"]')).toBeNull();
     expect(rutor[1].querySelector('[data-testid="viktigt-text"]')!.textContent).toBe('Kör inte över muren');
     expect(rutor[1].querySelector('[data-testid="kartkort-kommentar-text"]')!.textContent).toBe('Sumpigt i söder');
-    expect(rutor[0].querySelector<HTMLElement>('[data-testid="viktigt-rad"]')!.style.color).toBe('rgb(255, 214, 10)');
+    expect(rutor[0].querySelector<HTMLElement>('[data-testid="viktigt-rad"]')!.style.color).toBe('rgb(255, 159, 10)');
   });
   it('en instruktion utan Viktigt har ingen Viktigt-rad (som förut)', () => {
     montera(<InstruktionKortVy kort={kort({ instruktioner: [vida, egen] })} top="10px" onSett={() => {}} />);

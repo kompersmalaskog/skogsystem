@@ -274,7 +274,7 @@ function KommentarFalt({ text, setText, viktigt, setViktigt, kanViktigt, testidP
     <>
       {kanViktigt && (
         <label style={{ display: 'block', marginBottom: AVSTAND.m }}>
-          <span style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.gul, marginBottom: AVSTAND.xs }}>
+          <span style={{ display: 'flex', justifyContent: 'space-between', ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.orange, marginBottom: AVSTAND.xs }}>
             <span>Viktigt</span><span data-testid={`${testidPrefix}-viktigt-rakna`} style={{ color: FARG.text3, fontWeight: VIKT.normal }}>{viktigt.length}/{VIKTIGT_MAX}</span>
           </span>
           <input type="text" data-testid={`${testidPrefix}-viktigt`} value={viktigt} maxLength={VIKTIGT_MAX} onChange={(e) => setViktigt(e.target.value.replace(/[\r\n]+/g, ' '))}

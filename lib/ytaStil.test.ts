@@ -67,7 +67,7 @@ describe('planeringens kartlager', () => {
     expect(page).toContain('ZONE_LAGER().forEach(id => safeSetVisibility(id, zoneVis))');
   });
   it('symbolernas träffyta är 44 px (egenkontrollens TRAFF_RADIE_PX) och pricken 10 px med mörk kant', () => {
-    expect(page).toMatch(/id: 'markers-hit'[\s\S]{0,200}'circle-radius': TRAFF_RADIE_PX/);
+    expect(page).toMatch(/id: 'markers-hit'[\s\S]{0,700}TRAFF_RADIE_MED_KOMMENTAR_PX, TRAFF_RADIE_PX\]/);
     expect(page).toMatch(/id: 'arrows-hit'[\s\S]{0,200}'circle-radius': TRAFF_RADIE_PX/);
     expect(page).toContain("'circle-stroke-color': PRICK_KANT_FARG");
   });

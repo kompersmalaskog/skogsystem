@@ -9,14 +9,16 @@
 //
 // Ordning (högst först):
 //   1. larm    — larmkoordinaten (akut, får aldrig döljas)
-//   2. symbol  — det någon SATT UT: symboler, pilar, fällträd, kör upp-pilar. Före ytnumret (2026-11-11): numrets 44 px träffyta
+//   2. kommentar — en pratbubbla på en linje, yta eller traktdel (Martin 2026-11-26: varje bubbla ska öppna sin kommentar med ETT tryck). Bubblan står ofta utanför det
+//                den hör till (ovanför ytans namn), så den har en egen träffyta och slår allt under sig: ett tryck på bubblan öppnar bubblans markering, aldrig traktdelen under.
+//   3. symbol  — det någon SATT UT: symboler, pilar, fällträd, kör upp-pilar. Före ytnumret (2026-11-11): numrets 44 px träffyta
 //                slog annars en symbol som stod nära siffran — man tryckte på högstubben och fick "Område 2".
-//   3. yta-nr  — ytans nummer: öppnar ALLTID ytkortet, även när högar täcker ytan
-//   4. punkt   — högar (timmer + GROT), Vidas tilläggspunkter, RAÄ-punkter
-//   5. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
-//   6. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
-//   7. yta     — det MINSTA och mest specifika: hänsyn, egna zoner, nyckelbiotop, fornlämning/kultur, Övrigt
-//   8. traktyta — traktdelen och egna områdens fyllning, SIST (Martin 2026-11-23: tryck på en hänsyn öppnade traktens kort).
+//   4. yta-nr  — ytans nummer: öppnar ALLTID ytkortet, även när högar täcker ytan
+//   5. punkt   — högar (timmer + GROT), Vidas tilläggspunkter, RAÄ-punkter
+//   6. linje   — stickvägar, basvägar, kraftledningar, RAÄ-linjer, områdesgräns-linjer
+//   7. fastighet — fastighetsgränsen (rågången): ett tryck på gränsen öppnar "X mot Y" före traktdelens yta, så att man kan trycka på en rågång som ligger på traktgränsen
+//   8. yta     — det MINSTA och mest specifika: hänsyn, egna zoner, nyckelbiotop, fornlämning/kultur, Övrigt
+//   9. traktyta — traktdelen och egna områdens fyllning, SIST (Martin 2026-11-23: tryck på en hänsyn öppnade traktens kort).
 //                Körspåren och högarnas bakgrund deltar inte alls: de tar aldrig emot tryck.
 //
 // VARFÖR 'traktyta' är en egen kategori: Vidas traktdel och hänsyn bär ingen areal i datan (AREA_HA/SHAPE.STAr saknas), så "minsta ytan" kan inte avgöras på storlek —
@@ -25,11 +27,12 @@
 // Väg-⚠ (lib/vagRisk) är markörer på vägen och tar emot sitt eget tryck (en DOM-knapp över kartan) — de deltar inte i den här prioriteringen. Förut låg en 30 px bred osynlig träfflinje på traktgränsen
 // (kategorin 'tma'); den är borta tillsammans med den pulserande gränsmarkeringen.
 
-export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';
+export type KlickKategori = 'larm' | 'kommentar' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';
 
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'larm',   lager: ['larm-pin-hit'] },
+  { kategori: 'kommentar', lager: ['markers-kommentar-traff', 'markers-kommentar-traff-ovan'] },
   { kategori: 'symbol', lager: ['markers-avvikelse', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {

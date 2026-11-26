@@ -20,8 +20,8 @@ async function bunta(): Promise<string> {
   const r = await build({
     stdin: {
       contents: `import * as K from './lib/korvyKlar'; import * as T from './lib/korvyText'; import * as N from './lib/narStyrka'; import * as Y from './lib/ytaStil';
-        import * as G from './lib/larm/grupper'; import * as I from './lib/marker-icons'; import * as V from './lib/viktigtEtikett'; import * as D from './lib/design/tokens';
-        window.LUGNARE = { K, T, N, Y, G, I, V, D };`,
+        import * as G from './lib/larm/grupper'; import * as I from './lib/marker-icons'; import * as D from './lib/design/tokens';
+        window.LUGNARE = { K, T, N, Y, G, I, D };`,
       resolveDir: process.cwd(), loader: 'ts',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent',
@@ -41,7 +41,7 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy på Brokamålas riktiga data — rikt
       await pg.addScriptTag({ path: path.join(MAPLIBRE, 'maplibre-gl.js') });
       await pg.addScriptTag({ content: lib });
       const r = await pg.evaluate(async (fx: any) => {
-        const W = window as any; const { K, T, N, Y, G, I, V, D } = W.LUGNARE;
+        const W = window as any; const { K, T, N, Y, G, I, D } = W.LUGNARE;
         const FARG = D.FARG;
         const MASKIN = { lat: 56.2996, lon: 14.4686 };   // maskinen står vid hänsyn 1/3 och fornlämningen
         document.getElementById('m')!.innerHTML = '';
@@ -87,7 +87,7 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy på Brokamålas riktiga data — rikt
         const hav = (a: number[], b: number[]) => { const R = 6371008.8, r = Math.PI / 180; const dLa = (b[1] - a[1]) * r, dLo = (b[0] - a[0]) * r; const h = Math.sin(dLa / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
         for (const def of I.markerIconDefs) { const img = await I.loadMarkerImageForMaplibre(def.id); if (img && !map.hasImage(`marker-${def.id}`)) map.addImage(`marker-${def.id}`, img); }
         const symboler = fx.markeringar.map((m: any) => ({ ...m, c: ll(m.x, m.y) }));
-        const VIKTIGT_ID = 'm14';   // en av Info-symbolerna har en Viktigt-rad → förblir full, med gul etikett
+        const VIKTIGT_ID = 'm14';   // en av Info-symbolerna har en Viktigt-rad → förblir full
         const KLAR = new Set(symboler.map((m: any) => m.id));   // Klar på ALLT (även fara/kultur/Viktigt, som inte ska gå att dämpa)
         const bygg = (efter: boolean) => symboler.map((m: any) => {
           const dist = hav([MASKIN.lon, MASKIN.lat], m.c);
@@ -103,16 +103,12 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy på Brokamålas riktiga data — rikt
         map.addLayer({ id: 'markers-korvy-label', type: 'symbol', source: 'markers-source', filter: ['match', ['get', 'type'], FARO, true, false],
           layout: { 'text-field': ['match', ['get', 'type'], ...FARO.flatMap((t: string) => [t, G.SYMBOL_NAMN[t] ?? '']), ''], 'text-size': 14, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-allow-overlap': true, 'text-font': rubrik },
           paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.6)', 'text-halo-width': 1.2 } });
-        // Viktigt-etiketten (sidans lager): gul rad vid en Info-symbol.
-        const vm = symboler.find((s: any) => s.id === VIKTIGT_ID);
-        map.addSource(V.VIKTIGT_KALLA, fc([pt(vm.c, { text: '⚠ Kör inte över bäcken', ovan: true })]));
-        map.addLayer(V.viktigtLager());
         // Maskinens position: blå prick med vit kant.
         map.addSource('maskin', fc([pt([MASKIN.lon, MASKIN.lat], {})]));
         map.addLayer({ id: 'maskin', type: 'circle', source: 'maskin', paint: { 'circle-radius': 7, 'circle-color': FARG.bla, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2.5 } });
         const vila = () => new Promise((res) => { map.once('render', () => map.once('idle', res)); map.triggerRepaint(); });
         const NARA = ['trakt-hansyn-label', 'trakt-nb-label', 'trakt-punkt-label', 'yta-nr-label'];
-        const ALLTID = ['trakt-raa-label', 'markers-korvy-label', 'viktigt-etikett'];
+        const ALLTID = ['trakt-raa-label', 'markers-korvy-label'];
         const rakna = () => { map.redraw(); const q = (id: string) => map.queryRenderedFeatures({ layers: [id] }).length; return { nara: Object.fromEntries(NARA.map((id) => [id, q(id)])), alltid: Object.fromEntries(ALLTID.map((id) => [id, q(id)])) }; };
         const bild = () => { const c = map.getCanvas(); const k = document.createElement('canvas'); k.width = c.width; k.height = c.height; k.getContext('2d')!.drawImage(c, 0, 0); return k.toDataURL('image/png'); };
         let senaste: any[] = bygg(false);
@@ -135,7 +131,7 @@ describe.skipIf(!CHROMIUM)('Lugnare körvy på Brokamålas riktiga data — rikt
       // Texten: färre nära-etiketter efter, men inga alltid-etiketter försvinner.
       expect(sum(r.fore.nara), 'före: all text syns').toBeGreaterThan(sum(r.efter.nara));
       expect(sum(r.efter.nara), 'efter: något är nära maskinen och syns').toBeGreaterThan(0);
-      expect(r.efter.alltid, 'faror, kultur och Viktigt: lika många före och efter').toEqual(r.fore.alltid);
+      expect(r.efter.alltid, 'faror och kultur: lika många före och efter').toEqual(r.fore.alltid);
       expect(r.fore.alltid['markers-korvy-label'], 'de tre varningarna har namn').toBe(3);
       // Symbolerna: dämpbara blir halvgenomskinliga (<= 0,35), fara/kultur/Viktigt behåller sin avståndsstyrka.
       const typer = r.typer as Record<string, string>;
