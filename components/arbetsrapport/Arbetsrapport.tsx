@@ -1,4 +1,5 @@
 "use client";
+import GransLista from "@/components/arbetstid/GransLista";
 import React, { useState, useEffect, useRef, useMemo, useCallback, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { escapeHtml } from "@/lib/html";
@@ -911,7 +912,6 @@ export default function Arbetsrapport() {
   // Förarens egna arbetstidsgränser (50 tim övertid/månad, 250/år, 48 tim/vecka i snitt) — SAMMA räkning som Admin › Arbetstid
   // (/api/lon/arbetstid?mig=1). null = läses/kunde inte läsas: då visas årets övertid som förut.
   const [minaGranser, setMinaGranser] = useState<any[] | null>(null);
-  const [gransOppen, setGransOppen] = useState<string | null>(null);
   useEffect(() => {
     if (steg !== "mintid" || !medarbetare?.id || medarbetare?.foretagsledare === true) return;
     let avbruten = false;
@@ -4536,51 +4536,12 @@ export default function Arbetsrapport() {
           {minTidFlik==='översikt'&&!arForetagsledare&&<>
           {/* Arbetstidens gränser — det föraren själv ska hålla koll på (Martin 2026-11-25: "medarbetaren måste ju se det").
               Samma tal som Admin › Arbetstid. Faller läsningen står årets övertid kvar som förut. */}
-          {minaGranser && (()=>{
-            const ordning = ["overtid_manad","allman_overtid_ar","extra_overtid_ar","snitt_48"];
-            const manNamn = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'][nu.getMonth()];
-            const rubrik: Record<string,[string,string]> = {
-              overtid_manad: [`Övertid i ${manNamn}`, "t.o.m. igår"],
-              allman_overtid_ar: [`Övertid ${nu.getFullYear()}`, ""],
-              extra_overtid_ar: ["Extra övertid", "över årets tak"],
-              snitt_48: ["Snitt per vecka", "senaste 4 månaderna"],
-            };
-            const LAGEN_FORARE: Record<string,string> = {
-              overtid_manad: "Arbetstidslagen 8 §: högst 50 timmar övertid per kalendermånad (eller 48 timmar på fyra veckor). Övertid blir det först när månadens ordinarie timmar är fyllda, precis som på lönen.",
-              allman_overtid_ar: "Skogsavtalet § 5 mom 5: högst 250 timmar övertid per kalenderår. Lagen säger 200, avtalet tillåter 250.",
-              extra_overtid_ar: "Arbetstidslagen 8 a §: över årets tak får det bli högst 150 timmar extra övertid, och bara när det finns särskilda skäl. Prata med arbetsledningen.",
-              snitt_48: "Arbetstidslagen 10 b §: all arbetstid, övertid inräknad, får vara högst 48 timmar per vecka i snitt över fyra månader. En enskild vecka får vara längre. Semester och sjukdagar räknas som 8 timmar.",
-            };
-            const rader = ordning.map(id => minaGranser.find((g:any)=>g.id===id)).filter((g:any)=>g && !(g.id==="extra_overtid_ar" && !(g.varde>0)));
-            return (
-              <section data-arbetstid-granser="" style={{ marginBottom:AVSTAND.xl }}>
-                <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Arbetstid</h3>
-                <div style={{ ...KORT, paddingTop:0, paddingBottom:0 }}>
-                  {rader.map((g:any, i:number) => {
-                    const farg = g.niva==="rod" ? FARG.rod : g.niva==="gul" ? FARG.orange : FARG.text;
-                    const [namn, under] = rubrik[g.id];
-                    const enhet = g.id==="snitt_48" ? "tim/v" : "tim";
-                    return (
-                      <div key={g.id} data-grans={g.id} style={{ padding:`${AVSTAND.m}px 0`, borderBottom: i < rader.length-1 ? `1px solid ${FARG.linje}` : "none" }}>
-                        <button data-grans-tryck="" aria-expanded={gransOppen===g.id} onClick={()=>setGransOppen(o=>o===g.id?null:g.id)} style={{ ...KNAPP.tertiar, display:"flex", width:"100%", justifyContent:"space-between", alignItems:"baseline", gap:AVSTAND.m, padding:0, minHeight:TRAFFYTA.min, height:"auto", textAlign:"left", color:FARG.text }}>
-                          <span style={{ ...TYP.meta, color:FARG.text, display:"inline-flex", alignItems:"center", gap:AVSTAND.xs }}>{namn}{under && <span style={{ color:FARG.text2 }}> · {under}</span>}</span>
-                          <span style={{ ...TYP.listtitel, ...TNUM, color:farg, whiteSpace:"nowrap" }}>
-                            {g.varde==null ? "–" : `${Number(g.varde).toLocaleString('sv-SE')} ${enhet}`}
-                            <span style={{ ...TYP.meta, color:FARG.text2 }}> av {Number(g.grans).toLocaleString('sv-SE')}</span>
-                            <span data-grans-pil="" className="material-symbols-outlined" style={{ fontSize:IKON.text, color:FARG.text3, marginLeft:AVSTAND.xs, verticalAlign:"middle", display:"inline-block", transform:gransOppen===g.id?"rotate(90deg)":"none", transition:`transform ${RORELSE.tryck}ms ${RORELSE.kurva}` }}>chevron_right</span>
-                          </span>
-                        </button>
-                        {(g.niva!=="lugn" || g.varde==null) && <p style={{ margin:`${AVSTAND.xs}px 0 0`, ...TYP.meta, color: g.niva==="lugn" ? FARG.text2 : farg }}>{g.mening}</p>}
-                        {/* Vad lagen säger, skrivet för föraren (admins längre "Varför?" handlar om hur appen räknar). */}
-                        {gransOppen===g.id && <p data-grans-varfor="" style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text2 }}>{LAGEN_FORARE[g.id]}</p>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p style={{ margin:`${AVSTAND.s}px 0 0`, ...TYP.meta, color:FARG.text3 }}>Tryck på en rad för att se vad lagen säger.</p>
-              </section>
-            );
-          })()}
+          {minaGranser && (
+            <section data-arbetstid-granser="" style={{ marginBottom:AVSTAND.xl }}>
+              <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Arbetstid</h3>
+              <GransLista granser={minaGranser} nu={nu} />
+            </section>
+          )}
           {/* Övertid året — taket ur avtalet; färgen förstärker ett ord. Visas bara när gränserna inte gick att läsa. */}
           {!minaGranser && <section style={{ marginBottom:AVSTAND.xl }}>
             <h3 style={{ margin:`0 0 ${AVSTAND.s}px`, ...TYP.micro, color:FARG.text2 }}>Övertid {nu.getFullYear()}</h3>

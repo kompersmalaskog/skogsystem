@@ -25,7 +25,7 @@ import VilobrottUnderflik from "./VilobrottUnderflik";
 // Dagar = kontrollvyn: alla förares dagar ur samma dry_run, larm på befintliga
 // regler. Byggd mot lib/design/tokens — första admin-ytan som är det.
 import DagarUnderflik from "./DagarUnderflik";
-import ArsovertidKort from "./ArsovertidKort";
+import ArbetstidUnderflik from "./ArbetstidUnderflik";
 import ForarManadArk from "./ForarManadArk";
 
 // Kort i granskningen: luft mellan staplade kort.
@@ -36,7 +36,7 @@ const secHead: CSSProperties = { ...TYP.micro, color: FARG.text2, margin: `${AVS
 const btnPrimary: CSSProperties = KNAPP.primar;
 const btnSecondary: CSSProperties = KNAPP.sekundar;
 
-type Underflik = "underlag" | "dagar" | "lonearter" | "system" | "atk" | "vila" | "arsovertid";
+type Underflik = "underlag" | "dagar" | "lonearter" | "system" | "atk" | "vila" | "arbetstid";
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 const UNDERFLIKAR: { key: Underflik; label: string }[] = [
@@ -46,15 +46,15 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "system",   label: "Lönesystem" },
   { key: "atk",      label: "ATK-val" },
   { key: "vila",     label: "Vilobrott" },
-  { key: "arsovertid", label: "Årsövertid" },
+  { key: "arbetstid", label: "Arbetstid" },
 ];
 
 // Två flikar är det man gör varje månad. Resten ställer man in sällan (eller slår upp) och ligger som rader
 // under "Mer" längst ner — samma adresser som förut (?underflik=lonearter …), så länkar och notiser hittar dit (Martin 2026-10-25).
 const FLIKRAD: Underflik[] = ["underlag", "dagar"];
-const MER: Underflik[] = [...LON_MER];
+const MER = LON_MER.filter(k => k !== "arsovertid") as Underflik[];
 const MER_UNDERTEXT: Partial<Record<Underflik, string>> = {
-  arsovertid: "Hur nära 250 timmar varje förare är i år",
+  arbetstid: "Övertid per månad och år, snitt per vecka",
   vila: "Alla förares vilobrott",
   lonearter: "Koder till Fortnox",
   system: "Kopplingen till Fortnox",
@@ -64,7 +64,9 @@ const MER_UNDERTEXT: Partial<Record<Underflik, string>> = {
 export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
   // Underfliken står i adressen (?underflik=…): en omladdning stannar på samma ställe.
   const { nav, sattUnderflik } = useAdminNav();
-  const aktiv: Underflik = UNDERFLIKAR.some(u => u.key === nav.underflik) ? (nav.underflik as Underflik) : "underlag";
+  // Gamla länkar till Årsövertid (?underflik=arsovertid) landar på Arbetstid, där året står med.
+  const valt = nav.underflik === "arsovertid" ? "arbetstid" : nav.underflik;
+  const aktiv: Underflik = UNDERFLIKAR.some(u => u.key === valt) ? (valt as Underflik) : "underlag";
   const iFlikrad = FLIKRAD.includes(aktiv);
   return (
     <>
@@ -77,7 +79,7 @@ export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
       {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
-      {aktiv === "arsovertid" && <ArsovertidUnderflik />}
+      {aktiv === "arbetstid" && <ArbetstidUnderflik />}
       {iFlikrad && <MerRader onValj={sattUnderflik} />}
     </>
   );
@@ -109,21 +111,6 @@ function TillbakaTillLon({ etikett, onTillbaka }: { etikett: string; onTillbaka:
       <h1 style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.titel, color: FARG.text }}>{etikett}</h1>
     </div>
   );
-}
-
-/** Årsövertid (Lön › Mer): hur nära taket varje förare är. Flyttad hit från Löneunderlag 2026-11-25. */
-function ArsovertidUnderflik() {
-  const [svar, setSvar] = useState<any>(null);
-  useEffect(() => {
-    let avbruten = false;
-    fetch("/api/lon/arsovertid", { cache: "no-store" })
-      .then(r => r.json())
-      .then(j => { if (!avbruten) setSvar(j); })
-      .catch(e => { if (!avbruten) setSvar({ ok: false, meddelande: e?.message || String(e) }); });
-    return () => { avbruten = true; };
-  }, []);
-  if (!svar) return <Laddar />;
-  return <ArsovertidKort svar={svar} />;
 }
 
 /** Det man rör sällan: rader längst ner, en tryckning bort. */

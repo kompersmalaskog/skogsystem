@@ -78,4 +78,4 @@ export function useAdminNav(): Ctx {
 }
 
 /** Lön-sidorna som nås via Mer (inte flikraden): de har "‹ Lön" och egen rubrik i stället för sidans rubrik. */
-export const LON_MER = ["arsovertid", "vila", "lonearter", "system", "atk"] as const;
+export const LON_MER = ["arbetstid", "arsovertid", "vila", "lonearter", "system", "atk"] as const;
