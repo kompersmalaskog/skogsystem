@@ -275,7 +275,7 @@ function ObjektRad({ m, forsta, objektId, ikon, framhavdId, onVisa, onSlapp, onF
       </div>
       {kommentarer.length > 0 && (
         <div data-testid="om-kommentar" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s, padding: `0 ${AVSTAND.l}px ${AVSTAND.m}px` }}>
-          {kommentarer.map((k) => <KommentarVisning key={k.id} vida={k.vida} forfattare={k.forfattare} vantar={k.vantar} text={k.text} meningar={false} />)}
+          {kommentarer.map((k) => <KommentarVisning key={k.id} vida={k.vida} forfattare={k.forfattare} vantar={k.vantar} text={k.text} viktigt={k.viktigt} meningar={false} />)}
         </div>
       )}
     </div>

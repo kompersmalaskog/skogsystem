@@ -56,6 +56,8 @@ def ladda_import():
 
 M = ladda_import()
 
+import andringsvakt as AV                    # EN fråga i stället för en per fil (migration 20261122180000)
+
 
 def L(t):
     return t.split('}', 1)[1] if '}' in t else t
@@ -357,8 +359,11 @@ def main():
             lasta = {}
     if '--alla' not in sys.argv:
         kan_fraga = bool(M.SUPABASE_HEADERS) or M.init_supabase()
-        hoppade = {f for f in valda
-                   if os.path.basename(f) in lasta or (kan_fraga and finns_i_tabellen(os.path.basename(f)))}
+        # EN fråga för alla filer som inte redan står i den lokala listan (RPC diameter_filer, migration 20261122180000).
+        # Förut en fråga per fil vid varje efterberäkning: 286 456 anrop. Saknas RPC:n frågas det per fil som förut.
+        okanda = sorted({os.path.basename(f) for f in valda} - set(lasta))
+        finns = AV.finns_flera(M.SUPABASE_URL, M.SUPABASE_HEADERS, okanda, finns_i_tabellen) if kan_fraga else set()
+        hoppade = {f for f in valda if os.path.basename(f) in lasta or os.path.basename(f) in finns}
         if hoppade:
             print('redan lästa: %d filer hoppas över (--alla läser om)' % len(hoppade))
         valda -= hoppade

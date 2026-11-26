@@ -130,7 +130,7 @@ describe('högstubbe/evighetsträd i körvyn: små riktiga symboler (Martin 2026
   it('lagret är På som standard och döljs av sitt eget reglage', () => {
     expect(page).toContain('if (korvyActive && arPrick(m.type) && !prickarSynliga(overlays)) return false;   // lagret Högstubbar/evighetsträd avslaget i körvyn → dolda');
     expect(page).toContain('...(korvyActive ? [{ id: PRICK_LAGER_ID');
-    expect(page).toContain('overlays[PRICK_LAGER_ID], kommentarNycklarText]');
+    expect(page).toContain('overlays[PRICK_LAGER_ID], kommentarNycklarText, viktigtNycklarText, klaraSymboler, dampaPa]');
   });
   it('inget proximitetskort för prickar; tryck → litet kort med Ta bort', () => {
     expect(page).toContain('const symbolMarkers = markers.filter((m): m is MedXY => harXY(m) && !!m.isMarker && !arPrick(m.type));');

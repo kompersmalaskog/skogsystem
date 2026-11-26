@@ -20,7 +20,7 @@ import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MarkeringFoto from '@/app/planering/MarkeringFoto';
 import { AVSTAND, FARG, IKON, KNAPP, RADIE, TRAFFYTA, TYP } from '@/lib/design/tokens';
 import type { SammanfattningRad } from '@/lib/klarTrakt';
-import { harFoto, type KartMarkering, type OmKommentar, type TillForarenPost } from '@/lib/objektKort';
+import { harFoto, harViktigtMark, type KartMarkering, type OmKommentar, type TillForarenPost } from '@/lib/objektKort';
 import { byggOmGrupper, objektTitel, type TypRad } from '@/lib/omTrakten';
 import type { Risk } from '@/lib/riskbedomning';
 import type { CertLage, SkyddRad } from '@/lib/traktOversikt';
@@ -28,10 +28,11 @@ import { faroMarkeringar } from '@/lib/faroNummer';
 import { GRUPPER, gruppForLinje, gruppForSymbol, ytaDef, type FargGrupp } from '@/lib/larm/grupper';
 import type { Maskinroll } from '@/lib/malbilder';
 import BrandriskRad from './BrandriskRad';
+import VagRiskRader, { type VagRiskProps } from './VagRiskRader';
 import LarmVy from './LarmVy';
 import type { LarmVisning } from '@/lib/larmpunkter';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
-import { KommentarVisning } from './KommentarRuta';
+import { KommentarVisning, ViktigtRad } from './KommentarRuta';
 import { YtaRadVy } from './YtaRad';
 import type { YtaRad } from '@/lib/ytaRader';
 import type { OmMiljoRad } from './OmTrakten';
@@ -52,6 +53,8 @@ export interface TraktOversiktProps {
   skydd: { lage: 'inte' | 'inga' | 'finns'; rader: SkyddRad[] };
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
+  /** En rad per väg nära traktgränsen ("Väg 538 · låg risk ✓"): tryck öppnar riskbedömningen. null/saknas = ingen rad. */
+  vagar?: VagRiskProps | null;
   /** "PEFC: alla 26 evighetsträd och 8 högstubbar är utsatta – spara dem." (lib/traktOversikt.certRad). */
   cert: { text: string; klar: boolean } | null;
   /** Är trakten certifierad? Står ALLTID i "Vad ska sparas?" (Martin 2026-11-12: "det står ju inget om cert"). Saknas = som certifierad med `cert`. */
@@ -119,7 +122,8 @@ function KartRad({ m, forsta, ny, ikon, objektId, onOppna, onFoto, nr }: { m: Ka
             <span style={{ ...TYP.meta, color: FARG.text2, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{objektTitel(m)}</span>
             {ny && <Nytt />}
           </span>
-          {texter.map((k) => (
+          {texter.filter((k) => k.viktigt).map((k) => <ViktigtRad key={`v-${k.id}`} text={k.viktigt!} kompakt />)}
+          {texter.filter((k) => k.text.trim()).map((k) => (
             <span key={k.id} data-testid="oversikt-kart-text" style={{ ...TYP.kommentar, color: FARG.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{k.text}</span>
           ))}
         </span>
@@ -150,10 +154,10 @@ function sortGrupp(m: KartMarkering | undefined, r: TypRad): FargGrupp {
 /** Saker man ska vara rädd om fast de inte är natur eller kultur. */
 const VAR_RADD_OM: Record<string, string> = { huntingtower: 'slå inte sönder' };
 /** Rubriken för en färg: stor prick i kartans färg och ordet stort (Martin 2026-11-12: "mycket tydligare"). Utan grupp: bara ordet. */
-function FargRubrik({ grupp, children }: { grupp?: FargGrupp; children: React.ReactNode }) {
+function FargRubrik({ grupp, farg, children }: { grupp?: FargGrupp; /** Egen prickfärg (Viktigt: gul) när rubriken inte är en av kartans färggrupper. */ farg?: string; children: React.ReactNode }) {
   return (
     <div data-testid="oversikt-farg-rubrik" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, margin: `0 ${AVSTAND.xs}px ${AVSTAND.s}px` }}>
-      {grupp && <span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.l, borderRadius: RADIE.cirkel, background: GRUPPER[grupp].farg, border: grupp === 'info' ? `2px solid ${FARG.text2}` : 'none', boxSizing: 'border-box', flexShrink: 0 }} />}
+      {(grupp || farg) && <span aria-hidden="true" style={{ width: AVSTAND.l, height: AVSTAND.l, borderRadius: RADIE.cirkel, background: grupp ? GRUPPER[grupp].farg : farg, border: grupp === 'info' ? `2px solid ${FARG.text2}` : 'none', boxSizing: 'border-box', flexShrink: 0 }} />}
       <span style={{ ...TYP.rubrik, color: FARG.text }}>{children}</span>
     </div>
   );
@@ -164,9 +168,15 @@ export default function TraktOversikt(p: TraktOversiktProps) {
   const [fel, setFel] = useState(false);
   // Larmraden öppnar "Om något händer" i samma panel, med "‹ Hela trakten" tillbaka (Martin 2026-11-05).
   const [larmVy, setLarmVy] = useState(false);
+  // VIKTIGT (Martin 2026-11-23): det som har en Viktigt-rad står överst, under Fara, med hela sin kommentar — inte en gång till längre ned. Farorna behåller sin plats (de visar Viktigt i gult överst på raden).
+  const faroIdn = useMemo(() => new Set(faroMarkeringar(p.markeringar).map((m) => m.id)), [p.markeringar]);
+  const viktigaMark = useMemo(() => p.markeringar.filter((m) => harViktigtMark(m) && !faroIdn.has(m.id)), [p.markeringar, faroIdn]);
+  const viktigaIdn = useMemo(() => new Set(viktigaMark.map((m) => m.id)), [viktigaMark]);
+  const viktigaHela = useMemo(() => p.helaTrakten.filter((k) => !!k.viktigt), [p.helaTrakten]);
+  const overigaHela = useMemo(() => p.helaTrakten.filter((k) => !k.viktigt), [p.helaTrakten]);
   const grupper = useMemo(
-    () => byggOmGrupper(p.markeringar, null, p.miljo.map((m) => ({ id: m.id as 'hogstubbar' | 'evighetstrad', namn: m.namn, antal: m.antal, krav: m.krav, uppfyllt: m.uppfyllt })), []),
-    [p.markeringar, p.miljo],
+    () => byggOmGrupper(p.markeringar.filter((m) => !viktigaIdn.has(m.id)), null, p.miljo.map((m) => ({ id: m.id as 'hogstubbar' | 'evighetstrad', namn: m.namn, antal: m.antal, krav: m.krav, uppfyllt: m.uppfyllt })), []),
+    [p.markeringar, p.miljo, viktigaIdn],
   );
   // Farorna i samma ordning och med samma nummer som på kartan (lib/faroNummer).
   const faroMark = useMemo(() => faroMarkeringar(p.markeringar), [p.markeringar]);
@@ -323,6 +333,26 @@ export default function TraktOversikt(p: TraktOversiktProps) {
           </section>
         )}
 
+        {/* 2a. VÄGAR NÄRA GRÄNSEN — en rad per väg med riskbedömningens läge */}
+        <VagRiskRader vagar={p.vagar} luftUnder={AVSTAND.l} />
+
+        {/* 2b. VIKTIGT — gult, en nivå under fara: det någon skrivit som "Viktigt" på en yta, symbol eller linje, och på själva trakten. Aldrig nedtonat; tryck öppnar kortet. */}
+        {(viktigaMark.length > 0 || viktigaHela.length > 0) && (
+          <section data-testid="oversikt-viktigt">
+            <FargRubrik farg={FARG.gul}>Viktigt</FargRubrik>
+            <Gruppkort>
+              {viktigaMark.map((m, i) => (
+                <KartRad key={m.id} m={m} forsta={i === 0} ny={p.nya.has(m.id)} ikon={p.ikon} objektId={p.objektId} onOppna={p.onOppna} onFoto={p.onFoto} />
+              ))}
+              {viktigaHela.map((k, i) => (
+                <div key={k.id} data-testid="oversikt-viktigt-trakten" style={{ padding: `${AVSTAND.m}px ${AVSTAND.l}px`, borderTop: viktigaMark.length === 0 && i === 0 ? 'none' : `1px solid ${FARG.linje}` }}>
+                  <KommentarVisning etikett={k.forfattare ? `Trakten · ${k.forfattare}` : 'Trakten'} text={k.text} viktigt={k.viktigt} meningar={false} />
+                </div>
+              ))}
+            </Gruppkort>
+          </section>
+        )}
+
         {/* 3. GÄLLER HELA TRAKTEN (Martin 2026-11-12): det traktanalysen hittat (vattenskydd, fossil åker …), certifieringen, direktiv och önskemål. */}
         <section data-testid="oversikt-trakten" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
           <FargRubrik>Gäller hela trakten</FargRubrik>
@@ -368,7 +398,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
               </div>
             )}
           </Gruppkort>
-          {(p.tillForaren.length > 0 || p.helaTrakten.length > 0) && (
+          {(p.tillForaren.length > 0 || overigaHela.length > 0) && (
             <div data-testid="oversikt-veta" style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
               {p.tillForaren.map((t) => {
                 const vida = t.id === 'vida';
@@ -379,7 +409,7 @@ export default function TraktOversikt(p: TraktOversiktProps) {
                   </div>
                 );
               })}
-              {p.helaTrakten.map((k) => (
+              {overigaHela.map((k) => (
                 <div key={k.id} data-testid="oversikt-trakten-text">
                   {p.nyaTexter.has(k.id) && <div style={{ marginBottom: AVSTAND.xs }}><Nytt /></div>}
                   <KommentarVisning etikett={k.forfattare ? `Trakten · ${k.forfattare}` : 'Trakten'} text={k.text} meningar={false} />

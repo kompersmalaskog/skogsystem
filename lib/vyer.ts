@@ -33,6 +33,10 @@ export type Vy = {
    *  skyddsombudet ska se det som är fel på maskinerna — förut nådde hen Åtgärder bara via en länk (Martin 2026-11-02). */
   aven?: 'skyddsombud'
   marke?: MarkeKalla
+  /** Maskinkonto (Maskinen som maskin): förarens egna saker — raden syns med ett lås på maskinen tills någon låst upp med sin kod. */
+  maskinLas?: true
+  /** Maskinkonto: syns inte alls på maskinen om inte en ADMIN låst upp (Ekonomi, Personal …). En förare som låst upp ser dem aldrig. */
+  maskinDold?: true
   /** Delen bor på en samlad sida (Arbetsmiljö, 2026-11-03): syns inte som eget kort i grupperna, men sökningen,
    *  favoriterna och länkar (pushar, Behöver dig) når den som förut. */
   del?: 'arbetsmiljo'
@@ -59,11 +63,10 @@ export const VYER: Vy[] = [
   { id: 'massaved', namn: 'Massaved', href: '/massaved', ikon: 'straighten', grupp: 'produktion', bara: 'admin', sokord: ['massa', 'längd', 'medellängd', 'gallring'] },
   { id: 'helikopter', namn: 'Helikopter', href: '/helikopter', ikon: 'flight', grupp: 'produktion', sokord: ['beställt', 'prognos'] },
   { id: 'helikopter-v2', namn: 'Helikopter v2', href: '/helikopter-v2', ikon: 'helicopter', grupp: 'produktion' },
-  { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning/rakna', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'] },
+  { id: 'affarsuppfoljning', namn: 'Affärsuppföljning', href: '/affarsuppfoljning/rakna', ikon: 'business_center', grupp: 'produktion', sokord: ['affär'], maskinDold: true },
 
   // Maskiner
   { id: 'maskinvy', namn: 'Maskinvy', href: '/maskinvy', ikon: 'visibility', grupp: 'maskiner' },
-  { id: 'maskinvy-2', namn: 'Maskinvy 2', href: '/maskinvy?ny=1', ikon: 'new_releases', grupp: 'maskiner' },
   { id: 'kalibrering', namn: 'Kalibrering', href: '/kalibrering', ikon: 'straighten', grupp: 'maskiner', sokord: ['kontrollmätning', 'hqc'] },
   { id: 'inventarier', namn: 'Inventarier', href: '/inventarier', ikon: 'inventory_2', grupp: 'maskiner', sokord: ['lager', 'sågkedja', 'beställa', 'verktyg', 'bil', 'depåskåp', 'slang'] },
   { id: 'servicelogg', namn: 'Servicelogg', href: '/maskin-service', ikon: 'build', grupp: 'maskiner', sokord: ['service'] },
@@ -95,17 +98,17 @@ export const VYER: Vy[] = [
   { id: 'egenkontroll', namn: 'Egenkontroll', href: '/egenkontroll', ikon: 'fact_check', grupp: 'objekt', marke: 'egenkontroll' },
 
   // Personal och tid
-  { id: 'planera', namn: 'Planera', href: '/planera', ikon: 'edit_calendar', grupp: 'personal', sokord: ['tid', 'min tid', 'stämpla'] },
-  { id: 'arbetsrapport', namn: 'Arbetsrapport', href: '/arbetsrapport', ikon: 'description', grupp: 'personal', sokord: ['tid', 'lön', 'rapport'] },
-  { id: 'ledighet', namn: 'Ledighet', href: '/ledighet', ikon: 'beach_access', grupp: 'personal', marke: 'ledighet', sokord: ['semester', 'atk', 'ledig'] },
-  { id: 'introduktion', namn: 'Introduktion', href: '/introduktion', ikon: 'school', grupp: 'personal', del: 'arbetsmiljo', sokord: ['ny', 'välkommen', 'arbetsmiljö', 'skyddsombud'] },
+  { id: 'planera', namn: 'Planera', href: '/planera', ikon: 'edit_calendar', grupp: 'personal', sokord: ['tid', 'min tid', 'stämpla'], maskinLas: true },
+  { id: 'arbetsrapport', namn: 'Arbetsrapport', href: '/arbetsrapport', ikon: 'description', grupp: 'personal', sokord: ['tid', 'lön', 'rapport'], maskinLas: true },
+  { id: 'ledighet', namn: 'Ledighet', href: '/ledighet', ikon: 'beach_access', grupp: 'personal', marke: 'ledighet', sokord: ['semester', 'atk', 'ledig'], maskinLas: true },
+  { id: 'introduktion', namn: 'Introduktion', href: '/introduktion', ikon: 'school', grupp: 'personal', del: 'arbetsmiljo', sokord: ['ny', 'välkommen', 'arbetsmiljö', 'skyddsombud'], maskinLas: true },
   // Arbetsmiljö: EN sida med svaret ("Allt är i ordning" / "2 saker behöver dig") och en rad per del (Martin 2026-11-03).
   { id: 'arbetsmiljo', namn: 'Arbetsmiljö', href: '/arbetsmiljo', ikon: 'health_and_safety', grupp: 'personal', marke: 'arbetsmiljo', sokord: ['säkerhet', 'skyddsrond', 'risk', 'skyddsombud', 'maskinkoll', 'åtgärder', 'olycka', 'tillbud'] },
-  { id: 'personal', namn: 'Personal', href: '/personal', ikon: 'badge', grupp: 'personal', marke: 'personal', sokord: ['telefon', 'anhörig', 'skyddsombud', 'mat'] },
-  { id: 'utbildning', namn: 'Utbildning', href: '/utbildning', ikon: 'school', grupp: 'personal', sokord: ['intyg', 'certifikat'] },
+  { id: 'personal', namn: 'Personal', href: '/personal', ikon: 'badge', grupp: 'personal', marke: 'personal', sokord: ['telefon', 'anhörig', 'skyddsombud', 'mat'], maskinDold: true },
+  { id: 'utbildning', namn: 'Utbildning', href: '/utbildning', ikon: 'school', grupp: 'personal', sokord: ['intyg', 'certifikat'], maskinLas: true },
 
   // Ekonomi
-  { id: 'avtal', namn: 'Avtal', href: '/avtal', ikon: 'receipt_long', grupp: 'ekonomi', sokord: ['abonnemang'] },
+  { id: 'avtal', namn: 'Avtal', href: '/avtal', ikon: 'receipt_long', grupp: 'ekonomi', sokord: ['abonnemang'], maskinDold: true },
 
   // Admin — bara för admin
   { id: 'ekonomi', namn: 'Ekonomi', href: '/ekonomi', ikon: 'payments', grupp: 'admin', bara: 'admin', sokord: ['faktura', 'resultat'] },
@@ -122,25 +125,41 @@ export const VYER: Vy[] = [
 
 /** Förinställda favoriter per roll (tills var och en kan ändra sina — nästa PR). Max 8. */
 export const STANDARD_FAVORITER: Record<Roll, string[]> = {
-  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy-2', 'ekonomi'],
+  admin: ['oversikt', 'uppfoljning', 'planering', 'objekt', 'helikopter', 'maskinvy', 'ekonomi'],
   forare: ['planera', 'planering', 'ledighet', 'lastbilen', 'kalibrering', 'servicelogg', 'uppfoljning', 'utbildning'],
 }
 
 export const MAX_FAVORITER = 8
 
+/**
+ * Vy-id som har ersatts av ett annat. Sparade favoriter kan fortfarande bära dem: de läses som det nya id:t (en gång, i ordningen
+ * de stod). 'maskinvy-2' var kortet för den nya maskinvyn; den gamla vyn är borta och vyn heter nu bara Maskinvy (2026-11-22).
+ */
+export const ERSATTA_VY_ID: Record<string, string> = { 'maskinvy-2': 'maskinvy' }
+
+/** Sparade vy-id med ersatta id utbytta och dubbletter borttagna (första träffen gäller). */
+export function migreraVyIds(ids: string[]): string[] {
+  const ut: string[] = []
+  for (const id of ids) {
+    const nytt = ERSATTA_VY_ID[id] ?? id
+    if (!ut.includes(nytt)) ut.push(nytt)
+  }
+  return ut
+}
+
 /** Det som utöver rollen avgör vad man ser. */
-export type Behorighet = { skyddsombud?: boolean }
+export type Behorighet = { skyddsombud?: boolean; /** Enheten är en maskin (maskinkonto eller upplåst på en maskin): vyer märkta `maskinDold` syns bara för admin. */ maskin?: boolean }
 
 /** Vyerna en roll får se, i registrets ordning. Skyddsombudet ser dessutom vyer märkta `aven: 'skyddsombud'`. */
 export function vyerFor(roll: Roll, b: Behorighet = {}): Vy[] {
-  return VYER.filter(v => !v.bara || v.bara === roll || (v.aven === 'skyddsombud' && b.skyddsombud === true))
+  return VYER.filter(v => (!v.bara || v.bara === roll || (v.aven === 'skyddsombud' && b.skyddsombud === true)) && !(b.maskin && v.maskinDold && roll !== 'admin'))
 }
 
 /** Favoriterna för en roll: bara vyer rollen får se, i given ordning, max 8. Okända id hoppas över. */
 export function favoriterFor(roll: Roll, ids: string[] = STANDARD_FAVORITER[roll], b: Behorighet = {}): Vy[] {
   const synliga = new Map(vyerFor(roll, b).map(v => [v.id, v]))
   const ut: Vy[] = []
-  for (const id of ids) {
+  for (const id of migreraVyIds(ids)) {
     const v = synliga.get(id)
     if (v && !ut.includes(v)) ut.push(v)
     if (ut.length === MAX_FAVORITER) break

@@ -22,9 +22,14 @@ export function tidMedDecimal(min: number, h?: number): string {
 }
 
 export type VyRadDel = { nyckel: string; text: string; varde: string };
-export type VyLonerad = { nyckel: string; rubrik: string; varde: string; detalj: string | null };
+/** `utanKod`: raden har ett antal men ingen löneart i Fortnox — "saknar" stoppar sändningen, "valfri" (premien) hoppas över. */
+export type VyLonerad = { nyckel: string; rubrik: string; varde: string; detalj: string | null; utanKod: "saknar" | "valfri" | null };
 export type VyExtra = { nyckel: string; datum: string; text: string; tid: string; kommentar: string | null };
-export type VyKm = { totalt: string; over: string | null; mil: string; sa: string; dagarOver: { datum: string; text: string }[] };
+export type VyKm = { totalt: string; over: string | null; mil: string; sa: string; dagarOver: { datum: string; text: string }[]; perTrakt: VyMilTrakt[] };
+/** En rad under en trakt: dagar i följd med samma km. `rakning` = "218 km – 60 = 16 mil per dag". `avviker` finns bara när
+ *  förarens egna km är minst 10 % fler än appens: "Föraren skrev 218 km · appen räknade 198 km". */
+export type VyMilRad = { nyckel: string; datum: string; dagar: number; rakning: string; avviker: string | null; mil: string };
+export type VyMilTrakt = { trakt: string; mil: string; rader: VyMilRad[] };
 export type VyDag = {
   nyckel: string;
   datum: string;
@@ -38,6 +43,8 @@ export type VyDag = {
   tid: string;
   avvikelser: string[];
   detalj: string[];
+  /** Vad maskinen loggade när föraren skrev en annan tid (orange i den utfällda dagen). */
+  maskinLogg: string | null;
   extra: VyExtra[];
 };
 
@@ -94,28 +101,85 @@ function extraRad(e: ExtraPost, i: number): VyExtra {
   };
 }
 
+/**
+ * Den utfällda dagen säger BARA det som inte redan står på dagens rad (klockslag, tid, hem → trakt, km och mil står där).
+ * Det nya: maskinen och rasten, vad maskinen loggade när den skiljer sig (orange, `maskinLogg`), km per väg, OB, traktamente
+ * och om föraren bekräftat dagen.
+ */
 function dagDetaljer(d: any, maskinNamn: Record<string, string>): string[] {
   const ut: string[] = [];
-  ut.push(d.maskin_id ? `Maskin ${maskinNamn[d.maskin_id] || d.maskin_id}` : d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin");
-  ut.push(d.start_tid || d.slut_tid ? `${hm(d.start_tid) || "–"}–${hm(d.slut_tid) || "–"}${d.rast_min ? ` · rast ${minText(d.rast_min)}` : " · ingen rast"}` : "Inga klockslag, tiden ligger i perioder");
-  ut.push(d.extra_min > 0 ? `Maskintid ${minText(d.arbetad_min)} + extra tid ${minText(d.extra_min)}` : `Tid ${minText((d.arbetad_min || 0) + (d.extra_min || 0))}`);
-  ut.push((d.objekt || []).length ? `Trakt: ${d.objekt.join(", ")}` : "Ingen trakt");
-  // Km: källan alltid med, och trakterna benen gick mellan på ALLA dagar (härledda ur dagens trakter, samma funktion som räknade km). Är km förarens
-  // egen står också vad appen hade fått bredvid — bara visning.
-  const appen = d.km_kalla === "forare" ? d.km_rutt?.appen : null;
-  const ben = (km: number, appenKm: number | undefined) => (km > 0 ? ` · ${kmText(km)}${appenKm != null ? ` (appen: ${kmText(appenKm)})` : ""}` : "");
-  if (d.km_rutt) {
-    ut.push(`Hem → ${d.km_rutt.forsta}${ben(d.km_morgon, appen?.morgon)}`);
-    ut.push(`${d.km_rutt.sista} → Hem${ben(d.km_kvall, appen?.kvall)}`);
+  const maskin = d.maskin_id ? `Maskin ${maskinNamn[d.maskin_id] || d.maskin_id}` : d.perioddag ? "Perioddag, ingen maskin" : "Ingen maskin";
+  const harTider = !!(d.start_tid || d.slut_tid);
+  ut.push(harTider ? `${maskin}${d.rast_min ? "" : " · ingen rast"}` : `${maskin} · inga klockslag, tiden ligger i perioder`);
+  if (d.extra_min > 0) ut.push(`Maskintid ${minText(d.arbetad_min)} + extra tid ${minText(d.extra_min)}`);
+  if ((d.objekt || []).length > 1) ut.push(`Trakter: ${d.objekt.join(", ")}`);
+  // Km per väg. Är km förarens egen står vad appen hade fått inom parentes — bara visning.
+  if (d.km_rutt && (d.km_morgon > 0 || d.km_kvall > 0)) {
+    const appen = d.km_kalla === "forare" ? d.km_rutt.appen : null;
+    const hem = d.km_rutt.sista === d.km_rutt.forsta ? "hem" : `hem från ${d.km_rutt.sista}`;
+    ut.push(`Dit ${kmText(d.km_morgon)} · ${hem} ${kmText(d.km_kvall)}${appen ? ` (appen ${kmText(appen.morgon)} + ${kmText(appen.kvall)})` : ""}`);
   }
-  const mil = d.ersattningsmil ? ` · ${d.ersattningsmil} mil ersätts` : "";
-  if (d.km_kalla === "auto") ut.push(`Beräknad · ${kmText(d.km_totalt)} totalt${mil}`);
-  else if (d.km_kalla === "forare") ut.push(`Egen · ${kmText(d.km_totalt)} totalt${appen ? ` (appen: ${kmText(appen.totalt)})` : ""}${mil}`);
-  else ut.push(d.km_totalt ? `${kmText(d.km_totalt)} · ingen uppgift om källa${mil}` : "Ingen uppgift om km");
   if (d.ob_min > 0) ut.push(`OB ${minText(d.ob_min)}`);
   if (d.traktamente) ut.push("Traktamente");
   ut.push(d.bekraftad ? "Bekräftad av föraren" : "Inte bekräftad");
   return ut;
+}
+
+/** "Maskinen loggade 07:34–15:53 – 27 min kortare". Ur synkraden ("07:34-15:53 rast 0"); null när skillnaden inte visas. */
+function maskinLoggText(s: { diff_min: number; maskinen: string } | undefined): string | null {
+  if (!s || !synkVisas(s.diff_min)) return null;
+  const m = /^(\S+)-(\S+) rast (\d+)/.exec(s.maskinen || "");
+  const tider = m ? `${hm(m[1]) || m[1]}–${hm(m[2]) || m[2]}${Number(m[3]) > 0 ? ` · rast ${minText(Number(m[3]))}` : ""}` : s.maskinen;
+  return `Maskinen loggade ${tider} – ${Math.abs(s.diff_min)} min ${s.diff_min > 0 ? "kortare" : "längre"}`;
+}
+
+/** Förarens egna km räknas som avvikande från appens när de är minst så här mycket fler (bara en markering, ingen varning). */
+export const APPEN_AVVIKER_ANDEL = 0.1;
+
+const intervall = (forsta: string, sista: string) =>
+  forsta === sista ? dagText(forsta)
+    : forsta.slice(0, 7) === sista.slice(0, 7) ? `${Number(forsta.slice(8, 10))}–${dagText(sista)}` : `${dagText(forsta)}–${dagText(sista)}`;
+
+/**
+* Dagarna över km-gränsen, per trakt: trakten är rubriken med sina mil, och dagar i följd med samma km är EN rad med
+ * uträkningen rakt ut ("13–16 okt · 4 dagar · 218 km – 60 = 16 mil per dag"). Summan av trakternas mil är summan av
+ * dagarnas ersättningsmil (motorns tal; uträkningen visar bara hur det blev så).
+ */
+export function milPerTrakt(dagar: any[], grans = 60): VyMilTrakt[] {
+  type Arb = { rad: VyMilRad & { _sig: string; _sista: string; _mil: number; _milDag: number; _km: number }; trakt: string };
+  const grupper = new Map<string, { mil: number; rader: Arb["rad"][] }>();
+  let forra: Arb | null = null;
+  for (const d of dagar) {
+    const r = d.km_rutt;
+    const trakt = !r ? "Trakt okänd" : r.forsta === r.sista ? r.forsta : `${r.forsta} → ${r.sista}`;
+    const appenKm = d.km_kalla === "forare" && r?.appen ? Number(r.appen.totalt) : null;
+    const avviker = appenKm != null && appenKm > 0 && Number(d.km_totalt) >= appenKm * (1 + APPEN_AVVIKER_ANDEL)
+      ? `Föraren skrev ${kmText(d.km_totalt)} · appen räknade ${kmText(appenKm)}` : null;
+    const sig = [d.km_totalt, avviker ?? "", d.ersattningsmil].join("|");
+    if (!grupper.has(trakt)) grupper.set(trakt, { mil: 0, rader: [] });
+    const g = grupper.get(trakt)!;
+    g.mil += Number(d.ersattningsmil);
+    if (forra && forra.trakt === trakt && forra.rad._sig === sig) {
+      forra.rad.dagar += 1; forra.rad._sista = d.datum; forra.rad._mil += Number(d.ersattningsmil);
+      continue;
+    }
+    const rad: Arb["rad"] = {
+      nyckel: d.datum, datum: "", dagar: 1, rakning: "", avviker,
+      mil: "", _sig: sig, _sista: d.datum, _mil: Number(d.ersattningsmil), _milDag: Number(d.ersattningsmil), _km: Number(d.km_totalt),
+    };
+    g.rader.push(rad);
+    forra = { rad, trakt };
+  }
+  return [...grupper.entries()].map(([trakt, g]) => ({
+    trakt,
+    mil: `${g.mil} mil`,
+    rader: g.rader.map(({ _sig, _sista, _mil, _milDag, _km, ...r }) => ({
+      ...r,
+      datum: `${intervall(r.nyckel, _sista)}${r.dagar > 1 ? ` · ${r.dagar} dagar` : ""}`,
+      rakning: `${kmText(_km)} – ${grans} = ${_milDag} mil${r.dagar > 1 ? " per dag" : ""}`,
+      mil: `${_mil} mil`,
+    })),
+  }));
 }
 
 export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>; maskinNamn: Record<string, string> }): ForarManadVy {
@@ -145,7 +209,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
   // Lönerader i den ordning motorn lägger dem; övertid står i uträkningen och reseersättningen under Mil.
   const brandrisk = (m.brandrisk?.dagar || []) as { datum: string; start_tid: string; ob_min: number }[];
   const helglonGer = ((m.helglon?.dagar || []) as { datum: string; namn: string; ger: boolean }[]).filter(h => h.ger);
-  const lonerader: VyLonerad[] = ((m.lonerader || []) as { loneart: string; mangd: string; beskrivning: string }[])
+  const lonerader: VyLonerad[] = ((m.lonerader || []) as { loneart: string; mangd: string; beskrivning: string; status?: string }[])
     .filter(r => !r.loneart.startsWith("overtid") && r.loneart !== "korersattning" && r.loneart !== "valtlappar")
     .map(r => {
       const info = loneartInfo(r.loneart);
@@ -156,7 +220,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       else if (r.loneart.startsWith("premielon")) detalj = r.beskrivning.replace(/(\d)h\b/g, "$1 tim").replace(/(\d)\.(\d)/g, "$1,$2");
       else if (r.loneart.startsWith("helglon")) detalj = `8 tim per röd vardag: ${helglonGer.map(x => `${dagText(x.datum)} ${x.namn}`).join(", ")}`;
       else if (r.loneart === "brandrisk_ob") detalj = `Beordrade morgnar, start till 06:30: ${brandrisk.map(b => `${dagText(b.datum)} ${b.start_tid} (${minText(b.ob_min)})`).join(", ")}`;
-      return { nyckel: r.loneart, rubrik: info?.label ?? r.loneart, varde, detalj };
+      const utanKod = r.status === "saknar_kod" ? "saknar" as const : r.status === "valfri_utan_kod" ? "valfri" as const : null;
+      return { nyckel: r.loneart, rubrik: info?.label ?? r.loneart, varde, detalj, utanKod };
     });
 
   // Mil: totalen och det ersättningsgrundande är motorns (kor_mil, ersattningsmil per dag); uppdelningen är förarspecens egen funktion.
@@ -166,7 +231,8 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
     totalt: kmText(kd.totalKm),
     over: kd.overKm > 0 ? `${kmText(kd.overKm)} över ${m.km_grans} km/dag` : null,
     mil: `${Number(m.kor_mil)} mil`,
-    sa: `Ersättning räknas per dag: km över ${m.km_grans} km (fri pendling), avrundat uppåt till påbörjad mil.`,
+    sa: `Körning över ${m.km_grans ?? 60} km per dag ersätts (hem → skogen → hem), avrundat uppåt till hel mil.`,
+    perTrakt: milPerTrakt(dagarRå.filter(d => d.ersattningsmil > 0), Number(m.km_grans ?? 60)),
     dagarOver: dagarRå.filter(d => d.ersattningsmil > 0).map(d => ({
       datum: d.datum,
       // datum · Hem → trakt · km med källa · → mil
@@ -214,6 +280,7 @@ export function byggForarManad(m: any, ctx: { rodaDagar: Record<string, string>;
       tid: minText(min),
       avvikelser: avv,
       detalj: dagDetaljer(d, ctx.maskinNamn),
+      maskinLogg: maskinLoggText(((m.synk || []) as any[]).find(x => x.datum === d.datum)),
       extra: extraPerDatum.get(d.datum) || [],
     };
   });

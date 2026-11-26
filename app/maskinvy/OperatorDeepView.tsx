@@ -1,5 +1,6 @@
 'use client'
 import { AVSTAND, TYP, VIKT, RADIE, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik'
 
 import { useEffect, useState } from 'react'
 import {
@@ -50,6 +51,8 @@ export default function OperatorDeepView({
     setShown(false)
     window.setTimeout(onClose, 280)
   }
+  // Djupvyn är ett steg i historiken: systemets backa stänger den (med samma animation) i stället för att lämna maskinvyn.
+  useDjupvyHistorik(true, handleClose)
 
   // Hämta förarens period-data (operator_id-filter på prod/tid/avbrott)
   useEffect(() => {

@@ -12,6 +12,7 @@ import ManadRubrik from "@/components/design/ManadRubrik";
 import { byggForarManad, type VyDag, type VyExtra } from "@/lib/admin/forarManadVy";
 import { andradEfterSkickatText, dagText } from "@/lib/admin/loneunderlagVy";
 import { Bekrafta, Ikon, Lank, Lista, Rad, Sektion, Sheet, Stod, Tertiar } from "./ui";
+import PdfLasare from "@/app/planering/PdfLasare";
 import { arSandbar, forarStatus, FORAR_STATUS_TEXT } from "@/lib/lonesystem/forarGodkannande";
 import { arbetsManadText } from "@/lib/lonesystem/lonemanad";
 
@@ -34,7 +35,7 @@ function Bitar({ delar }: { delar: string[] }) {
 }
 
 /** En dag: datum och tid överst (hela bredden), tider och plats/km på egna rader under, varningen i orange. Hela raden är en knapp. */
-function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: () => void; sista: boolean }) {
+function DagRad({ d, oppen, onVal, sista, onTillbaka }: { d: VyDag; oppen: boolean; onVal: () => void; sista: boolean; onTillbaka?: () => void }) {
   return (
     <div data-dag={d.datum} style={{ padding: `${AVSTAND.m}px 0`, borderBottom: sista ? "none" : `1px solid ${FARG.linje}` }}>
       <button type="button" onClick={onVal} aria-expanded={oppen}
@@ -50,20 +51,23 @@ function DagRad({ d, oppen, onVal, sista }: { d: VyDag; oppen: boolean; onVal: (
       </button>
       {oppen && (
         <div data-dag-detalj="" style={{ paddingTop: AVSTAND.s }}>
+          {d.maskinLogg && <p data-maskin-logg="" style={{ margin: `0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.orange, ...TNUM }}>{d.maskinLogg}</p>}
           {d.detalj.map((t, i) => <p key={i} style={{ margin: i ? `${AVSTAND.xs}px 0 0` : 0, ...TYP.meta, color: t.includes("ingen uppgift") ? FARG.text3 : FARG.text2, ...TNUM }}>{t}</p>)}
           {d.extra.map(e => (
             <p key={e.nyckel} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2 }}>
               Extra tid {e.tid} · {e.text.split(" · ").slice(1).join(" · ")}{e.kommentar ? ` · ${e.kommentar}` : ""}
             </p>
           ))}
+          {onTillbaka && <div data-tillbaka-att-kolla="" style={{ marginTop: AVSTAND.s }}><Lank smal onClick={onTillbaka}>Tillbaka till Att kolla</Lank></div>}
         </div>
       )}
     </div>
   );
 }
 
-export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande, pagaende = false }: {
+export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUtanGodkannande, pagaende = false, attKolla }: {
   m: any; arbetsManad: string;
+  /** "Att kolla" och "Bra att veta" ur Löneunderlaget (components/admin/ForarKortDelar). Står direkt under godkännandet. */ attKolla?: React.ReactNode;
   /** Månaden är inte slut: övertiden är "hittills" och godkännandet är inte aktuellt än. */ pagaende?: boolean;
   /** Dagen som ska stå öppen när arket öppnas (från ett vilobrott i Översikten). */ dag?: string;
   onStang: () => void;
@@ -77,6 +81,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
   const [bekrafta, setBekrafta] = useState(false);
   const [skickar, setSkickar] = useState(false);
   const [skickFel, setSkickFel] = useState<string | null>(null);
+  // Förarens tidsspecifikation (samma PDF som föraren öppnar i Arbetsrapport) — för att skriva ut eller dela åt hen.
+  const [visaPdf, setVisaPdf] = useState(false);
 
   useEffect(() => {
     let avbruten = false;
@@ -94,16 +100,19 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
     return byggForarManad(m, { rodaDagar: { ...getRödaDagar(ar - 1), ...getRödaDagar(ar) }, maskinNamn });
   }, [m, arbetsManad, maskinNamn]);
 
-  // En dag som angetts utifrån (?dag=) står öppen och rullas fram — en gång, så att ett eget tryck sedan gäller.
+  // En dag som angetts utifrån (?dag=) står öppen och rullas fram — en gång per värde, så att ett eget tryck sedan gäller.
+  // "Se dagen" i Att kolla sätter värdet; ett andra tryck på samma dag har ett "!" efter datumet så att arket rullar dit igen.
   const [dagVald, setDagVald] = useState<string | null>(null);
+  const dagDatum = dag ? dag.slice(0, 10) : null;
   useEffect(() => {
-    if (!dag || dagVald === dag) return;
-    const rad = vy.dagar.find(d => d.datum === dag);
+    if (!dag || !dagDatum || dagVald === dag) return;
+    const rad = vy.dagar.find(d => d.datum === dagDatum);
     if (!rad) return;
     setDagVald(dag);
     setOppenDag(rad.nyckel);
-    setTimeout(() => document.querySelector(`[data-dag="${dag}"]`)?.scrollIntoView?.({ block: "center" }), 50);
-  }, [dag, dagVald, vy.dagar]);
+    setTimeout(() => document.querySelector(`[data-dag="${dagDatum}"]`)?.scrollIntoView?.({ block: "center" }), 50);
+  }, [dag, dagDatum, dagVald, vy.dagar]);
+  const tillAttKolla = () => document.querySelector("[data-att-kolla-ankare]")?.scrollIntoView?.({ block: "start" });
 
   const u = vy.utrakning;
   const forNamn = vy.namn.split(" ")[0];
@@ -163,6 +172,20 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
         </>
       )}
 
+      <Lista>
+        <Rad attr={{ "data-tidsspec": "" }} rubrik="Tidsspecifikation (PDF)" detalj={`Samma som ${forNamn} ser · skriv ut eller dela`}
+          chevron onClick={() => setVisaPdf(true)} sista />
+      </Lista>
+      {visaPdf && (
+        <PdfLasare
+          signedUrl={`/api/lon/min-manad/pdf?arbetsmanad=${encodeURIComponent(arbetsManad)}&medarbetare_id=${encodeURIComponent(m.medarbetare_id)}`}
+          titel={`Tidsspecifikation · ${forNamn}`}
+          delaFilnamn={`tidsspecifikation-${arbetsManad}-${forNamn.toLowerCase().replace(/[^a-z0-9åäö]+/gi, "-")}.pdf`}
+          onClose={() => setVisaPdf(false)} />
+      )}
+
+      {attKolla && <div data-att-kolla-ankare="">{attKolla}</div>}
+
       {!vy.foretagsledare && (
         <>
           <Sektion topp={AVSTAND.s}>Så blev det</Sektion>
@@ -188,8 +211,14 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
               <Sektion>Lönerader</Sektion>
               <Lista>
                 {vy.lonerader.map((r, i) => (
-                  <Rad key={r.nyckel} attr={{ "data-lonerad": r.nyckel }} rubrik={r.rubrik} detalj={r.detalj ?? undefined}
-                    hoger={<span style={fet}>{r.varde}</span>} sista={i === vy.lonerader.length - 1} />
+                  <Rad key={r.nyckel} attr={{ "data-lonerad": r.nyckel, "data-status": r.utanKod === "saknar" ? "saknar_kod" : r.utanKod === "valfri" ? "valfri_utan_kod" : "skickas" }}
+                    rubrik={r.rubrik} hoger={<span style={fet}>{r.varde}</span>} sista={i === vy.lonerader.length - 1}
+                    detalj={r.utanKod ? <>
+                      {r.utanKod === "saknar"
+                        ? <><span style={{ color: FARG.rod }}>Saknar löneart</span> – skickas inte</>
+                        : <><span style={{ color: FARG.orange }}>Hoppas över</span> – frivillig, ingen kod</>}
+                      {r.detalj && <><br />{r.detalj}</>}
+                    </> : r.detalj ?? undefined} />
                 ))}
               </Lista>
             </>
@@ -202,7 +231,25 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
               sista={vy.km.dagarOver.length === 0} />
             {vy.km.dagarOver.length > 0 && (
               <Rad rubrik={`${vy.km.dagarOver.length} ${vy.km.dagarOver.length === 1 ? "dag" : "dagar"} över gränsen`} chevron onClick={() => setVisaMil(v => !v)} sista>
-                {visaMil && vy.km.dagarOver.map(d => <p key={d.datum} style={{ margin: `${AVSTAND.xs}px 0 0`, ...TYP.meta, color: FARG.text2, ...TNUM }}>{d.text}</p>)}
+                {/* Per trakt: trakten och dess mil, sedan dagar i följd med samma km som en rad med uträkningen. En orange rad
+                    bara när förarens egna km är minst 10 % fler än appens — bara en markering. */}
+                {visaMil && vy.km.perTrakt.map(t => (
+                  <div key={t.trakt} data-mil-trakt={t.trakt} style={{ marginTop: AVSTAND.m }}>
+                    <div style={{ display: "flex", gap: AVSTAND.m, alignItems: "baseline" }}>
+                      <span style={{ flex: 1, minWidth: 0, ...TYP.listtitel, color: FARG.text, overflowWrap: "anywhere" }}>{t.trakt}</span>
+                      <span style={{ ...TYP.meta, ...fet, whiteSpace: "nowrap" }}>{t.mil}</span>
+                    </div>
+                    {t.rader.map(r => (
+                      <div key={r.nyckel} data-mil-rad={r.nyckel} style={{ marginTop: AVSTAND.xs, ...TYP.meta, color: FARG.text2, ...TNUM }}>
+                        <div style={{ display: "flex", gap: AVSTAND.m }}>
+                          <span style={{ flex: 1, minWidth: 0 }}>{r.datum} · {r.rakning}</span>
+                          <span style={{ whiteSpace: "nowrap" }}>{r.mil}</span>
+                        </div>
+                        {r.avviker && <div data-appen-avviker="" style={{ color: FARG.orange }}>{r.avviker}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </Rad>
             )}
           </Lista>
@@ -220,7 +267,8 @@ export default function ForarManadArk({ m, arbetsManad, dag, onStang, onSkickaUt
       ) : (
         <Lista>
           {vy.dagar.map((d, i) => (
-            <DagRad key={d.nyckel} d={d} oppen={oppenDag === d.nyckel} onVal={() => setOppenDag(o => (o === d.nyckel ? null : d.nyckel))} sista={i === vy.dagar.length - 1} />
+            <DagRad key={d.nyckel} d={d} oppen={oppenDag === d.nyckel} onVal={() => setOppenDag(o => (o === d.nyckel ? null : d.nyckel))} sista={i === vy.dagar.length - 1}
+              onTillbaka={attKolla && dagVald && dagDatum === d.datum ? tillAttKolla : undefined} />
           ))}
         </Lista>
       )}

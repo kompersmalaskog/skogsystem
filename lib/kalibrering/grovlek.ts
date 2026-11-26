@@ -35,7 +35,19 @@ export type GrovlekRad = { manad: string; tradslag: string; klass: GrovlekKlass;
 export type StockRad = {
   id: number; filnamn: string; kontroll_datum: string; harvest_date: string | null; stam_nummer: number; stock_nummer: number;
   machine_measurement_date: string | null; operator_measurement_date: string | null;
+  /** Längden, för att kunna lämna bort stockar med stort längdfel ur diametern. Saknas de räknas stocken som vanligt. */
+  maskin_langd_cm?: number | null; operator_langd_cm?: number | null;
 };
+
+/**
+ * Skogforsk: en stock vars längd avviker mer än 10 cm används inte för diametern — mätpunkterna hamnar då på fel ställe på stocken,
+ * och diameterfelet blir påhittat. Gäller underlaget för Per grovlek och Var sitter felet (det man kalibrerar på), INTE Vidas krav,
+ * där Vida räknar alla mätpunkter. Prod 2026-11-18: ingen av 1 368 klavade stockar avvek så mycket — regeln är ett skydd.
+ */
+export const LANGDFEL_MAX_CM = 10;
+export const langdForStorForDiameter = (s: Pick<StockRad, 'maskin_langd_cm' | 'operator_langd_cm'>): boolean =>
+  s.maskin_langd_cm != null && s.operator_langd_cm != null && Number(s.operator_langd_cm) !== 0
+  && Math.abs(Number(s.maskin_langd_cm) - Number(s.operator_langd_cm)) > LANGDFEL_MAX_CM;
 
 /**
  * Raderna: en per stam, månad och klass. Månaden är kontrollens datum, trädslaget kontrollens (fakt_kalibrering, via filnamn).
@@ -69,7 +81,7 @@ export function byggGrovlekRader(args: { stockar: StockRad[]; punkter: DiaPunkt[
   const rader = new Map<string, GrovlekRad>();
   for (const p of punkter) {
     const s = stock.get(p.stockId);
-    if (!s) continue;
+    if (!s || langdForStorForDiameter(s)) continue;
     const tr = filTradslag.get(s.filnamn);
     if (!tr) continue;
     const manad = s.kontroll_datum.slice(0, 7);

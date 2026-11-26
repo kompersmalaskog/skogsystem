@@ -1,5 +1,6 @@
 'use client'
 import { underTopbar, TYP, VIKT, RADIE, AVSTAND, medSafeBotten, FARG, FONT, kolumnRot, overgang } from '@/lib/design/tokens'; // layoutmått, inte avstånd (tokens: LAYOUT)
+import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik'
 
 import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
@@ -479,6 +480,8 @@ function BucketDetalj({ bucket, onClose }: {
     setShown(false)
     window.setTimeout(onClose, 280)
   }
+  // Djupvyn är ett steg i historiken: systemets backa stänger den (med samma animation) i stället för att lämna maskinvyn.
+  useDjupvyHistorik(true, handleClose)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }

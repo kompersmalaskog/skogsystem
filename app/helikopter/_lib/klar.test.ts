@@ -114,10 +114,11 @@ describe('räkningen', () => {
     const p = raknaMaskin(m, [trakt({ objekt_id: 'g', typ: 'gallring', rest_volym: 120, timmar: null, saknar_prognos: true })], '2026-11-30')
     expect(p.rader[0].dagar).toBeCloseTo(2.4)
     expect(p.klar).toBe(m.dagar[2])
-    // ingen takt för slutavverkning → går inte att räkna, och maskinen erbjuds inte för en slutavverkning
+    // ingen takt för slutavverkning → går inte att räkna (aldrig en gissad takt), men maskinen kan ändå VÄLJAS (Martin 2026-11-18: 810E ska köra tre slutavverkningar)
     expect(raknaMaskin(m, [trakt({ objekt_id: 's', rest_volym: 120 })], '2026-11-30').saknar).toBe(true)
     const d = data({ maskiner: [m, maskin({ maskin_id: 'B' })], trakter: [trakt({ objekt_id: 's', maskin_id: 'B' })] })
-    expect(valForTrakt(d, 's', 'skotare').map(r => r.maskin.maskin_id)).toEqual(['B'])
+    expect(valForTrakt(d, 's', 'skotare').map(r => r.maskin.maskin_id)).toEqual(['JD', 'B'])
+    expect(valForTrakt(d, 's', 'skotare').find(r => r.maskin.maskin_id === 'JD')).toMatchObject({ saknar: true, klar: null })
   })
 
   it('klar trakt (inget kvar) ligger inte i kön', () => {
@@ -339,5 +340,26 @@ describe('medMattVolym — volymen mäts på trakten (laser × uppmätt uttag)',
     const skog = new Map([['a', { diaCm: 17, uttag: uttag({ matt: null }) }], ['g', { diaCm: null, uttag: uttag({ matt }) }]])
     expect(medMattVolym(d, skog).trakter.map(t => [t.volym, t.matt])).toEqual([[1620, undefined], [300, undefined], [500, undefined]])
     expect(medMattVolym(d, null)).toBe(d)
+  })
+})
+
+describe('korOrdning — påbörjad trakt först (Bondeskog 2026-11-23)', () => {
+  // Elefant 26: Brokamåla (195 h, inte börjad) låg före Bondeskog (15,5 h kvar, 215 av 610 m³ skotat) → Bondeskog klar i januari.
+  const m = maskin({ maskin_id: 'E' })
+  const brokamala = trakt({ objekt_id: 'BR', maskin_id: 'E', sortn: 1, timmar: 195, prognos_h: 195, volym: 4314, rest_volym: 4314 })
+  const bondeskog = trakt({ objekt_id: 'BO', maskin_id: 'E', sortn: 3, timmar: 15.5, prognos_h: 28, utfort_h: 12.5, utfort_volym: 215, volym: 610, rest_volym: 395 })
+
+  it('den påbörjade trakten räknas först, oavsett planerarens ordning', () => {
+    const p = raknaMaskin(m, [brokamala, bondeskog], '2026-11-30')
+    expect(p.rader.map(r => r.trakt.objekt_id)).toEqual(['BO', 'BR'])
+    expect(p.rader[0].till).toBe('2026-11-03')   // 15,5 h / 8 h per dag = 2 dagar
+  })
+
+  it('bland påbörjade och bland ej påbörjade gäller planerarens ordning', () => {
+    const a = trakt({ objekt_id: 'A', maskin_id: 'E', sortn: 2, utfort_h: 1 })
+    const b = trakt({ objekt_id: 'B', maskin_id: 'E', sortn: 1, utfort_volym: 10 })
+    const c = trakt({ objekt_id: 'C', maskin_id: 'E', sortn: 4 })
+    const d = trakt({ objekt_id: 'D', maskin_id: 'E', sortn: 3 })
+    expect(raknaMaskin(m, [a, c, b, d], '2026-11-30').rader.map(r => r.trakt.objekt_id)).toEqual(['B', 'A', 'D', 'C'])
   })
 })

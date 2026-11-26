@@ -24,7 +24,8 @@ export function arbetsLage(a: {
 }): Lage {
   if (a.rollLaddar) return { typ: 'laddar' };
   if (a.roll === 'admin') return { typ: 'forman' };
-  if (a.roll === 'forare') {
+  // Maskinkontot (Maskinen som maskin) är maskinen själv: samma läsläge som förarens, på sin egen maskin.
+  if (a.roll === 'forare' || a.roll === 'maskin') {
     if (!a.maskiner) return { typ: 'laddar' }; // maskinlistan avgör om maskinen är giltig → vänta in den
     const m = a.maskinId ? a.maskiner.find((x) => x.maskin_id === a.maskinId) : undefined;
     return m && maskinAktiv(m, a.idag) ? { typ: 'forare', maskinId: m.maskin_id } : { typ: 'karta' };

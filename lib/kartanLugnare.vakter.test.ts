@@ -54,8 +54,8 @@ describe('fast text på kartan', () => {
 });
 
 describe('vägarna: snitselfärg med mörk kant', () => {
-  it('basväg, stickväg, traktgräns och stig har den mörka kanten (VAG_KANT_FARG); övriga linjer den svagare', () => {
-    expect(sida).toMatch(/const casingColor = \(isBoundary \|\| isMainRoad \|\| isTrail \|\| arStickvag\(lt\.id\)\) \? VAG_KANT_FARG : 'rgba\(0,0,0,0\.5\)';/);
+  it('basväg, stickväg och stig har den mörka kanten (VAG_KANT_FARG), traktgränsen Vidas traktdels kant (en stil); övriga linjer den svagare', () => {
+    expect(sida).toMatch(/const casingColor = isBoundary \? TRAKTGRANS_KANT_FARG : \(isMainRoad \|\| isTrail \|\| arStickvag\(lt\.id\)\) \? VAG_KANT_FARG : 'rgba\(0,0,0,0\.5\)';/);
     expect(VAG_KANT_FARG).toBe('rgba(0,0,0,0.9)');
     for (const t of ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue']) expect(arStickvag(t)).toBe(true);
     for (const t of ['mainRoad', 'boundary', 'ditch', 'nature', 'trail', 'stonewall', 'powerline']) expect(arStickvag(t)).toBe(false);

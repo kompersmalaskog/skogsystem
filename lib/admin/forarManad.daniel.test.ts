@@ -27,9 +27,9 @@ describe("Förare · Månad — Daniel september 2026, km med källa och rutt", 
     expect(d.km_rutt).toEqual({ forsta: "400763 Akelius Tåget SA -26", sista: "400763 Akelius Tåget SA -26", appen: { morgon: APPENS_MORGON_KM, kvall: APPENS_KVALL_KM, totalt: 118 } });
     const v = dag(vy, "2026-09-15");
     expect(v.rad).toBe("06:00–16:00 · rast 30 min · Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
-    expect(v.detalj).toContain("Hem → 400763 Akelius Tåget SA -26 · 80 km (appen: 58 km)");
-    expect(v.detalj).toContain("400763 Akelius Tåget SA -26 → Hem · 80 km (appen: 60 km)");
-    expect(v.detalj).toContain("Egen · 160 km totalt (appen: 118 km) · 10 mil ersätts");
+    // Den utfällda dagen upprepar inte raden: bara km per väg (med appens värden) — totalen och milen står redan på raden.
+    expect(v.detalj).toContain("Dit 80 km · hem 80 km (appen 58 km + 60 km)");
+    expect(v.detalj.join(" ")).not.toMatch(/totalt|ersätts|Hem →/);
     expect(milRad(vy, "2026-09-15")).toBe("15 sep · Hem → 400763 Akelius Tåget SA -26 · 160 km egen (appen: 118 km) · → 10 mil");
   });
 
@@ -50,9 +50,7 @@ describe("Förare · Månad — Daniel september 2026, km med källa och rutt", 
     const v = dag(vy, "2026-09-01");
     expect(v.rad).toContain("Hem → Stänkelsmåla 2025 · 113 km beräknad");
     expect(v.rad).not.toContain("appen");
-    expect(v.detalj).toContain("Hem → Stänkelsmåla 2025 · 57 km");
-    expect(v.detalj).toContain("Stänkelsmåla 2025 → Hem · 56 km");
-    expect(v.detalj).toContain("Beräknad · 113 km totalt · 6 mil ersätts");
+    expect(v.detalj).toContain("Dit 57 km · hem 56 km");
     // 113 km ligger över 60 km/dag: dagen står i mil-listan, utan appens värde
     expect(milRad(vy, "2026-09-01")).toBe("1 sep · Hem → Stänkelsmåla 2025 · 113 km beräknad · → 6 mil");
   });
@@ -76,7 +74,7 @@ describe("Förare · Månad — Daniel september 2026, km med källa och rutt", 
     const { m, vy } = await daniel({ koordinater: false });
     const d = m.dagar.find((x: any) => x.datum === "2026-09-15");
     expect(d.km_rutt).toEqual({ forsta: "400763 Akelius Tåget SA -26", sista: "400763 Akelius Tåget SA -26", appen: null });
-    expect(dag(vy, "2026-09-15").detalj).toContain("Hem → 400763 Akelius Tåget SA -26 · 80 km");
+    expect(dag(vy, "2026-09-15").detalj.some((t: string) => t.startsWith("Dit 80 km · hem 80 km"))).toBe(true);
   });
 
   it("en dag där trakten saknar koordinat men ordningen är känd visar första och sista (22 sep: Kyrkhult GROT)", async () => {
@@ -89,8 +87,7 @@ describe("Förare · Månad — Daniel september 2026, km med källa och rutt", 
   it("flera trakter: första och sista trakten, ben för ben (14 sep)", async () => {
     const { vy } = await daniel();
     const v = dag(vy, "2026-09-14");
-    expect(v.detalj.some((t: string) => t.startsWith("Hem → 400763 Akelius Tåget SA -26 · 67 km"))).toBe(true);
-    expect(v.detalj.some((t: string) => t.startsWith("Rävemåla AU 2026 → Hem · 77 km"))).toBe(true);
+    expect(v.detalj.some((t: string) => t.startsWith("Dit 67 km · hem från Rävemåla AU 2026 77 km"))).toBe(true);
   });
 
   it("LÖNEN OFÖRÄNDRAD: appens värde är bara visning — dagens km, mil och alla lönerader är desamma med och utan", async () => {

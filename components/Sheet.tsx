@@ -25,19 +25,22 @@ export function Sheet({
   title,
   children,
   dragNedStanger = false,
+  panelBredd,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   dragNedStanger?: boolean;
+  /** Panelens bredd (px) på bred skärm när innehållet behöver mer plats än standardens 380 (t.ex. en lista med kolumner). */
+  panelBredd?: number;
 }) {
   const [dy, setDy] = useState(0);
   const [drar, setDrar] = useState(false);
   const start = useRef<{ y: number; fast: boolean } | null>(null);
   const lage = useContext(SheetLageContext);
   if (!open) return null;
-  if (lage === 'panel') return <SheetPanel title={title} onClose={onClose}>{children}</SheetPanel>;
+  if (lage === 'panel') return <SheetPanel title={title} onClose={onClose} bredd={panelBredd}>{children}</SheetPanel>;
 
   const grepp = dragNedStanger
     ? {
@@ -117,7 +120,7 @@ export function Sheet({
 
 // Panelen: fast till höger under toppfältet, helt hög, stängknapp uppe till höger, Escape stänger. Inget mörkt lager över sidan —
 // vyn avgör om kolumnerna skjuts åt sidan (det finns plats) eller om panelen läggs över dem. Ritas ur tokens (som resten av appen).
-function SheetPanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function SheetPanel({ title, onClose, children, bredd = PANEL_BREDD_PX }: { title: string; onClose: () => void; children: React.ReactNode; bredd?: number }) {
   useEffect(() => {
     const vidTangent = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', vidTangent);
@@ -134,7 +137,7 @@ function SheetPanel({ title, onClose, children }: { title: string; onClose: () =
         right: 0,
         bottom: 0,
         zIndex: 6000,
-        width: PANEL_BREDD_PX,
+        width: bredd,
         maxWidth: '100%',
         boxSizing: 'border-box',
         background: FARG.kort,

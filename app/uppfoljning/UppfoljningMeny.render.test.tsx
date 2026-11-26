@@ -11,9 +11,11 @@ const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 
 let data: UppfoljningObjekt[] = [];
+let lasfel: Error | null = null;
+const forsokIgen = vi.fn();
 vi.mock('./hooks/useUppfoljningList', async () => {
   const faktisk = await vi.importActual<typeof import('./hooks/useUppfoljningList')>('./hooks/useUppfoljningList');
-  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: null }) };
+  return { ...faktisk, useUppfoljningList: () => ({ objekt: data, loading: false, error: lasfel, forsokIgen }) };
 });
 
 import UppfoljningMeny from './UppfoljningMeny';
@@ -37,7 +39,7 @@ const obj = (over: Partial<UppfoljningObjekt>): UppfoljningObjekt => ({
 
 let rot: Root | null = null;
 let be: HTMLElement | null = null;
-beforeEach(() => { data = []; push.mockReset(); try { sessionStorage.clear(); } catch {} });
+beforeEach(() => { data = []; lasfel = null; forsokIgen.mockReset(); push.mockReset(); try { sessionStorage.clear(); } catch {} });
 afterEach(() => { act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
 
 async function montera() {
@@ -117,7 +119,81 @@ describe('UppfoljningMeny', () => {
     // Grot-kortet syns (schablon ≈ 350 vid 0,35 × 1000) och är märkt schablon.
     expect(text()).toContain('schablon');
     await klick(knappMedText('Grot')!);
-    expect(text()).toContain('Ris kvar på hygget');
+    expect(text()).toContain('Ris att skota');
     expect(text()).toContain('Grotobjekt');
+  });
+
+  it('ris att skota: kvar, skotas nu med riktiga lass, och hämtat bakom en rad', async () => {
+    const idag = new Date().toISOString().slice(0, 10);
+    data = [
+      obj({ vo_nummer: 'K', namn: 'Kvarhygget', grotAnpassad: true }),
+      obj({ vo_nummer: 'S', namn: 'Skotashygget', grotAnpassad: true, risSkotatM3: 123 }),
+      obj({ vo_nummer: 'D', namn: 'Delathygget', grotAnpassad: true, risSkotatM3: 200, risDelas: true }),
+      obj({ vo_nummer: 'H', namn: 'Hamtathygget', grotAnpassad: true, grotHamtad: idag, risSkotatM3: 300 }),
+      obj({ vo_nummer: 'G', namn: 'Gammalthygget', grotAnpassad: true, grotHamtad: '2025-01-01' }),
+    ];
+    await montera();
+    // Kortet räknar bara det som är kvar: 350 + (350 − 123) + 350 (delat: lassen går inte att dela) = 927.
+    expect(knappMedText('Grot')!.textContent).toContain('927');
+    await klick(knappMedText('Grot')!);
+    expect(text()).toContain('Kvarhygget');
+    expect(text()).toContain('Ris kvar');
+    expect(text()).toContain('Skotas nu');
+    expect(text()).toContain('123m³ hämtat');
+    expect(text()).toContain('m³ hela risjobbet');
+    // Hämtat ligger hopfällt; gammalt hämtat visas inte alls.
+    expect(text()).not.toContain('Hamtathygget');
+    expect(text()).not.toContain('Gammalthygget');
+    await klick(knappMedText('Hämtat senaste')!);
+    expect(text()).toContain('Hamtathygget');
+    expect(text()).toContain('300m³ hämtat');
+    expect(text()).not.toContain('Gammalthygget');
+  });
+
+  it('Ligger i skogen: kortet visar det som legat längst och öppnar den egna sidan', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-21T17:00:00Z'));
+    try {
+      data = [
+        obj({ vo_nummer: 'A', namn: 'Arvidstorp', typ: 'slutavverkning', volymSkordare: 628, volymSkotare: 440, sistaAvverkning: '2026-11-02', skordningAvslutad: true, tilldeladSkotare: 'Elefant 26' }),
+        obj({ vo_nummer: 'B', namn: 'Britteberg', typ: 'slutavverkning', volymSkordare: 673, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-10', skordningAvslutad: true, tilldeladSkotare: 'Wisent' }),
+        obj({ vo_nummer: 'G', namn: 'Gallring Kör', typ: 'gallring', volymSkordare: 300, volymSkotare: 0, antalLass: 0, sistaAvverkning: '2026-11-21', skordareLastDate: '2026-11-21', tilldeladSkotare: '810E' }),
+      ];
+      await montera();
+      const kort = be!.querySelector('[data-skogen-kort]')!;
+      expect(kort.textContent).toContain('3 trakter');
+      expect(kort.textContent).toContain('19');
+      await klick(kort);
+      expect(push).toHaveBeenCalledWith('/uppfoljning/i-skogen');
+      // Ingen lista i menyn: samma sak står inte på två ställen.
+      expect(text()).not.toContain('Väntar på skotare');
+      expect(text()).toContain('Per skotare');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ett gammalt sparat läge 'skogen' ger vanliga menyn", async () => {
+    sessionStorage.setItem('uppfoljning:vald', JSON.stringify('skogen'));
+    data = [obj({ vo_nummer: 'A', namn: 'Arvidstorp', tilldeladSkotare: 'Elefant 26' })];
+    await montera();
+    expect(text()).toContain('Per skotare');
+  });
+
+  it('läsfel: säger det och har Försök igen som läser om', async () => {
+    lasfel = new Error('nät');
+    await montera();
+    expect(text()).toContain('Kunde inte läsa objekten');
+    const k = knappMedText('Försök igen');
+    expect(k).toBeTruthy();
+    await klick(k!);
+    expect(forsokIgen).toHaveBeenCalledTimes(1);
+  });
+
+  it('avvikande skotare står i ord, inte som teknisk text', async () => {
+    data = [obj({ vo_nummer: 'A', namn: 'Trakten', skotareAvvikelse: { lass: 'Wisent', tilldelad: 'Elefant 26' } } as any)];
+    await montera();
+    expect(text()).toContain('Skotad av Wisent · tilldelad Elefant 26');
+    expect(text()).not.toContain('Lass:');
   });
 });

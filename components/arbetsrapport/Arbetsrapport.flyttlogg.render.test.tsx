@@ -175,15 +175,17 @@ function fixtur(idag: any, ovrigt: Record<string, any[]> = {}, forare: any = FOR
 const klartPass = (o: any = {}) => dagRad({ datum: IDAG, start_tid: "06:48:00", slut_tid: "16:12:00", bekraftad: false, bekraftad_tid: null, ...o });
 
 
-/** Skriv i ett <input type="time"> så att Reacts onChange hör det. */
+/** Välj en tid i hjulen (TidHjul): öppna raden, tryck timme och minut, stäng raden. */
 async function skrivTid(etikett: string, varde: string) {
-  const lab = Array.from(behallare!.querySelectorAll<HTMLElement>("label")).find(l => (l.textContent || "").startsWith(etikett));
-  const inp = lab?.querySelector("input") as HTMLInputElement | null;
-  if (!inp) throw new Error("hittar inte tidsfältet: " + etikett);
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(inp, varde);
-    inp.dispatchEvent(new Event("input", { bubbles: true }));
-  });
+  const vilken = etikett === "Från" ? "start" : "slut";
+  const knapp = behallare!.querySelector<HTMLElement>(`[data-tidrad-knapp="${vilken}"]`);
+  if (!knapp) throw new Error("hittar inte tidsraden: " + etikett);
+  const [h, m] = varde.split(":").map(Number);
+  const tryck = async (el: Element | null) => { if (!el) throw new Error("hittar inte i hjulet: " + etikett + " " + varde); await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); };
+  await tryck(knapp);
+  await tryck(behallare!.querySelector(`[data-hjul="${etikett} timme"] [data-hjul-val="${h}"]`));
+  await tryck(behallare!.querySelector(`[data-hjul="${etikett} minut"] [data-hjul-val="${m}"]`));
+  await tryck(knapp);
   await vänta(2, 20);
 }
 

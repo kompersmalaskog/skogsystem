@@ -13,6 +13,7 @@ import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/de
 import type { SammanfattningRad } from '@/lib/klarTrakt';
 import { type Bricka, type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
 import BrandriskRad from './BrandriskRad';
+import VagRiskRader, { type VagRiskProps } from './VagRiskRader';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
 import { KommentarVisning } from './KommentarRuta';
 import { SettKnapp } from './InstruktionKort';
@@ -81,6 +82,8 @@ export interface ObjektKortProps {
   klarRad?: { chip: { text: string; ton: 'orange' | 'gron' | 'neutral' } | null } | null;
   /** PLANERAREN: "Risker på trakten" direkt under Faror — öppnar steget Risker i "Klar med trakten?". null/saknas = ingen rad. */
   riskRad?: { text: string; ton: 'orange' | 'gron' } | null;
+  /** En rad per väg nära traktgränsen: "Väg 538 · låg risk ✓" — tryck öppnar riskbedömningen. null/saknas = ingen rad. */
+  vagar?: VagRiskProps | null;
   onRisker?: () => void;
   onKlar?: () => void;
   /** Besök på trakten (planerarens kort): SMS till markägaren, besökslänken och loggen. null/saknas = visas inte (förare, maskinläget). */
@@ -170,6 +173,9 @@ export default function ObjektKort(p: ObjektKortProps) {
 
         {/* BRANDRISK — bara när någon av de fem dagarna är 3 eller högre; direkt under Faror */}
         {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
+
+        {/* VÄGAR NÄRA GRÄNSEN — en rad per väg med riskbedömningens läge (låg risk syns bara här, inte på kartan) */}
+        <VagRiskRader vagar={p.vagar} />
 
         {/* KNAPPRAD efter roll — högst EN primär: den första. "Mer" ligger inte här: den är en rad längst ner i uppdraget. Inga knappar = ingen rad. */}
         {n > 0 && <div data-testid="kort-knappar" style={{ display: 'grid', gridTemplateColumns: `repeat(${kolumner}, minmax(0, 1fr))`, gap: tat ? AVSTAND.xs : AVSTAND.s, marginBottom: AVSTAND.l }}>

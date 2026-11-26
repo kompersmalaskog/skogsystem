@@ -1057,7 +1057,7 @@ function ObjektEditor({ obj, objekt, setObjekt, bolag, setBolag, inkopare, setIn
       // atgard + avtalsform: "trakt säger" under Åtgärd/Avtalsform. avtalsform finns först efter migrationen 20261014125836 —
       // medAvtalsformSvar kör om utan kolumnen om den saknas, så resten av objektraden (kartor, tilldelning …) alltid laddas.
       const { data } = await medAvtalsformSvar((med) => supabase.from('objekt')
-        .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, typ, bolag, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, grot_status, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)
+        .select(`id, status, assigned_skordare_user_id, assigned_skotare_user_id, skotare_band, skotare_band_par, skordare_band, skordare_band_par, manuell_prognos, volym_planerad, planerad_start, planerad_slut, typ, bolag, traktkarta_url, traktdirektiv_url, traktnr, fastighetsbeteckning, kontraktsnummer, transport_kommentar, volym, vo_nummer, markagare, inkopare, avverkningsform, atgard${med ? ', avtalsform' : ''}`)
         .eq('id', rad.id).limit(1))
       if (avbruten) return
       setObjektRad((data && data[0]) || { id: rad.id })

@@ -24,6 +24,19 @@ describe('kartlager: standard och namn', () => {
   });
 });
 
+describe('IR är inget bakgrundsval (Martin 2026-11-21) — ett gammalt värde tolkas som Flygfoto', () => {
+  it("'ir' är inget kartlager, varken i listan, namnen eller lager-id:na", () => {
+    expect(arKartlager('ir')).toBe(false);
+    expect([...KARTLAGER]).not.toContain('ir');
+    expect(Object.keys(KARTLAGER_NAMN)).not.toContain('ir');
+    expect(Object.keys(KARTLAGER_LAGER_ID)).not.toContain('ir');
+  });
+  it("ett sparat 'ir' på enheten ger Flygfoto, och ett 'ir' från kontot räknas som inget val (Flygfoto)", () => {
+    expect(startLager(lasLokal(lager({ [LOKAL_NYCKEL]: JSON.stringify({ val: 'ir', osynkad: true, anvandarId: 'jag' }) })))).toBe('satellite');
+    expect(avstam(null, 'jag', arKartlager('ir') ? ('ir' as never) : null)).toEqual({ gallande: 'satellite', skickaTillKontot: false });
+  });
+});
+
 describe('lokal kopia', () => {
   it('skriv och läs', () => {
     const l = lager();

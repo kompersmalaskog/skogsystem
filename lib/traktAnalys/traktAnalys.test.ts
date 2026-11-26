@@ -31,16 +31,29 @@ describe('tolkning: vad fyndet betyder för planeringen', () => {
   });
 });
 
-describe('listans rad: högst en, bara när något finns', () => {
+describe('listans rad: högst en, bara när något finns, allt som hittats', () => {
   const klar = (fynd: unknown[], fel: string[] = []) => lasTraktAnalys({ trakt_analys: { at: AT, fynd, fel } });
-  it('fossil åker går före vattenskydd; båda på samma rad', () => {
+  it('en sort: fossil åker säger barmark, vattenskydd står ensam', () => {
     expect(listRad(klar([FOSSIL]))).toEqual({ text: 'Fossil åker – kräver barmark', kategori: 'barmark' });
     expect(listRad(klar([VATTEN]))).toEqual({ text: 'Vattenskydd', kategori: 'vattenskydd' });
-    expect(listRad(klar([VATTEN, FOSSIL]))).toEqual({ text: 'Fossil åker · vattenskydd', kategori: 'barmark' });
+    expect(listRad(klar([NB]))).toEqual({ text: 'Nyckelbiotop', kategori: 'skydd' });
   });
-  it('inget hittat = ingen rad; nyckelbiotop står inte i listan; ej körd = ingen rad', () => {
+  it('flera sorter: allt på EN rad, det viktigaste först, vattenskydd sist, varje sort en gång', () => {
+    expect(listRad(klar([VATTEN, FOSSIL]))).toEqual({ text: 'Fossil åker · vattenskydd', kategori: 'barmark' });
+    const N2 = { type: 'natura2000', name: 'Prästängen' };
+    // Bengt-Eric Ericsson Klipp, prod 2026-11-18: listan sa bara "Vattenskydd"
+    expect(listRad(klar([VATTEN, NB, { ...NB, name: 'en till' }, { ...NB, name: 'en tredje' }, N2]))).toEqual({ text: 'Natura 2000 · nyckelbiotop · vattenskydd', kategori: 'skydd' });
+    // Gallring Santhe: listan sa ingenting
+    expect(listRad(klar([NB, { type: 'naturreservat', name: 'Ålshult' }]))).toEqual({ text: 'Naturreservat · nyckelbiotop', kategori: 'skydd' });
+    // Natura 2000 behåller stor bokstav också mitt i raden
+    expect(listRad(klar([N2, { type: 'naturreservat', name: 'x' }]))?.text).toBe('Natura 2000 · naturreservat');
+  });
+  it('högst tre sorter, resten som +N — raden blir aldrig lång', () => {
+    const allt = [VATTEN, FOSSIL, NB, { type: 'natura2000', name: 'a' }, { type: 'naturreservat', name: 'b' }];
+    expect(listRad(klar(allt))).toEqual({ text: 'Natura 2000 · naturreservat · nyckelbiotop +2', kategori: 'skydd' });
+  });
+  it('inget hittat = ingen rad; ej körd = ingen rad', () => {
     expect(listRad(klar([]))).toBeNull();
-    expect(listRad(klar([NB]))).toBeNull();
     expect(listRad({ lage: 'ej_kord' })).toBeNull();
   });
   it('kunde inte kontrolleras sägs — aldrig tomt', () => {

@@ -84,6 +84,12 @@ describe("gräns 1 (allmän övertid, Skogsavtalet §5 mom 5) och gräns 2 (extr
     expect(gr(med(300), "extra_overtid_ar").varde).toBe(50);
   });
 
+  it("extra övertid säger vad admin måste göra: särskilda skäl, och över 150 tim dispens", () => {
+    expect(gr(med(240), "extra_overtid_ar").atgard).toBeUndefined();
+    expect(gr(med(300), "extra_overtid_ar").atgard).toMatch(/särskilda skäl/);
+    expect(gr(med(400.1), "extra_overtid_ar").atgard).toMatch(/dispens från Arbetsmiljöverket/);
+  });
+
   it("taket läses ur avtalet (gs_avtal.max_overtid_ar_h) när det ges", () => {
     const f = byggArbetstid(indata({ arsovertid: ars({ tomDatum: "2026-10-13", genomsnitt: 230 }), tak: 200 }));
     expect(gr(f, "allman_overtid_ar").niva).toBe("rod");

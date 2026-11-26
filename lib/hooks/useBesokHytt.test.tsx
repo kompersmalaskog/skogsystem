@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Besöken i hytten: ALLT går via serverrutterna /api/besok/hytt och /api/besok/hytt/kvittera (hytten läser aldrig tabellerna). Hooken skickar bara VILKET besök och VILKEN maskin –
 // roll, förare och tid avgörs av servern. Spelar ETT ljud per nytt besök. Ringen går inte att stänga av (Martin 2026-10-24).
+import { HYTT_POLL_MS } from '@/lib/besok/konstanter';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -108,7 +109,7 @@ describe('useBesokHytt – via servern', () => {
     const ref = await montera();
     expect(ref.ut!.vantar).toHaveLength(1);
     server.status = 403;
-    await act(async () => { vi.advanceTimersByTime(4000); for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(HYTT_POLL_MS); for (let i = 0; i < 8; i++) await Promise.resolve(); });
     expect(ref.ut!.aktiva).toEqual([]);
     expect(ref.ut!.vantar).toEqual([]);
   });
@@ -117,7 +118,7 @@ describe('useBesokHytt – via servern', () => {
     server.besok = [b('a', 30)];
     const ref = await montera();
     server.status = 503;
-    await act(async () => { vi.advanceTimersByTime(4000); for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(HYTT_POLL_MS); for (let i = 0; i < 8; i++) await Promise.resolve(); });
     expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['a']);
   });
   it('saknas maskin sparas ingenting och felet sägs', async () => {
@@ -135,12 +136,12 @@ describe('useBesokHytt – via servern', () => {
     expect(ref.ut!.aktiva).toEqual([]);
     expect(server.anrop).toEqual([]);
   });
-  it('läser om var 4:e sekund (kravet är ≤ 5 s) – ett nytt besök dyker upp av sig självt', async () => {
+  it('läser om var HYTT_POLL_MS (skyddsnät, push är den snabba vägen) – ett nytt besök dyker upp av sig självt', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const ref = await montera();
     expect(ref.ut!.vantar).toEqual([]);
     server.besok = [b('ny', 20)];
-    await act(async () => { vi.advanceTimersByTime(4000); for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(HYTT_POLL_MS); for (let i = 0; i < 8; i++) await Promise.resolve(); });
     expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['ny']);
   });
 });
@@ -155,13 +156,13 @@ describe('useBesokHytt — notiser i hytten (bakgrund och Uppfattat från notise
     await montera({ bakgrund: false });
     dolj('hidden');
     const fore = server.anrop.length;
-    await act(async () => { vi.advanceTimersByTime(20000); await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(HYTT_POLL_MS); await Promise.resolve(); });
     expect(server.anrop.length).toBe(fore);
     act(() => { rot!.unmount(); }); ruta!.remove();
     await montera({ bakgrund: true });
     dolj('hidden');
     const fore2 = server.anrop.length;
-    await act(async () => { vi.advanceTimersByTime(20000); for (let i = 0; i < 6; i++) await Promise.resolve(); });
+    await act(async () => { vi.advanceTimersByTime(HYTT_POLL_MS); for (let i = 0; i < 6; i++) await Promise.resolve(); });
     expect(server.anrop.length).toBeGreaterThan(fore2);
   });
 
@@ -181,6 +182,20 @@ describe('useBesokHytt — notiser i hytten (bakgrund och Uppfattat från notise
     server.kvitterade = ['a'];
     await act(async () => { sw.dispatchEvent(new MessageEvent('message', { data: { typ: 'hytt-uppfattat', besokId: 'a', tid: Date.now() } })); await Promise.resolve(); });
     expect(ref.ut!.vantar).toEqual([]);
+  });
+
+  it('ett nytt besök kommer direkt som server-push – utan att vänta på nästa läsning (60 s)', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    const sw = new EventTarget();
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw });
+    const ref = await montera();
+    expect(ref.ut!.vantar).toEqual([]);
+    const fore = server.anrop.length;
+    server.besok = [b('ny', 20)];
+    // Tiden står still: bara pushen kan ha väckt läsningen.
+    await act(async () => { sw.dispatchEvent(new MessageEvent('message', { data: { typ: 'hytt-push' } })); for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    expect(server.anrop.length).toBe(fore + 1);
+    expect(ref.ut!.vantar.map((x) => x.id)).toEqual(['ny']);
   });
 
   it('meddelandet om testnotisen (inget besokId) rör inte besöken', async () => {

@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import type { CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import {
-  byggSortimentVy, byggPrisVy, byggRattaVy, snyggtNamn, datumIOrd, ord, heltalTill100,
+  byggSortimentVy, byggPrisVy, byggRattaVy, byggTillaggVy, byggAvstandVy, avstandRadVy,
+  snyggtNamn, datumIOrd, ord, heltalTill100, LASS_SYNLIGA,
 } from './granskningVy';
+import { skotAvstandKr, skotAvstandKrPerM3 } from '@/lib/ekonomi/acord';
+import type { Lasskalla } from '@/lib/faktura/lassAvstand';
 import { raknaSortiment, type SortimentRad } from '@/lib/ekonomi/sortimentAntal';
 
 // FACIT ur prod 2026-10-25. Samma rader som lib/ekonomi/sortimentAntal.test.ts
@@ -260,5 +264,304 @@ describe('heltalTill100', () => {
   it('inget att fördela ger nollor, aldrig NaN', () => {
     expect(heltalTill100([])).toEqual([]);
     expect(heltalTill100([0, 0])).toEqual([0, 0]);
+  });
+});
+
+/* ═════════════════════ Terräng och skotningsavstånd ═════════════════════ */
+//
+// FACIT ÄR SKÄLVIKEN RP J-HUS -25 i prod 2026-11-16 — trakten Martin stod och
+// tittade på när han frågade hur avståndet räknas. Två lass har körsträcka:
+//
+//   1 715 m tur och retur →   858 m enkel väg · 20,0 m³ →   560 kr
+//   3 076 m tur och retur → 1 538 m enkel väg · 20,0 m³ → 1 120 kr
+//
+// acord_skotningsavstand (giltig från 2025-06-03): 200 m ingår, 4 kr per
+// påbörjad 100 m. Tillägget blir 1 680 kr, delat på traktens 1 725,24 m³fub
+// = 0,97 kr/m³fub — exakt det som stod på hans skärm.
+
+const SKALVIKEN_VOLYM = 1725.24;
+
+const SKALVIKEN_AVSTAND = {
+  manuellt: null as number | null,
+  lassVolym: 40,
+  lassAntal: 2,
+  kronor: 1680,
+  lass: [
+    { avstandM: 1538, volym: 20, kronor: 1120, kalla: 'opti' as const },
+    { avstandM: 858, volym: 20, kronor: 560, kalla: 'opti' as const },
+  ],
+  kallor: ['opti'] as Lasskalla[],
+  cykel: null as CykelSammanstallning | null,
+  grundavstandM: 200 as number | null,
+  krPer100m: 4 as number | null,
+  giltigFran: '2025-06-03' as string | null,
+};
+
+describe('avståndet: 1 680 kr på 1 725 m³ är 0,97 kr/m³fub', () => {
+  // Stegregeln är EN funktion (lib/ekonomi/acord). Går den sönder ska det här
+  // testet falla, inte bara en vy någon annanstans.
+  it('stegregeln ger samma kronor som priset räknade fram', () => {
+    const cfg = { grundavstand_m: 200, kr_per_100m: 4 };
+    expect(skotAvstandKrPerM3(858, cfg)).toBe(28);   // ceil((858−200)/100) = 7 × 4
+    expect(skotAvstandKrPerM3(1538, cfg)).toBe(56);  // ceil((1538−200)/100) = 14 × 4
+    const lista = [{ grundavstand_m: 200, kr_per_100m: 4, giltig_fran: null, giltig_till: null }];
+    expect(skotAvstandKr('2026-11-02', 858, 20, lista)).toBe(560);
+    expect(skotAvstandKr('2026-11-02', 1538, 20, lista)).toBe(1120);
+  });
+
+  it('snittet är VOLYMVIKTAT och täckningen sägs i klartext', () => {
+    const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
+    // (858 × 20 + 1538 × 20) / 40 = 1 198 m
+    expect(v.avstandM).toBe(1198);
+    expect(txt(v.mening)).toContain('2 lass');
+    expect(txt(v.mening)).toContain('40,0 av 1 725 m³fub');
+    expect(txt(v.mening)).toContain('2 % av trakten');
+  });
+
+  it('säger att maskinen mäter tur och retur — frågan Martin ställde', () => {
+    const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
+    expect(v.raknasRad).toContain('ut och tillbaka');
+    expect(v.raknasRad).toContain('halveras');
+  });
+
+  it('prislistan och kronorna står i ord', () => {
+    const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
+    expect(txt(v.prislistaRad)).toBe('200 m ingår · 4,00 kr per påbörjad 100 m · gäller från 3 juni 2025');
+    expect(txt(v.pengar)).toContain('1 680 kr på trakten');
+    expect(txt(v.pengar)).toContain('0,97 kr/m³fub');
+  });
+
+  it('lassen står var för sig, längst först', () => {
+    const v = byggAvstandVy({ a: SKALVIKEN_AVSTAND, volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' });
+    expect(v.lassRader.map(r => txt(r.avstand))).toEqual(['1 538 m', '858 m']);
+    expect(txt(v.lassRader[0].under)).toBe('20,0 m³ · 1 120 kr');
+    expect(v.merRad).toBeNull();
+  });
+
+  it('en lång lista kapas och SÄGER hur många som inte visas', () => {
+    const lass = Array.from({ length: LASS_SYNLIGA + 3 }, (_, i) =>
+      ({ avstandM: 1000 - i * 10, volym: 20, kronor: 100, kalla: 'opti' as const }));
+    const v = byggAvstandVy({
+      a: { ...SKALVIKEN_AVSTAND, lass, lassAntal: lass.length, lassVolym: lass.length * 20 },
+      volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
+    });
+    expect(v.lassRader).toHaveLength(LASS_SYNLIGA);
+    expect(v.merRad).toBe('och 3 lass till');
+  });
+
+  it('manuell siffra GÄLLER och jämförs med lassen — aldrig tyst', () => {
+    const v = byggAvstandVy({
+      a: { ...SKALVIKEN_AVSTAND, manuellt: 1200 },
+      volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
+    });
+    expect(v.avstandM).toBe(1200);
+    expect(v.mening).toContain('satt för hand');
+    expect(txt(v.manuelltRad)).toBe('Satt för hand till 1 200 m. Lassen säger 1 198 m i snitt.');
+  });
+
+  it('inga lass: ingen gissning, bara att tillägget blir 0 kr', () => {
+    const v = byggAvstandVy({
+      a: { ...SKALVIKEN_AVSTAND, lass: [], lassAntal: 0, lassVolym: 0, kronor: 0 },
+      volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
+    });
+    expect(v.avstandM).toBeNull();
+    expect(v.mening).toContain('Inget lass har körsträcka');
+    expect(v.lassRader).toEqual([]);
+    expect(v.pengar).toContain('0 kr');
+  });
+
+  it('ingen sats i prislistan ger ingen rad, aldrig ett påhittat villkor', () => {
+    const v = byggAvstandVy({
+      a: { ...SKALVIKEN_AVSTAND, grundavstandM: null, krPer100m: null, giltigFran: null },
+      volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13',
+    });
+    expect(v.prislistaRad).toBeNull();
+  });
+});
+
+describe('avstandRadVy — metrarna syns på trakten, inte bara kronorna', () => {
+  // Martin 2026-11-20, med Skälviken öppen: "jag ser ju inte
+  // skotningsavståndet". Maskinkortet sa "Skotningsavstånd +12,00" — vad det
+  // KOSTAR. 450-talet han själv skrivit in fanns ingenstans på sidan.
+  const bas = { volym: SKALVIKEN_VOLYM, prisdatum: '2026-11-13' };
+
+  it('handsatt: talet står, och lassen bredvid så man ser om det stämmer', () => {
+    const r = avstandRadVy({ ...bas, a: { ...SKALVIKEN_AVSTAND, manuellt: 450 } })!;
+    expect(r.varde).toBe('450');
+    expect(txt(r.under)).toBe('Satt för hand · lassen säger 1 198 m');
+  });
+
+  it('handsatt utan lass: säger bara att det är satt för hand', () => {
+    const r = avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, manuellt: 450, lass: [], lassAntal: 0, lassVolym: 0 },
+    })!;
+    expect(r.under).toBe('Satt för hand');
+  });
+
+  it('ur lassen: snittet och täckningen — samma tal som arket', () => {
+    const r = avstandRadVy({ ...bas, a: SKALVIKEN_AVSTAND })!;
+    const ark = byggAvstandVy({ ...bas, a: SKALVIKEN_AVSTAND });
+    expect(txt(r.varde)).toBe('1 198');
+    expect(Math.round(ark.avstandM!)).toBe(1198);
+    expect(r.under).toBe('Ur 2 lass · 2 % av volymen');
+  });
+
+  it('ett enda lass heter "ett lass", inte "1 lass"', () => {
+    const r = avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, lass: [SKALVIKEN_AVSTAND.lass[0]], lassAntal: 1, lassVolym: 20 },
+    })!;
+    expect(r.under).toContain('Ur ett lass');
+  });
+
+  it('varken handsatt eller mätt: ingen rad — frågan står redan i "saker att kolla"', () => {
+    expect(avstandRadVy({
+      ...bas,
+      a: { ...SKALVIKEN_AVSTAND, lass: [], lassAntal: 0, lassVolym: 0, kronor: 0 },
+    })).toBeNull();
+  });
+
+  it('snittet är VOLYMVIKTAT, inte ett snitt av snitt', () => {
+    // Ett lass på 900 m som bär 90 m³ och ett på 100 m som bär 10 m³ ger 820,
+    // inte 500.
+    const r = avstandRadVy({
+      ...bas,
+      a: {
+        ...SKALVIKEN_AVSTAND,
+        lass: [
+          { avstandM: 900, volym: 90, kronor: 0, kalla: 'opti' as const },
+          { avstandM: 100, volym: 10, kronor: 0, kalla: 'opti' as const },
+        ],
+        lassAntal: 2, lassVolym: 100,
+      },
+    })!;
+    expect(r.varde).toBe('820');
+  });
+});
+
+describe('tillägget: Δkr/m³fub × skotarens antal, inget annat', () => {
+  // Skälviken: skrivs 1 200 m in gäller 40 kr/m³fub på HELA volymen i stället
+  // för 0,97 — det är de ~67 000 kr som aldrig syns.
+  const bas = {
+    volym: SKALVIKEN_VOLYM,
+    nuSumma: 176826,
+    skotarAntal: SKALVIKEN_VOLYM,
+    skotarPris: 56.5,
+  };
+
+  it('0,97 → 40,00 kr/m³fub ger 67 336 kr mer', () => {
+    const v = byggTillaggVy({ ...bas, nuKr: 1680 / SKALVIKEN_VOLYM, nyKr: 40 });
+    expect(v.andrat).toBe(true);
+    expect(Math.round(v.nyKronor)).toBe(69010);          // 40 × 1 725,24
+    // Δ räknas på ören: 40,00 − 0,97 = 39,03 kr/m³fub × 1 725,24 = 67 336 kr.
+    expect(Math.round(v.nySumma! - v.nuSumma!)).toBe(67336);
+    expect(txt(v.mening)).toContain('67 336 kr mer');
+    expect(txt(v.mening)).toContain('56,50 till 95,53');
+  });
+
+  it('terrängen: 0 → 3 kr/m³fub ger 5 176 kr mer', () => {
+    const v = byggTillaggVy({ ...bas, nuKr: 0, nyKr: 3 });
+    expect(Math.round(v.nyKronor)).toBe(5176);
+    expect(Math.round(v.nySumma!)).toBe(176826 + 5176);
+    expect(txt(v.mening)).toContain('5 176 kr mer');
+  });
+
+  it('oförändrat tal är ingen ändring — ingen pil, ingen mening', () => {
+    const v = byggTillaggVy({ ...bas, nuKr: 3, nyKr: 3 });
+    expect(v.andrat).toBe(false);
+    expect(v.mening).toBe('');
+  });
+
+  it('utan skotarrad visas ingen summa — ett påhittat tal vore värre', () => {
+    const v = byggTillaggVy({ ...bas, nuKr: 0, nyKr: 3, skotarAntal: null });
+    expect(v.nySumma).toBeNull();
+    expect(v.mening).toBe('');
+    // Kronorna på trakten går ändå att räkna: de hänger inte på skotarraden.
+    expect(Math.round(v.nyKronor)).toBe(5176);
+  });
+
+  it('lägre tillägg säger "mindre", inte ett minustecken att tolka', () => {
+    const v = byggTillaggVy({ ...bas, nuKr: 8, nyKr: 2 });
+    expect(txt(v.mening)).toContain('10 351 kr mindre');
+  });
+});
+
+// ── Samma körning, tre mått ───────────────────────────────────────────────
+//
+// FACIT ÄR SKÄLVIKEN I PROD 2026-11-18: hyttspårets cykel 1 477 m, alltså
+// 739 m enkel väg, varav 660 m är hemresan med lasset och 250 m är arbete
+// inom 60 m från lossningen. Fågelvägen till stamhögarna är 377 m. De tre
+// talen ska stå bredvid varandra — Martins handinskrivna 450 m på Brokamåla
+// kan inte avgöra vilket Vida menar, för där sammanföll de.
+describe('samma körning, tre mått', () => {
+  const SKALVIKEN_CYKEL: CykelSammanstallning = {
+    lass: 85, medCykel: 70, volym: 1553, volymMedCykel: 1278,
+    cykelM: 1477, enkelVagM: 738.5, hemMedLassM: 660, vidAvlaggetM: 250,
+    ytterstM: 416,
+    utan: { fonster_for_langt: 14, forsta_lasset: 1 },
+  };
+
+  const vy = (c: CykelSammanstallning | null) => byggAvstandVy({
+    a: { ...SKALVIKEN_AVSTAND, cykel: c }, volym: 1734, prisdatum: '2026-11-02',
+  });
+
+  it('visar halva cykeln, hemresan och landningsarbetet', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.jamforRader.map(x => [x.etikett, x.varde])).toEqual([
+      ['Halva cykeln', '739 m'],
+      ['Efter vändpunkten', '660 m'],
+      ['Vid avlägget', '250 m'],
+    ]);
+  });
+
+  it('säger vilket tal priset räknas på', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.jamforRader[0].not).toMatch(/räknas priset på/i);
+  });
+
+  it('förklarar vad talen ÄR, i ord', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    // ÄRLIG ETIKETT: talet är inte hemresan. Säger texten "hem med virket"
+    // ljuger den på 13 % av lassen, där kryssandet efter vändpunkten är mer
+    // än halva cykeln.
+    expect(r.jamforRader[1].etikett).not.toMatch(/hem/i);
+    expect(r.jamforRader[1].not).toMatch(/längst från avlägget/i);
+    expect(r.jamforRader[1].not).toMatch(/kryssar/i);
+    expect(r.jamforRader[2].not).toMatch(/sortering och läggning/i);
+    // Landningsarbetet ingår i priset — det ska stå, annars ser raden ut som
+    // ett avdrag som redan är gjort. Och det ska stå EXAKT: 250 m ligger i
+    // cykeln, alltså 125 m i talet priset räknas på.
+    expect(r.jamforRader[2].not).toMatch(/hälften/i);
+    expect(r.jamforRader[2].not).not.toMatch(/ingår i halva cykeln/i);
+  });
+
+  it('säger hur många lass som saknar cykel och varför', () => {
+    const r = vy(SKALVIKEN_CYKEL);
+    expect(r.cykelLuckaRad).toContain('70 av 85');
+    expect(r.cykelLuckaRad).toContain('0 kr');
+    expect(r.cykelLuckaRad).toMatch(/14 lass/);
+    expect(r.cykelLuckaRad).toMatch(/3 timmar/);
+  });
+
+  it('inget att säga när alla lass har cykel', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, lass: 70, medCykel: 70, utan: {} });
+    expect(r.cykelLuckaRad).toBeNull();
+    expect(r.jamforRader).toHaveLength(3);
+  });
+
+  it('utan app-lass finns inga rader — inte tre nollor', () => {
+    expect(vy(null).jamforRader).toEqual([]);
+    expect(vy(null).cykelLuckaRad).toBeNull();
+  });
+
+  it('en del som inte gick att mäta får ingen rad', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, hemMedLassM: null, vidAvlaggetM: null });
+    expect(r.jamforRader.map(x => x.etikett)).toEqual(['Halva cykeln']);
+  });
+
+  it('för få lass för ett snitt ger inga rader alls', () => {
+    const r = vy({ ...SKALVIKEN_CYKEL, medCykel: 2, cykelM: null, enkelVagM: null });
+    expect(r.jamforRader).toEqual([]);
   });
 });

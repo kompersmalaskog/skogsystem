@@ -7,6 +7,7 @@
 //   • Är Ritad vald bakgrund hämtas också Ritads skog (laserdatan, blött/brant, stammarna — lib/ritadKarta/reserv) och vägar/vatten (OpenFreeMap).
 //   • Körs när sidan öppnas, när nätet kommer tillbaka och var 30:e minut. Ingen rad och ingen knapp — det märks bara på att kartan finns.
 // Ytan = Vidas traktgräns (objekt_geometri), annars en ruta runt objektets punkt — samma regler som för den öppna trakten.
+import { lasGeometriMedCache } from '@/lib/geometriCache';
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -39,7 +40,8 @@ async function lasOnskade(roll: 'maskin' | 'planerare', maskinId: string | null,
 }
 
 async function ytaFor(id: string): Promise<{ bbox: Bbox; punkt: { lat: number; lng: number } | null } | null> {
-  const { data: g, error } = await supabase.from('objekt_geometri').select('geometri').eq('objekt_id', id).maybeSingle();
+  // Via enhetens sparade kopia: bakgrundsnedladdningen körs var 30:e minut per trakt och hämtade förut om geometrin (upp till ~760 kB) varje gång.
+  const { data: g, error } = await lasGeometriMedCache(supabase, id);
   if (error) return null;
   const { data: o } = await supabase.from('objekt').select('lat, lng').eq('id', id).maybeSingle();
   const lat = Number((o as any)?.lat), lng = Number((o as any)?.lng);

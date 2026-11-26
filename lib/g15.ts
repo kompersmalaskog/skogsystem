@@ -2,7 +2,7 @@
 //
 //   "Avbrott"       — DownTime-segment ≥ 15 min (fakt_avbrott, langd_sek ≥ G15_GRANS_SEK).
 //                     Det enda som visas i avbrottsvyer och räknas i avbrottstotaler.
-//   "Korta pauser"  — kort icke-produktiv tid under gränsen. GÄLLER SKÖRDARE:
+//   "Korta stopp"  — kort icke-produktiv tid under gränsen. GÄLLER SKÖRDARE:
 //                       (a) fakt_tid.kort_stopp_sek — maskinens automatiska mikropauser
 //                           (IndividualShortDownTime, annoteringar INUTI G15-arbetstiden,
 //                           EJ additiva mot processing/terrain), och
@@ -27,7 +27,7 @@
 // gränsen måste båda uppdateras.
 export const G15_GRANS_SEK = 900
 
-/** Under G15-gränsen → hör (för skördare) till "Korta pauser", inte avbrott. */
+/** Under G15-gränsen → hör (för skördare) till "Korta stopp", inte avbrott. */
 export const arKortPaus = (langdSek: number) => langdSek < G15_GRANS_SEK
 
 // G15-tid = processing + terrain + other_work. Validerat mot FEM tillverkar-

@@ -67,7 +67,10 @@ export function Periodvaxlare({ perioder, period, offset, onPeriod, onOffset, on
     minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.xs}px`,
   };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.sidmarginal}px`, gap: AVSTAND.m }}>
+    // Mätt i Chromium: med gap m blev raden 5 px för bred på 390 px och 19 px på
+    // 360 px. gap s får den på en rad från 390; på smalare skärmar bryts
+    // bläddringen till en egen rad i stället för att trycka ut sidan.
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', padding: `0 ${AVSTAND.sidmarginal}px`, columnGap: AVSTAND.s }}>
       {perioder.map(p => {
         const aktiv = p === period;
         return (
@@ -79,6 +82,7 @@ export function Periodvaxlare({ perioder, period, offset, onPeriod, onOffset, on
         );
       })}
       <div style={{ flex: 1 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginLeft: 'auto' }}>
       <button aria-label="Föregående period" onClick={() => onOffset(offset - 1)}
         style={{ ...textKnapp, ...TYP.text, color: FARG.text2 }}>&#8249;</button>
       <span style={{ ...TYP.meta, fontWeight: VIKT.halvfet, color: FARG.text, minWidth: AVSTAND.xxl * 3, textAlign: 'center' }}>
@@ -94,6 +98,7 @@ export function Periodvaxlare({ perioder, period, offset, onPeriod, onOffset, on
           fontStyle: 'italic', lineHeight: 1,
         }}>i</button>
       )}
+      </div>
     </div>
   );
 }

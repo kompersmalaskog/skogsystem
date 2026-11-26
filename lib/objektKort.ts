@@ -108,13 +108,19 @@ export type MarkeringsSlag = 'symbol' | 'linje' | 'zon';
 /** En kommentar på en markering/yta i Om trakten (samma uppgifter som kartkortets kommentarrader). */
 export interface OmKommentar {
   id: string;
+  /** Övrigt. Kan vara tom när kommentaren bara har en Viktigt-rad. */
   text: string;
+  /** Viktigt-raden (lib/kartkommentar): gul och överst. */
+  viktigt?: string | null;
   /** "Martin · i går 16:20"; null = äldre kommentar utan författare */
   forfattare: string | null;
   vantar?: boolean;
   /** Vidas text (blå "Vida · traktdirektiv") */
   vida?: boolean;
 }
+
+/** Har markeringen minst en kommentar med en Viktigt-rad? (Då står den överst i Hela trakten, och kartetiketten visar raden i körvyn.) */
+export const harViktigtMark = (m: Pick<KartMarkering, 'kommentarer'>): boolean => !!m.kommentarer?.some((k) => !!k.viktigt);
 
 export interface KartMarkering {
   id: string;

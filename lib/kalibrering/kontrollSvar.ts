@@ -11,7 +11,7 @@
  */
 import type { KontrollResponse, StockRow } from '@/app/api/kalibrering/kontroll/route';
 import { type ToneToken } from './bedomning';
-import { dagMedVeckodag, mattTid, urvalText, vaderKort, vaderUtanText } from './kontrollLista';
+import { KALL_TEXT, arKallt, dagMedVeckodag, grader, mattTid, urvalText, vaderKort, vaderUtanText } from './kontrollLista';
 import { idagStr } from './datum';
 import { dec, fmtAvvikelse } from './format';
 import { kontrollSumma, stockFordelning, stockRadVarde } from './kontroll';
@@ -25,6 +25,8 @@ export type KontrollHuvud = {
   dagTid: string;
   /** Förare, Stammen (förvald/slumpstam), Väder, Vind (bara när den finns), Trädslag — alltid i den ordningen. */
   fakta: FaktaRad[];
+  /** Sträng kyla den dagen: "Det var −9 °C. …". null annars. */
+  kyla: string | null;
 };
 
 /** Vinden i hela m/s. null när vädret saknar vind. */
@@ -45,10 +47,11 @@ export const kontrollHuvud = (data: KontrollResponse, idag: string = idagStr()):
     fakta: [
       rad('Förare', matare),
       rad('Stammen', urval),
-      rad('Väder', vader, vaderUtanText(dag, idag) === 'Väder saknas' ? 'Saknas' : 'Kommer om några dagar'),
+      rad('Väder', vader, vaderUtanText(dag, idag) === 'Väder saknas' ? 'Saknas' : 'Kommer snart'),
       ...(vind ? [rad('Vind', vind)] : []),
       rad('Trädslag', [cap(k.tradslag ?? ''), stockText(k.antal_kontrollstockar ?? data.stockar.length)].filter(Boolean).join(' · ') || null),
     ],
+    kyla: arKallt(k.weather_at_harvest) ? `Det var ${grader(k.weather_at_harvest!.temperature_c!)}. ${KALL_TEXT}` : null,
   };
 };
 

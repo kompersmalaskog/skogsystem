@@ -18,6 +18,8 @@ import Ark from '@/components/design/Ark'
 import { AVSTAND, FARG, FONT, IKON, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TRAFFYTA, TYP, designCss, overgang } from '@/lib/design/tokens'
 import { lassSaknarText } from '@/lib/lastbil/lass/vantar'
 import { flyttarAttGodkannaText } from '@/lib/lastbil/godkannVantar'
+import { useMaskinKonto, arMaskinLage } from '@/components/maskinkonto/MaskinKontoProvider'
+import KodArk from '@/components/maskinkonto/KodArk'
 import { MAX_FAVORITER, STANDARD_FAVORITER, favoriterFor, grupperFor, ovrigtFor, sokVyer, type Behorighet, type MarkeKalla, type Roll, type Vy } from '@/lib/vyer'
 
 /** Räknare per källa. null = okänt (laddar eller läsfel) → inget märke, aldrig "0". */
@@ -86,8 +88,27 @@ const radStil: CSSProperties = {
   textDecoration: 'none', color: FARG.text,
 }
 
+/** Maskinkonto: förarens egna saker är låsta tills någon skrivit sin kod. null = raden är öppen. */
+function useLas(v: Vy): (() => void) | null {
+  const mk = useMaskinKonto()
+  return v.maskinLas && mk.lage === 'last' ? () => mk.oppnaVemArDu(v.href) : null
+}
+
+const lasIkon = <Ikon namn="lock" storlek={IKON.text} farg={FARG.text3} fylld />
+
 function VyRad({ v, marken, sista }: { v: Vy; marken: Marken; sista: boolean }) {
   const n = antalFor(v, marken)
+  const las = useLas(v)
+  if (las) {
+    return (
+      <button type="button" data-last-rad={v.id} onClick={las} aria-label={`${v.namn} – låst. Välj vem du är.`}
+        style={{ ...radStil, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
+        <Ikon namn={v.ikon} farg={FARG.text2} />
+        <span style={{ ...TYP.text, flex: 1, minWidth: 0 }}>{v.namn}</span>
+        {lasIkon}
+      </button>
+    )
+  }
   return (
     <Link href={v.href} style={{ ...radStil, borderBottom: sista ? 'none' : `1px solid ${FARG.linje}` }}>
       <Ikon namn={v.ikon} farg={FARG.text2} />
@@ -120,6 +141,19 @@ function datahalsaFarg(d: DatahalsaBesked | undefined): string | null {
 /** Favorit på bred skärm: ett kort med fylld ikon och namnet bredvid. */
 function FavoritKort({ v, marken }: { v: Vy; marken: Marken }) {
   const n = antalFor(v, marken)
+  const las = useLas(v)
+  if (las) {
+    return (
+      <button type="button" data-last-rad={v.id} onClick={las} aria-label={`${v.namn} – låst. Välj vem du är.`} className="start-kort" style={{
+        position: 'relative', display: 'flex', alignItems: 'center', gap: AVSTAND.m, height: 84, padding: `0 ${AVSTAND.l}px`, border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left',
+        background: FARG.kort, borderRadius: RADIE.sheet, color: FARG.text, minWidth: 0, boxSizing: 'border-box', transition: overgang('transform'),
+      }}>
+        <Ikon namn={v.ikon} storlek={36} farg={FARG.text} fylld />
+        <span style={{ ...TYP.listtitel, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.namn}</span>
+        {lasIkon}
+      </button>
+    )
+  }
   return (
     <Link href={v.href} className="start-kort" style={{
       position: 'relative', display: 'flex', alignItems: 'center', gap: AVSTAND.m, height: 84, padding: `0 ${AVSTAND.l}px`,
@@ -136,6 +170,19 @@ function FavoritKort({ v, marken }: { v: Vy; marken: Marken }) {
 /** Favorit på telefon: en fylld ruta med namnet under. */
 function FavoritRuta({ v, marken }: { v: Vy; marken: Marken }) {
   const n = antalFor(v, marken)
+  const las = useLas(v)
+  if (las) {
+    return (
+      <button type="button" data-last-rad={v.id} onClick={las} aria-label={`${v.namn} – låst. Välj vem du är.`} className="start-ruta"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', color: FARG.text, minWidth: 0 }}>
+        <span style={{ position: 'relative', width: 64, height: 64, borderRadius: RADIE.sheet, background: FARG.kort, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: overgang('transform') }}>
+          <Ikon namn={v.ikon} storlek={32} farg={FARG.text} fylld />
+          <span style={{ position: 'absolute', right: AVSTAND.xs, bottom: AVSTAND.xs, display: 'flex' }}><Ikon namn="lock" storlek={16} farg={FARG.text2} fylld /></span>
+        </span>
+        <span style={{ ...TYP.meta, textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.namn}</span>
+      </button>
+    )
+  }
   return (
     <Link href={v.href} className="start-ruta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: AVSTAND.s, textDecoration: 'none', color: FARG.text, minWidth: 0 }}>
       <span style={{ position: 'relative', width: 64, height: 64, borderRadius: RADIE.sheet, background: FARG.kort, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: overgang('transform') }}>
@@ -148,9 +195,11 @@ function FavoritRuta({ v, marken }: { v: Vy; marken: Marken }) {
 }
 
 /** Mer-arket: vem som är inloggad, Datahälsa med status först, övriga rader, Logga ut sist (bekräftas). */
-function MerArk({ roll, konto, datahalsa, ovrigt, marken, onLoggaUt, onStang }: {
+function MerArk({ roll, konto, datahalsa, ovrigt, marken, onLoggaUt, onStang, onKod }: {
   roll: Roll; konto?: Konto; datahalsa?: DatahalsaBesked; ovrigt: Vy[]; marken: Marken
   onLoggaUt?: () => Promise<void> | void; onStang: () => void
+  /** Öppnar "Kod för maskinen" (bara förare och admin i sin egen session — inte på maskinen). */
+  onKod?: () => void
 }) {
   const [fraga, setFraga] = useState(false)
   const [loggarUt, setLoggarUt] = useState(false)
@@ -193,6 +242,14 @@ function MerArk({ roll, konto, datahalsa, ovrigt, marken, onLoggaUt, onStang }: 
           return <VyRad key={v.id} v={v} marken={marken} sista={sista} />
         })}
       </div>
+      {onKod && (
+        <button type="button" data-kod-rad onClick={onKod}
+          style={{ ...radStil, width: '100%', background: 'none', border: 'none', borderTop: `1px solid ${FARG.linje}`, padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', marginTop: AVSTAND.l }}>
+          <Ikon namn="pin" farg={FARG.text2} />
+          <span style={{ ...TYP.text, flex: 1, minWidth: 0 }}>Kod för maskinen</span>
+          <Ikon namn="chevron_right" storlek={IKON.text} farg={FARG.text3} />
+        </button>
+      )}
       {onLoggaUt && (
         <div style={{ marginTop: AVSTAND.l, borderTop: `1px solid ${FARG.linje}` }}>
           {!fraga ? (
@@ -323,6 +380,21 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
 }) {
   const bredFonster = useBred()
   const bred = bredUtifran ?? bredFonster
+  // Maskinen som maskin: på en maskin är förarens egna saker låsta och Ekonomi/Personal dolda tills någon låst upp (lib/maskinkonto).
+  const mkonto = useMaskinKonto()
+  const maskin = arMaskinLage(mkonto.lage)
+  const [kodArk, setKodArk] = useState(false)
+  // Notisen "Välj din kod för <maskin>" öppnar /?kod=1 → Kod för maskinen direkt (bara en vanlig förare/admin i sin egen session, aldrig maskinen).
+  useEffect(() => {
+    if (mkonto.lage !== 'vanlig') return
+    try {
+      const u = new URL(window.location.href)
+      if (u.searchParams.get('kod') !== '1') return
+      u.searchParams.delete('kod')
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash)
+      setKodArk(true)
+    } catch { /* ingen adress att läsa — då öppnar man Mer › Kod för maskinen för hand */ }
+  }, [mkonto.lage])
   const inbaddad = huvud !== undefined
   const [fraga, setFraga] = useState('')
   const [oppna, setOppna] = useState<Set<string>>(new Set())
@@ -332,7 +404,7 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   // Läses fortfarande bara när sidan HAR egna favoriter att läsa (onSparaFavoriter finns) och svaret inte kommit.
   const laddarFavoriter = onSparaFavoriter !== undefined && favoritIds === undefined
   const valdaIds = favoritIds ?? STANDARD_FAVORITER[roll]
-  const behorighet = useMemo<Behorighet>(() => ({ skyddsombud }), [skyddsombud])
+  const behorighet = useMemo<Behorighet>(() => ({ skyddsombud, maskin }), [skyddsombud, maskin])
   const favoriter = useMemo(() => favoriterFor(roll, valdaIds, behorighet), [roll, valdaIds, behorighet])
   const grupper = useMemo(() => grupperFor(roll, behorighet), [roll, behorighet])
   const ovrigt = useMemo(() => ovrigtFor(roll), [roll])
@@ -343,7 +415,7 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   const uppgifter: Uppgift[] = []
   const ek = marken.egenkontroll
   if (typeof ek === 'number' && ek > 0) uppgifter.push({ id: 'egenkontroll', text: `${ek} objekt väntar på egenkontroll`, href: '/egenkontroll', farg: FARG.orange })
-  const le = marken.ledighet
+  const le = maskin ? null : marken.ledighet
   if (typeof le === 'number' && le > 0) uppgifter.push({ id: 'ledighet', text: `${le} att göra i ledighet`, href: '/ledighet', farg: FARG.orange })
   const ls = marken.lass
   if (typeof ls === 'number' && ls > 0) uppgifter.push({ id: 'lass', text: lassSaknarText(ls), href: '/lastbil', farg: FARG.orange })
@@ -357,7 +429,9 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
   if (typeof st === 'number' && st > 0) uppgifter.push({ id: 'atgarder', text: st === 1 ? '1 maskin ska stå tills det är lagat' : `${st} stopp – maskiner ska stå tills det är lagat`, href: '/atgarder', farg: FARG.rod })
   else if (typeof at === 'number' && at > 0) uppgifter.push({ id: 'atgarder', text: at === 1 ? '1 åtgärd att göra' : `${at} åtgärder att göra`, href: '/atgarder', farg: FARG.orange })
   // Egna uppgifter: telefon och anhörig, så att vi når personen och vet vem vi ringer vid en olycka.
-  if (introduktion) uppgifter.push({ id: 'introduktion', text: introduktion, href: '/introduktion', farg: FARG.orange })
+  // På maskinen hör de personliga raderna (introduktion, "fyll i telefon") till personen, inte till maskinen — de visas inte där.
+  if (maskin) { /* inga personliga uppgifter på maskinen */ }
+  else if (introduktion) uppgifter.push({ id: 'introduktion', text: introduktion, href: '/introduktion', farg: FARG.orange })
   else if (egnaUppgifter) uppgifter.push({ id: 'personal', text: egnaUppgifter, href: '/personal', farg: FARG.orange })
   for (const r of arbetsmiljo ?? []) uppgifter.push({ id: r.id, text: r.text, href: r.href, farg: FARG.orange })
   // Datahälsan bor i Mer. Bara ett riktigt fel (röd: data tappas) står också här, så det aldrig missas.
@@ -528,8 +602,12 @@ export default function Startsida({ roll, skyddsombud = false, marken, egnaUppgi
       )}
 
       {konto && (
-        <MerArk roll={roll} konto={kontoInfo} datahalsa={datahalsa} ovrigt={ovrigt} marken={marken} onLoggaUt={onLoggaUt} onStang={() => setKonto(false)} />
+        <MerArk roll={roll} konto={mkonto.lage === 'last' && kontoInfo ? { namn: kontoInfo.namn, epost: null } : kontoInfo} datahalsa={datahalsa} ovrigt={ovrigt} marken={marken} onStang={() => setKonto(false)}
+          // Maskinkontot loggar aldrig ut härifrån; en upplåst admin loggar ut maskinen, en upplåst förare låser med pillen. Alla andra som förut.
+          onLoggaUt={mkonto.lage === 'last' ? undefined : mkonto.lage === 'upplast' ? (mkonto.upplast?.roll === 'admin' ? mkonto.loggaUtMaskinen : undefined) : onLoggaUt}
+          onKod={mkonto.lage === 'vanlig' ? () => { setKonto(false); setKodArk(true) } : undefined} />
       )}
+      {kodArk && <KodArk onStang={() => setKodArk(false)} />}
 
       <style>{`.start-ruta:active > span:first-child { transform: scale(0.92); } .start-kort:active { transform: scale(0.97); }`}</style>
     </div>

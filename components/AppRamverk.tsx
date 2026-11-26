@@ -18,6 +18,8 @@ import FartLoggStartare from './FartLoggStartare'
 import VersionChecker from './VersionChecker'
 import AppStartVakt from './AppStartVakt'
 import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
+import MaskinKontoProvider from './maskinkonto/MaskinKontoProvider'
+import MaskinStartVakt from './maskinkonto/MaskinStartVakt'
 import { LAYOUT } from '@/lib/design/tokens'
 import { arBesoksSida } from '@/lib/besok/offentlig'
 import { arSkotarSida } from '@/lib/skotarlank/offentlig'
@@ -26,6 +28,15 @@ export default function AppRamverk({ children }: { children: React.ReactNode }) 
   const pathname = usePathname() ?? ''
   if (arBesoksSida(pathname)) return <>{children}</>
   if (arSkotarSida(pathname)) return <>{children}</>
+  // Maskinen som maskin: en upplåsning som gått ut (Chrome varit stängd) låses FÖRE allt annat — ingenting personligt (inga starters, ingen hämtning, inget innehåll) hinner starta.
+  return (
+    <MaskinStartVakt>
+      <Ramverk>{children}</Ramverk>
+    </MaskinStartVakt>
+  )
+}
+
+function Ramverk({ children }: { children: React.ReactNode }) {
   return (
     <>
       <TopBar />
@@ -41,9 +52,12 @@ export default function AppRamverk({ children }: { children: React.ReactNode }) 
       <FartLoggStartare />
       <CurrentMedarbetareProvider>
         {/* Innehållet börjar under toppfältet — samma mått som TopBar (tokens LAYOUT). */}
-        <div style={{ paddingTop: LAYOUT.topbar }}>
-          {children}
-        </div>
+        {/* Maskinkontot (Maskinen som maskin): låser förarens egna saker, döljer Ekonomi/Personal och visar "Vem är du?". Renderar bara barnen för alla andra. */}
+        <MaskinKontoProvider>
+          <div style={{ paddingTop: LAYOUT.topbar }}>
+            {children}
+          </div>
+        </MaskinKontoProvider>
       </CurrentMedarbetareProvider>
     </>
   )

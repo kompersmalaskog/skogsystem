@@ -5,12 +5,21 @@ import { useRouter } from 'next/navigation';
 import { type ObjektTyp, arRisjobb, typLabel } from '@/lib/objekt/typ';
 import { tradslagFarg } from '@/lib/tradslag';
 import { hamtaKallhyggen, type Kallhygge } from '@/lib/grot-koppling';
-import { uppskattaGrotM3fub, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT } from '@/lib/grot';
+import { risLage, risDetaljText } from './lib/ris';
+import { liggetidText } from './lib/liggetid';
 import { uppfoljningStatus, STATUS_FARG } from '@/lib/uppfoljning/status';
 import { type AvvikelseRad } from './lib/avvikelser';
 import type { SkotareMaskinStat } from './lib/transform';
 import { FARG, TYP, AVSTAND, RADIE, TNUM, VIKT, KOLUMN, FONT, overgang } from '@/lib/design/tokens';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from '@/lib/sparStil';
+import { tal, tidH, tidSek } from './lib/format';
+import { sortimentVisning } from '@/lib/skotarLass/sortiment';
+import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
+import { useKlarDatum } from './hooks/useKlarDatum';
+import { klarDatumText } from './lib/klarDatum';
+import { snittPerDag, snittPerDagHel } from './lib/snittPerDag';
+import { svenskIdag } from './lib/datum';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -31,7 +40,7 @@ export interface Maskin {
 export interface AvbrottRad {
   orsak: string;
   typ: string;
-  tid: string;
+  sek: number;
   antal: number;
 }
 
@@ -43,12 +52,13 @@ export interface DieselDag {
 export interface UppfoljningData {
   objektNamn: string;
   objektId?: string | null;
+  // Traktens VO-nummer — vädret hämtas för objektets punkt (objekt.lat/lng).
+  voNummer?: string | null;
   // Våning 2 — beräknas i useObjektUppfoljning (kräver 90-dagarsreferensen)
   avvikelser?: AvvikelseRad[];
   senastUppdaterad?: string;
   // Direktivets volym (objekt.volym, m³fub som "ska avverkas"). 0/saknas = okänd.
-  // Grund för skördarens "klart om" (direktiv − skördat) / snitt per dag. En
-  // uppskattning, inte en mätning — därför alltid "~".
+  // En uppskattning, inte en mätning.
   volym?: number;
   skordat: number;
   skotat: number;
@@ -70,6 +80,10 @@ export interface UppfoljningData {
   // men ha ris kvar, och det ska synas ärligt.
   grotAnpassad?: boolean;
   grotHamtad?: string | null;
+  /** Summa lass (m³fub) på kopplade risjobb — samma tal som listan. */
+  risSkotatM3?: number | null;
+  /** Något kopplat risjobb gäller också andra trakter. */
+  risDelas?: boolean;
   externSkotning?: boolean;
   externForetag?: string;
   externPrisTyp?: 'm3' | 'timme';
@@ -85,6 +99,8 @@ export interface UppfoljningData {
   skordareStart?: string | null;
   skordareSlut?: string | null;
   skordareLastDate?: string | null;
+  // Sista avverkningsdagen (samma fält som listans liggetid).
+  sistaAvverkning?: string | null;
   skotatArManuell?: boolean;
   skotareModell?: string | null;
   skotareStart?: string | null;
@@ -131,8 +147,8 @@ export interface UppfoljningData {
   dieselSkotare: DieselDag[];
   // Avbrott
   avbrottSkordare: AvbrottRad[];
-  avbrottSkotareTotalt: string;
-  avbrottSkordare_totalt: string;
+  avbrottSkotareSek: number;
+  avbrottSkordareSek: number;
   avbrottSkotare: AvbrottRad[];
   // Skotarproduktion
   antalLass: number;
@@ -198,14 +214,14 @@ const OBJEKT_CSS = `
 .uf-topp { display: grid; grid-template-columns: minmax(0, 1fr); gap: ${AVSTAND.xl}px; align-items: start; }
 .uf-topp > * { min-width: 0; }
 .uf-kedjesteg { text-align: center; min-width: 0; }
-.uf-kedjelabel { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 5px; }
-.uf-kedjeval { font-size: 22px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-@container (min-width: 560px) { .uf-kedjeval-stor { font-size: 30px; } }
-.uf-kedjeenhet { font-size: 12px; color: ${FARG.text2}; font-weight: 400; margin-left: 2px; }
-.uf-kedjepil { color: ${FARG.text3}; font-size: 18px; line-height: 1; }
+.uf-kedjelabel { font-size: ${TYP.micro.fontSize}px; font-weight: ${VIKT.fet}; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: ${AVSTAND.xs}px; }
+.uf-kedjeval { font-size: ${TYP.rubrik.fontSize}px; font-weight: ${VIKT.fet}; line-height: 1; font-variant-numeric: tabular-nums; }
+@container (min-width: 560px) { .uf-kedjeval-stor { font-size: ${TYP.titel.fontSize}px; } }
+.uf-kedjeenhet { font-size: ${TYP.meta.fontSize}px; color: ${FARG.text2}; font-weight: ${VIKT.normal}; margin-left: ${AVSTAND.xs}px; }
+.uf-kedjepil { color: ${FARG.text3}; font-size: ${TYP.text.fontSize}px; line-height: 1; }
 .uf-avv-text { display: flex; flex-direction: column; gap: 2px; }
-.uf-avv-titel { font-size: 13px; color: ${V6_WARN}; font-weight: ${VIKT.halvfet}; line-height: 1.45; }
-.uf-avv-detalj { font-size: 12px; color: ${V6_GREY}; font-weight: 400; line-height: 1.4; }
+.uf-avv-titel { font-size: ${TYP.meta.fontSize}px; color: ${V6_WARN}; font-weight: ${VIKT.halvfet}; line-height: 1.45; }
+.uf-avv-detalj { font-size: ${TYP.meta.fontSize}px; color: ${V6_GREY}; font-weight: ${VIKT.normal}; line-height: 1.4; }
 .uf-hur-rubrik { display: none; }
 .uf-hur-sektioner { background: ${V6_CARD}; border-radius: 0 0 ${RADIE.knapp}px ${RADIE.knapp}px; overflow: hidden; }
 .uf-hur-sektioner.ar-stangd { display: none; }
@@ -235,27 +251,6 @@ function daysAgo(iso?: string | null): string | null {
   return d === 0 ? 'idag' : d === 1 ? 'igår' : `${d} dagar sedan`;
 }
 
-// Sortiment name cleanup (bevarad från tidigare version)
-const sortimentNamnMap: Record<string, string> = {
-  'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
-  'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
-  'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
-  'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
-  'Kubb': 'Kubb', 'KubbFall': 'Kubb',
-  'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
-  'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
-};
-function sortimentSvenska(raw: string): string {
-  if (sortimentNamnMap[raw]) return sortimentNamnMap[raw];
-  const base = raw.replace(/_V\d+$/, '');
-  if (sortimentNamnMap[base]) return sortimentNamnMap[base];
-  const lower = raw.toLowerCase();
-  for (const [k, v] of Object.entries(sortimentNamnMap)) {
-    if (k.toLowerCase() === lower) return v;
-  }
-  return raw;
-}
-
 const avbrottOversattning: Record<string, string> = {
   'Saw maintenance': 'Sågunderhåll',
   'Refilling and lubrication': 'Påfyllning och smörjning',
@@ -278,11 +273,11 @@ function Headline({ data }: { data: UppfoljningData }) {
   const label = data.typ ? typLabel(data.typ) : '';
   const parts = [label, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
   return (
-    <section style={{ padding: '22px 24px 12px' }}>
+    <section style={{ padding: `${AVSTAND.xl}px ${AVSTAND.xl}px ${AVSTAND.m}px` }}>
       {parts.length > 0 && (
         <div style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal }}>{parts.join(' · ')}</div>
       )}
-      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: '4px 0 0', lineHeight: 1.2 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', margin: `${AVSTAND.xs}px 0 0`, lineHeight: 1.2 }}>
         {data.objektNamn}
       </h1>
     </section>
@@ -297,21 +292,21 @@ function Headline({ data }: { data: UppfoljningData }) {
 function StatusRad({ data }: { data: UppfoljningData }) {
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   return (
-    <section style={{ padding: '0 24px 20px', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', alignItems: 'center', gap: AVSTAND.s, flexWrap: 'wrap' }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_FARG[s.k], flexShrink: 0 }} />
-      <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
+      <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px' }}>{s.t}</span>
       {s.dagar != null && (
-        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
           · {s.k === 'done' ? `${s.dagar} dagar` : `dag ${s.dagar}`}
         </span>
       )}
       {s.visaKvar && s.kvar != null && (
-        <span style={{ fontSize: 15, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>
           · {s.kvar > 0 ? `${Math.round(s.kvar).toLocaleString('sv-SE')} m³ kvar` : 'allt utkört'}
         </span>
       )}
       {s.kvarOkant && (
-        <span style={{ fontSize: 15, color: V6_WARN, fontWeight: VIKT.normal }}>· skördardata saknas</span>
+        <span style={{ fontSize: 13, color: V6_WARN, fontWeight: VIKT.normal }}>· skördardata saknas</span>
       )}
     </section>
   );
@@ -356,8 +351,16 @@ function Rollrad({ farg, text, suffix, dampad = false }: { farg: string; text: s
 }
 
 function Svaret({ data }: { data: UppfoljningData }) {
+  const [grotFaktor, setGrotFaktor] = useState(GROT_UTTAGSFAKTOR_DEFAULT);
+  useEffect(() => {
+    try {
+      const gf = sessionStorage.getItem('uppfoljning:grotFaktor');
+      if (gf !== null) setGrotFaktor(klampaGrotFaktor(JSON.parse(gf)));
+    } catch { /* ingen sparad faktor → default */ }
+  }, []);
   const s = uppfoljningStatus({ ...data, skordat: data.skordat, skotat: data.skotat });
   const klart = s.k === 'done';
+  const klarDatum = useKlarDatum(data.voNummer, !klart);
   const visSkordat = Math.round(data.skordat);
   const visSkotat = Math.round(data.skotat);
   const harBacken = visSkordat > 0;
@@ -367,28 +370,13 @@ function Svaret({ data }: { data: UppfoljningData }) {
   const andel = Math.min(100, Math.round((visSkotat / visSkordat) * 100));
   const sv = (n: number) => n.toLocaleString('sv-SE');
 
-  // "Klart om ~N dgr": virke på backen delat med skotarens snitt/dag (ur
-  // lassPerDag, inte en enskild dag). Skattning → alltid "~". Inte klart objekt,
-  // något kvar, och en takt att räkna på — annars ingen rad.
-  const stDagar = (data.lassPerDag || []).filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
-  const stSnitt = stDagar.length > 0 ? stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length : 0;
-  const klartOm = (!klart && paBacken > 0 && stSnitt > 0) ? Math.max(1, Math.round(paBacken / stSnitt)) : null;
-
-  // Skördarens "klart om": (direktivets volym − skördat) / skördarens snitt per
-  // dag. Direktivet (data.volym, "ska avverkas") är en UPPSKATTNING → alltid
-  // "~". Skördat ≥ direktivet (direktivet var lågt) → "snart klar", aldrig ett
-  // minustal. Snitt/dag = produktionsdagarnas medel (ur prodSkordarePerDag).
-  const skProdDagar = (data.prodSkordarePerDag || []).filter(d => (d.m3 || 0) > 0);
-  const skSnitt = skProdDagar.length > 0 ? skProdDagar.reduce((a, b) => a + (b.m3 || 0), 0) / skProdDagar.length : 0;
-  const direktiv = data.volym && data.volym > 0 ? data.volym : null;
-  const skKvar = direktiv != null ? Math.round(direktiv - visSkordat) : null;
-  const skKlartOm = (!s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 0) > 0) ? Math.max(1, Math.round((skKvar as number) / skSnitt)) : null;
-  const skSnartKlar = !s.skKlar && direktiv != null && skSnitt > 0 && (skKvar ?? 1) <= 0;
-
-  // "· klart om ~N dagar" som nod (fetstilt tal). En enda plats.
-  const klartOmNod = (n: number) => (
-    <>· klart om <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>~{n}</span> dagar</>
-  );
+  // Klar-datum ur HELIKOPTERNS plan (hooks/useKlarDatum, lib/klarDatum) — EN
+  // räkning för "när blir den klar?" i hela appen. Finns trakten inte i någon
+  // maskins plan står inget datum; uppföljningen räknar aldrig ett eget.
+  const klarText = (roll: 'skordare' | 'skotare') => {
+    const k = klarDatum?.[roll];
+    return k ? <>· <span style={{ color: FARG.text, fontWeight: VIKT.halvfet, ...TNUM }}>{klarDatumText(k, svenskIdag())}</span></> : null;
+  };
   const skKor = !s.skKlar;
   const stKor = !s.stKlar && !s.externt && (s.stAktiv || visSkotat > 0);
 
@@ -398,12 +386,16 @@ function Svaret({ data }: { data: UppfoljningData }) {
   // inte se färdigt ut. Raden visar PLANEN: hur mycket ris som väntar (schablon
   // ×0,35 på skördad volym, märkt "ca" — en gissning, aldrig mätt) + status.
   // Utkörningens UTFALL följs på det egna GROT-objektet, inte här.
+  // Läget kommer ur SAMMA funktion som listan (lib/ris risLage): riktiga lass på
+  // ett kopplat risjobb → "skotas nu", annars schablonen tills första lasset.
+  // Faktorn är listans (sessionStorage), så ≈-talet är detsamma på båda ställena.
   const visaGrot = !!data.grotAnpassad && !arRisjobb(data);
-  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, GROT_UTTAGSFAKTOR_DEFAULT) : null;
-  const grotStatus = data.grotHamtad ? `hämtat ${fmtISO(data.grotHamtad)}` : 'ligger kvar på hygget';
-  const grotText = grotEst != null
-    ? `Ris: ca ${Math.round(grotEst).toLocaleString('sv-SE')} m³fub · ${grotStatus}`
-    : `Riset ${grotStatus}`;
+  const grotEst = visaGrot ? uppskattaGrotM3fub(data.skordat, grotFaktor) : null;
+  const grotText = visaGrot
+    ? risDetaljText(
+        risLage({ grotAnpassad: true, grotHamtad: data.grotHamtad ?? null, volymSkordare: data.skordat, sistaAvverkning: null, risSkotatM3: data.risSkotatM3 ?? null, risDelas: data.risDelas === true }, grotFaktor),
+        grotEst, fmtISO)
+    : '';
 
   return (
     <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
@@ -432,22 +424,28 @@ function Svaret({ data }: { data: UppfoljningData }) {
           <span>{sv(visSkotat)} av {sv(visSkordat)} m³ hemma</span>
           <span>{andel} %</span>
         </div>
+        {!klart && s.skKlar && paBacken > 0 && !data.egenSkotning && (
+          // Liggetid: virket är fällt klart men ligger kvar — hur länge avgör om
+          // det brådskar. Samma regel och text som listan (lib/liggetid).
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }} data-liggetid>
+            {(() => { const t = liggetidText(data.sistaAvverkning, Date.now()); return t.charAt(0).toUpperCase() + t.slice(1); })()}
+          </div>
+        )}
         {!klart && (
           // EN roll-rad per maskin: skördaren (lila) och skotaren (turkos), var
-          // för sig, var och en säger sitt läge. Bara skotaren får "klart om"
-          // ur backen; skördaren ur direktivet (objekt.volym). "dag N" är borta —
-          // den krockade med "klart om". Avslutat objekt visar bara "Klart ✓".
+          // för sig, var och en säger sitt läge och sitt klar-datum ur helikopterns
+          // plan (useKlarDatum). Avslutat objekt visar bara "Klart ✓".
           <div style={{ marginTop: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
             <Rollrad
               farg={V6_SK}
               text={s.skKlar ? 'Skördaren klar' : 'Skördaren kör'}
-              suffix={skKor ? (skKlartOm != null ? klartOmNod(skKlartOm) : (skSnartKlar ? '· snart klar' : null)) : null}
+              suffix={skKor ? klarText('skordare') : null}
             />
             <Rollrad
               farg={V6_ST}
               text={s.externt ? 'Skotas externt' : s.stKlar ? 'Skotaren klar' : stKor ? 'Skotaren kör' : 'Skotaren har inte börjat'}
               dampad={s.externt || (!s.stKlar && !stKor)}
-              suffix={stKor && klartOm != null ? klartOmNod(klartOm) : null}
+              suffix={stKor ? klarText('skotare') : null}
             />
           </div>
         )}
@@ -467,10 +465,10 @@ function Svaret({ data }: { data: UppfoljningData }) {
 function AvvikelseZon({ avvikelser }: { avvikelser?: AvvikelseRad[] }) {
   if (!avvikelser || avvikelser.length === 0) return null;
   return (
-    <section style={{ padding: '0 24px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {avvikelser.map(a => (
-        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: '10px 13px' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, background: 'rgba(255,159,10,0.09)', border: '0.5px solid rgba(255,159,10,0.28)', borderRadius: 10, padding: `${AVSTAND.m}px` }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={V6_WARN} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: AVSTAND.xs }}>
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -494,17 +492,17 @@ function MaskinCell({
   snitt: number | null; dagar: number | null;
 }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: 12 }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, minWidth: 0 }}>
         <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
         <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>{primaryUnit}</span>
       </div>
       <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: VIKT.normal, minHeight: 14 }}>{primaryLabel}</div>
-      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ marginTop: AVSTAND.l, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 13, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
         {snitt != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
@@ -538,30 +536,29 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
   // en lägre kopia — bara m³fub-enheten och "rapporterat"-märket skiljer (volymen
   // är förarens lassmätning, inte skördarmätt virke).
   const lassDagar = data.lassPerDag || [];
-  const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
-  const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
+  const snitt = snittPerDagHel(lassDagar);
   const dagar = lassDagar.length > 0 ? lassDagar.length : null;
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
   const visaBotten = harVol && (snitt != null || dagar != null || !!data.skotareModell || !!data.operatorSkotare || !!statusOrd);
   return (
-    <section style={{ padding: '0 24px 20px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: 12 }}>
           <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST }} />
           <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>Ris utkört</span>
         </div>
         {harVol ? (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{vol.toLocaleString('sv-SE')}</span>
-            <span style={{ fontSize: 14, color: V6_GREY, fontWeight: VIKT.normal }}>m³fub</span>
-            <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>rapporterat</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal }}>m³fub</span>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: FARG.text2, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}>rapporterat</span>
           </div>
         ) : (
-          <div style={{ fontSize: 15, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
+          <div style={{ fontSize: 17, color: V6_GREY, fontWeight: 600 }}>Inga lass registrerade än</div>
         )}
         {visaBotten && (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ marginTop: AVSTAND.l, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 13, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs, fontVariantNumeric: 'tabular-nums' }}>
             {snitt != null && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Snitt/dag</span><span style={{ color: FARG.text, fontWeight: VIKT.halvfet }}>{snitt} m³</span>
@@ -602,21 +599,21 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
   }, [objektId]);
 
   return (
-    <section style={{ padding: '0 24px 20px' }}>
-      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Ris hämtas från</div>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Ris hämtas från</div>
       {lage.status === 'laddar' ? (
-        <div style={{ fontSize: 13, color: V6_GREY, padding: '4px 2px' }}>Läser källhyggen …</div>
+        <div style={{ fontSize: 13, color: V6_GREY, padding: `${AVSTAND.xs}px` }}>Läser källhyggen …</div>
       ) : lage.status === 'fel' ? (
-        <div style={{ fontSize: 13, color: V6_WARN, padding: '4px 2px' }}>Kunde inte läsa källhyggena</div>
+        <div style={{ fontSize: 13, color: V6_WARN, padding: `${AVSTAND.xs}px` }}>Kunde inte läsa källhyggena</div>
       ) : lage.hyggen.length === 0 ? (
-        <div style={{ fontSize: 13, color: V6_GREY2, padding: '4px 2px' }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
+        <div style={{ fontSize: 13, color: V6_GREY2, padding: `${AVSTAND.xs}px` }}>Inga källhyggen kopplade — kopplas i redigeringen.</div>
       ) : (
         <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
           {lage.hyggen.map((h, i) => (
             <button key={h.objekt_id} onClick={() => router.push(`/uppfoljning/${encodeURIComponent(h.urlId)}`)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 48, padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
-              {h.auto_avbockad && <span style={{ fontSize: 10, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
+              style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m, width: '100%', minHeight: 48, padding: `${AVSTAND.m}px ${AVSTAND.l}px`, background: 'transparent', border: 'none', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.namn}</span>
+              {h.auto_avbockad && <span style={{ fontSize: 13, color: V6_DONE, fontWeight: 600 }}>grot avbockat</span>}
               <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                 <polyline points="1 1 7 7 1 13" />
               </svg>
@@ -629,23 +626,22 @@ function Kallhyggen({ objektId }: { objektId?: string | null }) {
 }
 
 function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotareOmlastning?: boolean }) {
-  const idag = new Date().toISOString().slice(0, 10);
+  const idag = svenskIdag();
   // "kör idag" bara när senaste aktiviteten faktiskt är IDAG — läget i
   // övrigt bor i våning 1 (statusraden), korten upprepar det inte.
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>
     slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
   const skProd = data.prodSkordarePerDag || [];
-  const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
+  const skSnitt = snittPerDagHel(skProd);
   const stProd = data.lassPerDag || [];
-  const stProdWithM3 = stProd.filter(d => typeof d.m3 === 'number');
-  const stSnitt = stProdWithM3.length > 0 ? Math.round(stProdWithM3.reduce((a, b) => a + (b.m3 || 0), 0) / stProdWithM3.length) : null;
+  const stSnitt = snittPerDagHel(stProd);
 
   const showSt = !!data.skotareModell || data.skotat > 0;
   const hasSk = !!data.skordareModell || data.skordat > 0;
 
   return (
-    <section style={{ padding: '0 24px 24px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.xl}px` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
         {hasSk && (
           <MaskinCell
             label="Skördare" color={V6_SK}
@@ -693,7 +689,7 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
       key: s.maskinId, namn: s.namn, volym: s.volym, omlastning: s.arOmlastning,
       meta: [
         s.antalLass > 0 ? `${s.antalLass} lass` : 'inga lass',
-        s.g15 > 0 ? `${s.g15.toFixed(1)} G15h` : null,
+        s.g15 > 0 ? `${tidH(s.g15)} G15` : null,
         s.kalla === 'manuell' ? 'manuellt' : null,
         s.arOmlastning ? 'volymen räknas ej i skotad total' : null,
       ].filter(Boolean).join(' · '),
@@ -702,8 +698,8 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
       key: `oml|${o.maskinId}|${o.franObjektId}`, namn: o.namn, volym: o.volym, omlastning: true,
       meta: [
         `${o.antalLass} lass`,
-        o.g15 > 0 ? `${o.g15.toFixed(1)} G15h` : null,
-        o.g0 > 0 && o.g0 !== o.g15 ? `${o.g0.toFixed(1)} G0h` : null,
+        o.g15 > 0 ? `${tidH(o.g15)} G15` : null,
+        o.g0 > 0 && o.g0 !== o.g15 ? `${tidH(o.g0)} G0` : null,
         o.diesel > 0 ? `${o.diesel.toLocaleString('sv-SE')} L` : null,
         'volymen räknas ej i skotad total',
       ].filter(Boolean).join(' · '),
@@ -711,28 +707,28 @@ function SkotarePaObjektet({ data }: { data: UppfoljningData }) {
   ];
 
   return (
-    <div style={{ padding: '0 24px 16px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
       <div style={{ background: V6_CARD, borderRadius: RADIE.kort, overflow: 'hidden' }}>
         {kort.map((k, i) => (
           <div key={k.key} style={{
-            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px',
+            display: 'flex', alignItems: 'flex-start', gap: AVSTAND.m, padding: `${AVSTAND.l}px`,
             borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none',
           }}>
             <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: V6_ST, flexShrink: 0, marginTop: AVSTAND.xs }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 14, color: FARG.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
+                <span style={{ fontSize: 17, color: FARG.text, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.namn}</span>
                 {k.omlastning && (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: FARG.orange, background: 'rgba(255,159,10,0.15)', padding: '2px 7px', borderRadius: RADIE.rad, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: FARG.orange, background: 'rgba(255,159,10,0.15)', padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.rad, whiteSpace: 'nowrap', letterSpacing: 0.3 }}>OMLASTNING</span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: V6_GREY, marginTop: 3 }}>{k.meta}</div>
+              <div style={{ fontSize: 11, color: V6_GREY, marginTop: AVSTAND.xs }}>{k.meta}</div>
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                {sv(k.volym)} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              <div style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {sv(k.volym)} <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>m³</span>
               </div>
-              {k.omlastning && <div style={{ fontSize: 9, color: FARG.orange, marginTop: 2, whiteSpace: 'nowrap' }}>ej i total</div>}
+              {k.omlastning && <div style={{ fontSize: 11, color: FARG.orange, marginTop: AVSTAND.xs, whiteSpace: 'nowrap' }}>ej i total</div>}
             </div>
           </div>
         ))}
@@ -748,13 +744,13 @@ function Collapse({ title, varde, children, defaultOpen = false }: { title: stri
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: `${AVSTAND.l}px ${AVSTAND.xl}px`, background: 'transparent', border: 'none', color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
         <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', flexShrink: 0 }}>{title}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           {varde != null && (
-            <span style={{ fontSize: 12, color: V6_GREY, fontWeight: VIKT.normal, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontWeight: VIKT.normal, fontVariantNumeric: 'tabular-nums', textAlign: 'right', lineHeight: 1.35 }}>{varde}</span>
           )}
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: overgang('transform'), flexShrink: 0 }}>
             <polyline points="4 2 8 6 4 10" />
           </svg>
         </span>
@@ -779,7 +775,7 @@ function HurGickDet({ undertext, children }: { undertext: string; children: Reac
       <button
         className="uf-hur-knapp"
         onClick={() => setOpen(!open)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '20px 24px', background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: `${AVSTAND.l}px ${AVSTAND.xl}px`, background: V6_CARD, border: 'none', borderRadius: open ? `${RADIE.knapp}px ${RADIE.knapp}px 0 0` : RADIE.knapp, color: FARG.text, fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}
       >
         <span style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.3px' }}>Hur gick det?</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minWidth: 0 }}>
@@ -805,18 +801,18 @@ function HurGickDet({ undertext, children }: { undertext: string; children: Reac
 // (källmärkning, t.ex. 'HPR' för flerträd som är HPR-härlett, inte MOM).
 function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string, (boolean | string)?][] }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: AVSTAND.s }}>
         {rows.map(([v, u, manuell], i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
             <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
             {manuell && (
-              <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: RADIE.rad, padding: '1px 5px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: V6_GREY, border: `1px solid ${V6_SEP}`, borderRadius: RADIE.rad, padding: `${AVSTAND.xs}px ${AVSTAND.s}px` }}>
                 {typeof manuell === 'string' ? manuell : 'manuellt'}
               </span>
             )}
@@ -829,9 +825,9 @@ function ProdKort({ color, label, rows }: { color: string; label: string; rows: 
 
 function Produktivitet({ data }: { data: UppfoljningData }) {
   const skRows: [string, string, (boolean | string)?][] = [];
-  if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
-  if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
-  if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
+  if (data.skordareM3G15h > 0) skRows.push([tal(data.skordareM3G15h), 'm³/G15h']);
+  if (data.skordareStammarG15h > 0) skRows.push([tal(data.skordareStammarG15h), 'stammar/G15h']);
+  if (data.skordareMedelstam > 0) skRows.push([tal(data.skordareMedelstam, 3), 'm³ medelstam']);
   // Flerträd — HPR-härlett (detalj_stam.stam_bunt_nyckel), källmärkt 'HPR'. Objekt utan
   // stammar importerade sedan 2026-08-23 (#460) visar "ej mätt" — ALDRIG 0 %: deras
   // flerträdsstammar hoppades över av den gamla importen och finns inte i tabellen.
@@ -848,17 +844,17 @@ function Produktivitet({ data }: { data: UppfoljningData }) {
   // kommer ur skotning_g15_manuell. Snittlass/skotningsavstånd rör inte G15 → omärkta.
   const st = data.skotareTidManuell;
   const stRows: [string, string, boolean?][] = [];
-  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h', st]);
-  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h', st]);
-  if (data.skotareSnittlass > 0) stRows.push([`${data.skotareSnittlass} m³`, 'snittlass']);
-  if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
+  if (data.skotareM3G15h > 0) stRows.push([tal(data.skotareM3G15h), 'm³/G15h', st]);
+  if (data.skotareLassG15h > 0) stRows.push([tal(data.skotareLassG15h, 2), 'lass/G15h', st]);
+  if (data.skotareSnittlass > 0) stRows.push([`${tal(data.skotareSnittlass)} m³`, 'snittlass']);
+  if (data.skotningsavstand > 0) stRows.push([`${tal(data.skotningsavstand, 0)} m`, 'skotningsavstånd']);
 
   if (skRows.length === 0 && stRows.length === 0) {
-    return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+    return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
   }
 
   return (
-    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
       {skRows.length > 0 && <ProdKort color={V6_SK} label="Skördare" rows={skRows} />}
       {stRows.length > 0 && <ProdKort color={V6_ST} label="Skotare" rows={stRows} />}
     </div>
@@ -873,11 +869,11 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
   const barMaxH = chartH - 20;
   const snittH = snitt ? (snitt / max) * barMaxH : 0;
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
       <div style={{ position: 'relative', height: chartH, borderBottom: `0.5px solid ${V6_SEP}`, paddingBottom: 4 }}>
         {snitt > 0 && (
           <div style={{ position: 'absolute', left: 0, right: 0, bottom: 4 + snittH, height: 0, borderTop: `1px dashed ${V6_GREY2}`, pointerEvents: 'none', zIndex: 2 }}>
-            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: '0 4px' }}>snitt {Math.round(snitt)} m³</span>
+            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 13, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: `0 ${AVSTAND.xs}px` }}>snitt {Math.round(snitt)} m³</span>
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%' }}>
@@ -887,10 +883,10 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
             return (
               <div key={i} onClick={() => setActive(isActive ? null : i)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', cursor: 'pointer', position: 'relative' }}>
                 {isActive && d.lass != null && (
-                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: 8, padding: '6px 9px', whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
+                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: `${AVSTAND.s}px`, whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
                 )}
                 <div style={{ fontSize: 11, color: FARG.text, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{Math.round(d.m3)}</div>
-                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: 3, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: 'opacity .15s' }} />
+                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: RADIE.stapel, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: overgang('opacity') }} />
               </div>
             );
           })}
@@ -898,7 +894,7 @@ function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; 
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
+          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
         ))}
       </div>
     </div>
@@ -912,16 +908,16 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
   const stData = stRaw.filter(d => typeof d.m3 === 'number' && d.m3 > 0).map(d => ({ datum: d.datum, m3: d.m3 || 0, lass: d.lass }));
   const hasSk = skData.length > 0;
   const hasSt = stData.length > 0;
-  if (!hasSk && !hasSt) return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+  if (!hasSk && !hasSt) return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
 
-  const skSnitt = hasSk ? skData.reduce((a, b) => a + b.m3, 0) / skData.length : 0;
-  const stSnitt = hasSt ? stData.reduce((a, b) => a + b.m3, 0) / stData.length : 0;
+  const skSnitt = snittPerDag(skData) ?? 0;
+  const stSnitt = snittPerDag(stData) ?? 0;
   const stTotalLass = hasSt ? stData.reduce((a, b) => a + (b.lass || 0), 0) : 0;
   const stTotal = hasSt ? stData.reduce((a, b) => a + b.m3, 0) : 0;
   const skTotal = hasSk ? skData.reduce((a, b) => a + b.m3, 0) : 0;
 
   return (
-    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: 16 }}>
       {hasSk && (
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
@@ -944,7 +940,7 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
             </span>
           </div>
           <ProdChart data={stData} color={V6_ST} snitt={stSnitt} />
-          <div style={{ fontSize: 10, color: V6_GREY2, marginTop: 6, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
+          <div style={{ fontSize: 13, color: V6_GREY2, marginTop: AVSTAND.s, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
         </div>
       )}
     </div>
@@ -957,20 +953,20 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
 function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
   if (!tradslag || tradslag.length === 0) return null;
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 16px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Trädslag</div>
-        <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
+        <div style={{ display: 'flex', height: 14, borderRadius: RADIE.stapel, overflow: 'hidden', gap: AVSTAND.xs, marginBottom: AVSTAND.l }}>
           {tradslag.map((t, i) => (
             <div key={t.namn} style={{ width: `${t.pct}%`, background: tradslagFarg(t.namn, i) }} />
           ))}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tradslag.map((t, i) => (
-            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.m }}>
               <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: tradslagFarg(t.namn, i), flexShrink: 0, alignSelf: 'center' }} />
-              <span style={{ flex: 1, fontSize: 14, color: FARG.text }}>{t.namn}</span>
-              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
+              <span style={{ flex: 1, fontSize: 17, color: FARG.text }}>{t.namn}</span>
+              <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
             </div>
           ))}
         </div>
@@ -980,28 +976,37 @@ function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
 }
 
 function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] }) {
+  // Namnen i klartext ur appens EN källa (samma som skotarläget, lasskortet och
+  // Kvar). Sortimentstabellen läses en gång; tills den kommit tolkas namnet ur
+  // texten, aldrig en kod.
+  const [, setKlass] = useState(0);
+  useEffect(() => {
+    let avbruten = false;
+    void lasSortimentKlass().then((nytt) => { if (!avbruten && nytt) setKlass((v) => v + 1); });
+    return () => { avbruten = true; };
+  }, []);
   if (!sortiment || sortiment.length === 0) return null;
   const max = Math.max(...sortiment.map(s => s.m3), 1);
   const total = sortiment.reduce((a, b) => a + b.m3, 0);
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Sortiment</span>
-          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
+          <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
         </div>
         {sortiment.map((s, i) => (
-          <div key={s.namn} style={{ padding: '10px 0', borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div key={s.namn} style={{ padding: `${AVSTAND.m}px 0`, borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.s }}>
               <span style={{ fontSize: 13, color: FARG.text, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 8 }}>
-                {sortimentSvenska(s.namn)}
+                {sortimentVisning(s.namn) || s.namn}
               </span>
-              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {s.m3} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {s.m3} <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 600 }}>m³</span>
               </span>
             </div>
-            <div style={{ height: 3, background: FARG.tonad, borderRadius: 2 }}>
-              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: 2 }} />
+            <div style={{ height: 3, background: FARG.tonad, borderRadius: RADIE.stapel }}>
+              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: RADIE.stapel }} />
             </div>
           </div>
         ))}
@@ -1016,20 +1021,20 @@ function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] })
 // visas som "rapporteras inte", aldrig som en falsk 0,0 h.
 function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number | null, boolean?][] }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, marginBottom: AVSTAND.m }}>
         <span style={{ width: 8, height: 8, borderRadius: RADIE.cirkel, background: color }} />
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map(([k, v, accent], i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 12, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: AVSTAND.s }}>
+            <span style={{ fontSize: 13, color: accent ? FARG.text : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
             {v === null ? (
-              <span style={{ fontSize: 12, color: V6_GREY, fontWeight: 400 }}>rapporteras inte</span>
+              <span style={{ fontSize: 13, color: V6_GREY, fontWeight: 400, textAlign: 'right' }}>rapporteras inte</span>
             ) : (
-              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums' }}>
-                {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
+              <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                {tidH(v)}
               </span>
             )}
           </div>
@@ -1043,7 +1048,7 @@ function Tid({ data }: { data: UppfoljningData }) {
   const hasSk = data.skordareG15h > 0;
   const hasSt = data.skotareG15h > 0;
   if (!hasSk && !hasSt) return null;
-  // G0 och korta pauser visas bara om maskinen rapporterar ShortDownTime (rå
+  // G0 och korta stopp visas bara om maskinen rapporterar ShortDownTime (rå
   // kort_stopp > 0). Villkoret avläses ur DATAN, inte ur maskintypen — Rottne
   // rapporterar signalen, Ponsse-skotarna inte. Saknas den: "rapporteras inte".
   const skKortSaknas = data.skordareG15h > 0 && data.skordareKortStoppRaa === 0;
@@ -1051,19 +1056,19 @@ function Tid({ data }: { data: UppfoljningData }) {
   const skRows: [string, number | null, boolean?][] = [
     ['G15', data.skordareG15h, true],
     ['G0', skKortSaknas ? null : data.skordareG0],
-    ['Korta pauser', skKortSaknas ? null : data.skordareKortaStopp],
+    ['Korta stopp', skKortSaknas ? null : data.skordareKortaStopp],
     ['Rast', data.skordareRast],
     ['Avbrott', data.skordareAvbrott],
   ];
   const stRows: [string, number | null, boolean?][] = [
     ['G15', data.skotareG15h, true],
     ['G0', stKortSaknas ? null : data.skotareG0],
-    ['Korta pauser', stKortSaknas ? null : data.skotareKortaStopp],
+    ['Korta stopp', stKortSaknas ? null : data.skotareKortaStopp],
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];
   return (
-    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: AVSTAND.m }}>
       {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
       {hasSt && <TidKort label={data.skotareTidManuell ? 'Skotare · manuell tid' : 'Skotare'} color={V6_ST} rows={stRows} />}
     </div>
@@ -1075,36 +1080,36 @@ function Diesel({ data }: { data: UppfoljningData }) {
   const skL = data.skordareL || 0;
   const stL = data.skotareL || 0;
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '16px 18px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
           <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Diesel</span>
           {data.dieselPerM3 > 0 && (
-            <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
+            <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{tal(data.dieselPerM3, 2)} L/m³</span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
-          <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.6px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.s, marginBottom: AVSTAND.l }}>
+          <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.8px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
           <span style={{ fontSize: 13, color: V6_GREY }}>liter</span>
         </div>
-        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: FARG.tonad, marginBottom: 10 }}>
+        <div style={{ display: 'flex', height: 6, borderRadius: RADIE.stapel, overflow: 'hidden', background: FARG.tonad, marginBottom: AVSTAND.m }}>
           <div style={{ width: `${(skL / data.dieselTotalt) * 100}%`, background: V6_SK }} />
           <div style={{ width: `${(stL / data.dieselTotalt) * 100}%`, background: V6_ST }} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: AVSTAND.m, fontSize: 13 }}>
           <div>
             <span style={{ color: V6_GREY }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_SK, marginRight: AVSTAND.xs }} />
               Skördare
             </span>
-            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
+            <span style={{ marginLeft: AVSTAND.s, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
           </div>
           <div>
             <span style={{ color: V6_GREY }}>
               <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: RADIE.cirkel, background: V6_ST, marginRight: AVSTAND.xs }} />
               Skotare
             </span>
-            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
+            <span style={{ marginLeft: AVSTAND.s, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
           </div>
         </div>
       </div>
@@ -1115,21 +1120,21 @@ function Diesel({ data }: { data: UppfoljningData }) {
 // ── Avbrott ───────────────────────────────────────────────────────────────
 function AvbrottKort({ label, color, items, totalt }: { label: string; color: string; items: AvbrottRad[]; totalt: string }) {
   return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 16px 12px' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px ${AVSTAND.l}px ${AVSTAND.m}px` }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: AVSTAND.m }}>
         <span style={{ fontSize: 11, color: FARG.text, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
           <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: RADIE.cirkel, background: color, marginRight: AVSTAND.xs, verticalAlign: 'middle' }} />
           {label}
         </span>
-        <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
+        <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
       </div>
       {items.map((a, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: `${AVSTAND.s}px 0`, borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: FARG.text }}>{avbrottSv(a.orsak)}</div>
-            <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{a.typ} · {a.antal} ggr</div>
+            <div style={{ fontSize: 11, color: V6_GREY, marginTop: AVSTAND.xs }}>{a.typ} · {a.antal} ggr</div>
           </div>
-          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{a.tid}</div>
+          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{tidSek(a.sek)}</div>
         </div>
       ))}
     </div>
@@ -1141,9 +1146,9 @@ function Avbrott({ data }: { data: UppfoljningData }) {
   const st = data.avbrottSkotare || [];
   if (sk.length === 0 && st.length === 0) return null;
   return (
-    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={data.avbrottSkordare_totalt} />}
-      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={data.avbrottSkotareTotalt} />}
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={tidSek(data.avbrottSkordareSek)} />}
+      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={tidSek(data.avbrottSkotareSek)} />}
     </div>
   );
 }
@@ -1154,15 +1159,15 @@ function Extern({ data }: { data: UppfoljningData }) {
   // Pris och totalsumma bor i EKONOMIVYN — uppföljningen är en ren operativ
   // vy som kan visas medarbetare. Här: vem som skotar och hur mycket.
   return (
-    <div style={{ padding: '0 24px 16px' }}>
-      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: '14px 18px 14px' }}>
+    <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
         <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
-        <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
+        <div style={{ fontSize: 17, fontWeight: 600 }}>{data.externForetag || '—'}</div>
         {(data.externAntal || 0) > 0 && (
           <div style={{ marginTop: 12, fontSize: 13, color: V6_GREY }}>
             Omfattning{' '}
             <span style={{ color: FARG.text, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-              {data.externAntal} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}
+              {data.externPrisTyp === 'timme' ? tidH(data.externAntal || 0) : `${tal(data.externAntal || 0)} m³`}
             </span>
           </div>
         )}
@@ -1175,12 +1180,12 @@ function Extern({ data }: { data: UppfoljningData }) {
 function Nav({ onBack }: { onBack?: () => void }) {
   if (!onBack) return null;
   return (
-    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: '0 6px', background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
-      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: FARG.text, fontSize: 17, cursor: 'pointer', padding: '8px 10px', fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
+    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: `0 ${AVSTAND.s}px`, background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs, background: 'none', border: 'none', color: FARG.text, fontSize: 17, cursor: 'pointer', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
         <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="10 2 2 10 10 18" />
         </svg>
-        <span style={{ marginLeft: 2 }}>Uppföljning</span>
+        <span style={{ marginLeft: AVSTAND.xs }}>Uppföljning</span>
       </button>
     </nav>
   );
@@ -1193,15 +1198,15 @@ function Nav({ onBack }: { onBack?: () => void }) {
 // skotad total). Omlastningsmaskiner får en liten bärnstensgul OML-markör.
 function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[]; vald: string; onValj: (id: string) => void }) {
   const knapp = (aktiv: boolean): React.CSSProperties => ({
-    padding: '7px 13px', borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
-    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: `${AVSTAND.s}px ${AVSTAND.m}px`, borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: V6_FF,
+    cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: AVSTAND.s,
     border: aktiv ? '1px solid transparent' : `1px solid ${V6_SEP}`,
     background: aktiv ? V6_ST : 'transparent',
     color: aktiv ? FARG.bg : FARG.text,
   });
   return (
-    <section style={{ padding: '0 24px 16px' }}>
-      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: '0 0 8px 2px' }}>Skotare — välj maskin</div>
+    <section style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px` }}>
+      <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, margin: `0 0 ${AVSTAND.s}px ${AVSTAND.xs}px` }}>Skotare — välj maskin</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <button onClick={() => onValj('alla')} style={knapp(vald === 'alla')}>Alla</button>
         {maskiner.map(m => {
@@ -1210,7 +1215,7 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
             <button key={m.maskinId} onClick={() => onValj(m.maskinId)} style={knapp(aktiv)}>
               <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{m.namn}</span>
               {m.arOmlastning && (
-                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? FARG.bg : FARG.orange, background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: '1px 5px', borderRadius: 5 }}>OML</span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, color: aktiv ? FARG.bg : FARG.orange, background: aktiv ? 'rgba(0,0,0,0.14)' : 'rgba(255,159,10,0.15)', padding: `${AVSTAND.xs}px ${AVSTAND.s}px`, borderRadius: RADIE.rad }}>OML</span>
               )}
             </button>
           );
@@ -1221,17 +1226,22 @@ function SkotareVal({ maskiner, vald, onValj }: { maskiner: SkotareMaskinStat[];
 }
 
 // "Alla"-aggregatet: skotad VOLYM = summa av icke-omlastningsmaskiner (data.skotat,
-// oförändrat). Men TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
-// omlastning — Elephants G15/diesel/lass är fysiskt arbete ("det brändes ju diesel").
-// Kvoterna räknas om konsekvent ur totalerna. Skördarfält lämnas orörda.
-function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
+// oförändrat). TID/DIESEL/LASS/per-dag summeras över ALLA skotarmaskiner INKL
+// omlastning — det är fysiskt arbete ("det brändes ju diesel").
+// KVOTERNA (m³/G15h, lass/G15h, snittlass, L/m³, L/G15h) räknas däremot BARA på
+// skotningen: täljare och nämnare gäller samma maskiner. Förut delades skotad volym
+// UTAN omlastning med tid och lass MED omlastning, så produktiviteten blev för låg.
+// Skördarfält lämnas orörda.
+export function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): UppfoljningData {
   let totG15 = 0, totG0 = 0, totTomgang = 0, totKorta = 0, totRast = 0, totDiesel = 0, totLass = 0;
+  let skotG15 = 0, skotDiesel = 0, skotLass = 0;   // bara skotning, för kvoterna
   const dieselMap = new Map<string, number>();
   const lassMap = new Map<string, { lass: number; m3: number }>();
   skM.forEach(m => {
     totG15 += m.skotareG15h; totG0 += m.skotareG0; totTomgang += m.skotareTomgang;
     totKorta += m.skotareKortaStopp; totRast += m.skotareRast;
     totDiesel += m.skotareL; totLass += m.antalLass;
+    if (!m.arOmlastning) { skotG15 += m.skotareG15h; skotDiesel += m.skotareL; skotLass += m.antalLass; }
     m.dieselSkotare.forEach(d => dieselMap.set(d.datum, (dieselMap.get(d.datum) || 0) + d.liter));
     m.lassPerDag.forEach(d => {
       const prev = lassMap.get(d.datum) || { lass: 0, m3: 0 };
@@ -1261,11 +1271,11 @@ function byggAllaSkotare(data: UppfoljningData, skM: SkotareMaskinStat[]): Uppfo
     skotareKortaStopp: r1(totKorta),
     skotareRast: r1(totRast),
     skotareL: Math.round(totDiesel),
-    skotareM3G15h: totG15 > 0 ? r1(skotat / totG15) : 0,
-    skotareLassG15h: totG15 > 0 ? r2(totLass / totG15) : 0,
-    skotareSnittlass: totLass > 0 ? r1(skotat / totLass) : 0,
-    skotareL_M3: skotat > 0 ? r2(totDiesel / skotat) : 0,
-    skotareL_G15h: totG15 > 0 ? r2(totDiesel / totG15) : 0,
+    skotareM3G15h: skotG15 > 0 ? r1(skotat / skotG15) : 0,
+    skotareLassG15h: skotG15 > 0 ? r2(skotLass / skotG15) : 0,
+    skotareSnittlass: skotLass > 0 ? r1(skotat / skotLass) : 0,
+    skotareL_M3: skotat > 0 ? r2(skotDiesel / skotat) : 0,
+    skotareL_G15h: skotG15 > 0 ? r2(skotDiesel / skotG15) : 0,
     dieselSkotare,
     lassPerDag,
     dieselTotalt: totalDiesel,
@@ -1345,10 +1355,8 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   })();
 
   const perDagVarde = (() => {
-    const skDagar = visadData.prodSkordarePerDag || [];
-    const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
-    const stDagar = (visadData.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
-    const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
+    const skSnitt = snittPerDagHel(visadData.prodSkordarePerDag);
+    const stSnitt = snittPerDagHel(visadData.lassPerDag);
     if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
     if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
     if (stSnitt != null) return `snitt ${sv(stSnitt)} m³/dag`;
@@ -1371,20 +1379,20 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
     const skG15 = visadData.skordareG15h > 0 ? visadData.skordareG15h : null;
     const stG15 = visadData.skotareG15h > 0 ? visadData.skotareG15h : null;
     let g15Del: string | null = null;
-    if (skG15 != null && stG15 != null) g15Del = `Skördare ${sv(skG15)} · Skotare ${sv(stG15)} G15h`;
-    else if (skG15 != null) g15Del = `${sv(skG15)} G15h`;
-    else if (stG15 != null) g15Del = `${sv(stG15)} G15h`;
+    if (skG15 != null && stG15 != null) g15Del = `Skördare ${tidH(skG15)} · Skotare ${tidH(stG15)} G15`;
+    else if (skG15 != null) g15Del = `${tidH(skG15)} G15`;
+    else if (stG15 != null) g15Del = `${tidH(stG15)} G15`;
     const lm3Del = visadData.dieselPerM3 > 0 ? `${sv(visadData.dieselPerM3)} L/m³` : null;
     const delar = [g15Del, lm3Del].filter(Boolean);
     return delar.length > 0 ? delar.join(' · ') : null;
   })();
 
   const avbrottVarde = (() => {
-    // Totalsträngarna ("4.2h") är samma tal som sektionens kort visar.
-    const skH = (data.avbrottSkordare?.length || 0) > 0 ? parseFloat(data.avbrottSkordare_totalt) || 0 : 0;
-    const stH = (data.avbrottSkotare?.length || 0) > 0 ? parseFloat(data.avbrottSkotareTotalt) || 0 : 0;
-    const sum = skH + stH;
-    return sum > 0 ? `${sum.toFixed(1).replace('.', ',')} h` : null;
+    // Samma sekunder som sektionens kort visar.
+    const sk = (data.avbrottSkordare?.length || 0) > 0 ? data.avbrottSkordareSek || 0 : 0;
+    const st = (data.avbrottSkotare?.length || 0) > 0 ? data.avbrottSkotareSek || 0 : 0;
+    const sum = sk + st;
+    return sum > 0 ? tidSek(sum) : null;
   })();
 
   // Undertext till "Hur gick det?" — vad som väntar bakom tryck, i ord. Tar de

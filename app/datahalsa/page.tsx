@@ -2,9 +2,10 @@
 
 // ─────────────────────────────────────────────────────────────
 // Datahälsa — "kan jag lita på datan idag?" på 10 sekunder.
-// Ansiktet på larmen (Gap Check, >24h-invarianten, dubblett-
-// signaturen, tomgångs-konsistensen) — DATA-hälsa, inte maskin-
-// prestanda (det bor i maskinvyn).
+// Överst: fungerar importen just nu? (raden 'import_live', kontrollerad
+// i databasen var 15:e minut). Sedan ansiktet på larmen (>24h-invarianten,
+// dubblett-signaturen, tomgångs-konsistensen, kontrollerna på importdatorn)
+// — DATA-hälsa, inte maskinprestanda (det bor i maskinvyn).
 //
 // Vyn visar VAD den vet, gissar aldrig varför. Maskintystnad
 // visas men larmar aldrig (semester ser ut som fel). Målet är
@@ -16,6 +17,9 @@
 import { useState, useEffect } from 'react'
 import { SKARP_START } from '@/lib/skarpStart'
 import SkotarLassKort from './SkotarLassKort'
+import ImportLive from './ImportLive'
+import { kontrollRader, kontrollerSenastKord, narText } from '@/lib/datahalsa/status'
+import { TYP } from '@/lib/design/tokens'
 import {
   useDatahalsa, KANDA_IMPORTFEL, LEV_GRON_DYGN, LEV_GUL_DYGN,
   importFelKlass, type Besked, type LeveransRad, type ImportFelRad,
@@ -125,8 +129,11 @@ function levLage(m: LeveransRad): LevLage {
 }
 
 export default function DatahalsaPage() {
-  const { filer, leverans, invarianter, gapCheck, importFel, koordinatLarm, besked } = useDatahalsa()
+  const { filer, leverans, invarianter, status, importFel, koordinatLarm, besked } = useDatahalsa()
   const [visaFel, setVisaFel] = useState(false)
+  // Importdatorns kontroller (gap_check.py): en rad per kontroll. import_live ritas för sig, överst.
+  const kontroller = kontrollRader(status.data ?? [])
+  const kontrollerKorda = narText(kontrollerSenastKord(status.data ?? []), Date.now())
 
   // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
   // med utgång (KVITT_DYGN) så en glömd kvittering inte döljer ett verkligt
@@ -183,6 +190,10 @@ export default function DatahalsaPage() {
         maxWidth: 560, margin: '0 auto',
         padding: 'calc(72px + env(safe-area-inset-top)) 16px 90px',
       }}>
+
+        {/* ── IMPORTEN JUST NU — raden 'import_live', kontrollerad i databasen var 15:e minut.
+            Överst: kommer ingen data in är allt annat på sidan gammalt. ── */}
+        <ImportLive sektion={status} />
 
         {/* ── BESKEDET — hela poängen, 10 sekunder ── */}
         <div style={{
@@ -379,30 +390,37 @@ export default function DatahalsaPage() {
           )}
         </Kort>
 
-        {/* ── 4. Senaste Gap Check ── */}
-        <Kort rubrik="SENASTE GAP CHECK" laddar={gapCheck.laddar} fel={gapCheck.fel}>
-          {gapCheck.tabellSaknas ? (
+        {/* ── 4. Kontrollerna på importdatorn (gap_check.py) — en rad per kontroll.
+            Det som bara den datorn kan se: filerna i Behandlade och Inkommande och
+            koden som kör. Importfelen står inte här: de bevakas i databasen (överst). ── */}
+        <Kort rubrik="KONTROLLER PÅ IMPORTDATORN" laddar={status.laddar} fel={status.fel}>
+          {status.tabellSaknas ? (
             <div style={{ fontSize: 13, color: C.muted }}>
-              Körs söndagar 20:00 på import-datorn. Status här kräver att
-              migrationen för <code>meta_datahalsa_status</code> körs — tills dess
-              finns resultatet bara i loggen på datorn.
+              Status här kräver att migrationen för <code>meta_datahalsa_status</code> körs —
+              tills dess finns resultatet bara i loggen på datorn.
             </div>
-          ) : gapCheck.data ? (
-            <>
-              <Rad vanster="Senast körd" hoger={new Date(gapCheck.data.kordTid).toLocaleString('sv-SE', { dateStyle: 'medium', timeStyle: 'short' })} />
-              <Rad vanster="Resultat"
-                   hoger={gapCheck.data.status === 'OK' ? 'Inga larm ✅' : `${gapCheck.data.larmAntal} LARM ⛔`}
-                   hogerFarg={gapCheck.data.status === 'OK' ? C.gron : C.rod} />
-              {gapCheck.data.status !== 'OK' && gapCheck.data.sammanfattning && (
-                <pre style={{
-                  margin: '8px 0 0', padding: 10, background: 'rgba(255,69,58,0.08)',
-                  borderRadius: 8, fontSize: 11, color: C.rod, whiteSpace: 'pre-wrap',
-                }}>{gapCheck.data.sammanfattning}</pre>
-              )}
-            </>
+          ) : kontroller.length > 0 ? (
+            <div data-testid="kontroller">
+              <Rad vanster="Senast körda" hoger={kontrollerKorda ?? '—'} dimmad />
+              {kontroller.map(k => (
+                <div key={k.id} data-kontroll={k.id} data-lage={k.lage}>
+                  <Rad vanster={k.namn}
+                       hoger={k.lage === 'ok' ? 'Inga larm ✅'
+                         : k.lage === 'larm' ? `${k.larmAntal > 1 ? `${k.larmAntal} larm` : 'Larm'} ⛔`
+                         : 'Kunde inte kontrolleras'}
+                       hogerFarg={k.lage === 'ok' ? C.gron : k.lage === 'larm' ? C.rod : C.muted} />
+                  {k.rader.map(r => (
+                    <div key={r} style={{
+                      padding: '2px 0 8px 16px', ...TYP.meta, wordBreak: 'break-word',
+                      color: k.lage === 'larm' ? C.rod : C.muted,
+                    }}>{r}</div>
+                  ))}
+                </div>
+              ))}
+            </div>
           ) : (
             <div style={{ fontSize: 13, color: C.muted }}>
-              Ingen körning registrerad ännu — första skrivs söndag 20:00.
+              Ingen körning registrerad ännu — raderna skrivs när kontrollen på importdatorn har kört.
             </div>
           )}
         </Kort>

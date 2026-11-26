@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { utanMaskinkonton } from "@/lib/admin/utanMaskinkonton";
 import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
 import { Sektion, Stod, Lista, Rad, Besked, Primar, Sekundar, Destruktiv, Lank, Bekrafta, Laddar } from "./ui";
 import { SYSTEM_LABELS, IMPLEMENTERADE } from "@/lib/lonesystem";
@@ -59,11 +60,11 @@ export default function LonesystemUnderflik() {
         system === "fortnox" ? fetch("/api/fortnox/status").then(r => r.json()) : Promise.resolve(null),
         supabase.from("lonesystem_koppling").select("id, system_typ, aktiv, senast_synkad, skapad, token_utgar").eq("system_typ", system).maybeSingle(),
         // Företagsledare får inga lönerader och behöver inget anställningsnummer. Kolumnen kommer med migrationen 20261013155407.
-        supabase.from("medarbetare").select("id, namn, foretagsledare").order("namn"),
+        supabase.from("medarbetare").select("id, namn, foretagsledare, roll").order("namn"),
       ]);
       let medRes: { data: any[] | null; error: any } = medRes0 as any;
       if (medRes0.error && /foretagsledare/i.test(String(medRes0.error.message || ""))) {
-        medRes = await supabase.from("medarbetare").select("id, namn").order("namn") as any;
+        medRes = await supabase.from("medarbetare").select("id, namn, roll").order("namn") as any;
       }
 
       const k = kopplingRes.data as Koppling | null;
@@ -74,7 +75,7 @@ export default function LonesystemUnderflik() {
         k.senast_synkad = statusRes.senast_synkad || k.senast_synkad;
       }
       setKoppling(k);
-      setMedarbetare(medRes.data || []);
+      setMedarbetare(utanMaskinkonton(medRes.data));
 
       if (k) {
         const ansRes = await supabase.from("medarbetare_lonesystem")

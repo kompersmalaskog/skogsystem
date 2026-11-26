@@ -94,8 +94,8 @@ describe('huvudet', () => {
     ]);
   });
   it('ung kontroll: vädret kommer, det saknas inte', () => {
-    const h = kontrollHuvud(resp(fem(() => ({})), { weather_at_harvest: null }), '2026-10-23');
-    expect(h.fakta[2]).toEqual({ etikett: 'Väder', varde: 'Kommer om några dagar', saknas: true });
+    const h = kontrollHuvud(resp(fem(() => ({})), { weather_at_harvest: null }), '2026-10-22');
+    expect(h.fakta[2]).toEqual({ etikett: 'Väder', varde: 'Kommer snart', saknas: true });
   });
   it('slumpstam', () => {
     expect(kontrollHuvud(resp(fem(() => ({ stem_selection: 'Randomly selected stem' })))).fakta[1].varde).toBe('Slumpstam');

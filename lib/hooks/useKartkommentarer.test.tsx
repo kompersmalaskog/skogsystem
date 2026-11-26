@@ -158,3 +158,37 @@ describe('useKartkommentarer — två förare på samma objekt', () => {
     expect(srv.rader).toHaveLength(0);
   });
 });
+
+describe('useKartkommentarer — namn på andras kommentarer när radnivåspärren döljer dem (förare och maskin ser bara sin egen medarbetarrad)', () => {
+  const rad = (id: string, av: string) => ({ id, objekt_id: 'o1', yta_nyckel: 'linje:abc', text: `text ${id}`, skapad_av: av, skapad_at: '2026-10-20T10:00:00Z', andrad_at: '2026-10-20T10:00:00Z' });
+  const rpcAnrop: any[] = [];
+  const dbMed = (rpc: any): KoDb => ({
+    rpc: async (fn: string, args: any) => { rpcAnrop.push({ fn, args }); return rpc(fn, args); },
+    from: () => {
+      const q: any = {
+        select: () => q, in: () => q, order: () => q,
+        // RLS: raden för den inloggade (maskinens egen) bär namnet, alla andras `medarbetare` är null.
+        then: (res: any, rej: any) => Promise.resolve({ data: [{ ...rad('r1', 'maskin-1'), medarbetare: { namn: 'H8E -26' } }, { ...rad('r2', 'daniel'), medarbetare: null }, { ...rad('r3', 'oskar'), medarbetare: null }], error: null }).then(res, rej),
+      };
+      return q;
+    },
+  } as any);
+  beforeEach(() => { rpcAnrop.length = 0; });
+
+  it('namnen som saknas hämtas EN gång som namn (medarbetare_visning) — raden som redan har namn frågas inte om', async () => {
+    const db = dbMed(async () => ({ data: [{ id: 'daniel', namn: 'Daniel' }, { id: 'oskar', namn: 'Oskar' }], error: null }));
+    monteraAnvandare('maskin', { objektId: 'o1', minId: 'maskin-1', minNamn: 'H8E -26', db });
+    await tom();
+    expect(ut.maskin.rader.map((r) => r.namn)).toEqual(['H8E -26', 'Daniel', 'Oskar']);
+    expect(rpcAnrop).toHaveLength(1);
+    expect(rpcAnrop[0]).toEqual({ fn: 'medarbetare_visning', args: { p_ids: ['daniel', 'oskar'] } });
+  });
+
+  it('funktionen saknas eller faller: kommentarerna visas ändå (utan namn, som förut) — aldrig ett fel, aldrig ett gissat namn', async () => {
+    const db = dbMed(async () => ({ data: null, error: { message: 'function does not exist' } }));
+    monteraAnvandare('maskin', { objektId: 'o1', minId: 'maskin-1', minNamn: 'H8E -26', db });
+    await tom();
+    expect(ut.maskin.lasFel).toBe(false);
+    expect(ut.maskin.rader.map((r) => r.namn)).toEqual(['H8E -26', null, null]);
+  });
+});

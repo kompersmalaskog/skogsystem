@@ -7,6 +7,7 @@ import { maskinSomUrl } from "@/lib/maskinSom";
 import { ymdLokal } from "@/lib/datumLokal";
 import { Sektion, Stod, Kort, Lista, Rad, Falt, Val, Primar, Sekundar, Tillbaka, Destruktiv, Besked, Fel, Laddar, Tomt, Bekrafta } from "./ui";
 import { useAdminNav } from "./nav";
+import { MaskinkontoRad } from "./MaskinkontoSektion";
 
 /* dim_maskin — admin äger visningsnamn/tillverkare/maskin_typ/sander_filer/
    aktiv_fran/aktiv_till på bekräftade maskiner (importens guard rör dem ej).
@@ -35,14 +36,14 @@ type FilInfo = { forstaFil: string | null; antalFiler: number };
 /** EN fråga i stället för två brytare som svarade på samma sak: hur kommer maskinens data? */
 type Datakalla = "filer" | "manuellt" | "ingen";
 const DATAKALLOR: { value: Datakalla; label: string }[] = [
-  { value: "filer", label: "Maskinfiler" },
-  { value: "manuellt", label: "Manuellt, lass i arbetsrapporten" },
-  { value: "ingen", label: "Ingen data" },
+  { value: "filer", label: "Maskinen skickar filer" },
+  { value: "manuellt", label: "Föraren skriver in lassen" },
+  { value: "ingen", label: "Ingenting – maskinen följs inte" },
 ];
 const DATAKALLA_HINT: Record<Datakalla, string | undefined> = {
   filer: undefined,
-  manuellt: "Föraren registrerar lass i arbetsrapporten. Maskinfiler avvisas.",
-  ingen: "Ingen data förväntas från maskinen.",
+  manuellt: "Filer från maskinen tas inte emot.",
+  ingen: "Appen väntar inte på något från maskinen.",
 };
 /** Manuell källa går före: sander_filer följer med (false); filer = sänder + auto; ingen = sänder inte + auto. */
 const datakallaAv = (sanderFiler: boolean, manuell: boolean): Datakalla => (manuell ? "manuellt" : sanderFiler ? "filer" : "ingen");
@@ -364,17 +365,13 @@ function DetaljVy({
         </Kort>
       )}
 
-      {/* Serienummer — låst */}
-      <Sektion topp={AVSTAND.s}>Identitet</Sektion>
-      <Kort>
-        <div style={{ ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>Serienummer</div>
-        <div style={{ ...TYP.text, color: FARG.text, wordBreak: "break-all" }}>{maskin.maskin_id}</div>
-        <Stod>Kan inte ändras.</Stod>
-        {maskin.modell && <Stod style={{ marginTop: AVSTAND.m }}>Modell (ur fil): <span style={{ color: FARG.text }}>{maskin.modell}</span></Stod>}
-      </Kort>
+      {/* Namnet stort, serienummer och modell som en grå rad under (de kommer ur filerna och kan inte ändras). */}
+      <div style={{ marginTop: AVSTAND.s }}>
+        <div data-maskin-namn style={{ ...TYP.rubrik, color: FARG.text }}>{maskinNamn(maskin)}</div>
+        <Stod attr={{ "data-maskin-identitet": "" }} style={{ wordBreak: "break-all" }}>{[maskin.modell, maskin.maskin_id].filter(Boolean).join(" · ")}</Stod>
+      </div>
 
-      {/* Grunduppgifter */}
-      <Sektion>Grunduppgifter</Sektion>
+      <Sektion>Uppgifter</Sektion>
       <Kort>
         <Falt label="Visningsnamn" value={visningsnamn} onChange={setVisningsnamn} placeholder="t.ex. Scorpion Giant" />
         <Falt label="Tillverkare" value={tillverkare} onChange={setTillverkare} placeholder="t.ex. Ponsse" />
@@ -384,7 +381,7 @@ function DetaljVy({
           ...(maskinTyp && !TYP_VAL.some(o => o.value === maskinTyp)
             ? [{ value: maskinTyp, label: `${maskinTyp} (ur fil)` }] : []),
         ]} />
-        <Val label="Hur kommer datan?" value={datakalla} onChange={valjDatakalla} options={DATAKALLOR}
+        <Val label="Var kommer produktionen ifrån?" value={datakalla} onChange={valjDatakalla} options={DATAKALLOR}
           hint={DATAKALLA_HINT[datakalla]} />
       </Kort>
 
@@ -393,6 +390,7 @@ function DetaljVy({
         <>
           <Sektion>Maskinläge</Sektion>
           <Kort><OppnaSomMaskin maskinId={maskin.maskin_id} /></Kort>
+          <MaskinkontoRad maskinId={maskin.maskin_id} />
         </>
       )}
 
@@ -418,7 +416,7 @@ function DetaljVy({
         {maskin.aktiv_till ? (
           <Sekundar onClick={aterIDrift} disabled={sparar}>Återställ till drift</Sekundar>
         ) : !obekraftad && !urDriftLage ? (
-          <Destruktiv onClick={() => setUrDriftLage(true)} style={{ alignSelf: "center" }}>Ta ur drift / markera såld</Destruktiv>
+          <Destruktiv onClick={() => setUrDriftLage(true)} style={{ alignSelf: "center" }}>Sälj eller ta ur drift</Destruktiv>
         ) : !obekraftad && urDriftLage ? (
           <Bekrafta
             text={`Ta ${maskinNamn(maskin)} ur drift per idag? Maskinen slutar bevakas men all historik finns kvar. Du kan återställa den när som helst.`}

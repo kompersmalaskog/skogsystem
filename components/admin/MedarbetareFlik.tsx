@@ -10,6 +10,9 @@ import { maskinNamnMap, DIM_MASKIN_NAMN_KOLUMNER } from "@/lib/maskinNamn";
 import { hamtaAnstallning, sparaAnstallningsnummer } from "@/lib/admin/anstallningsnummer";
 import { introKlara, introSaknas, ochLista } from "@/lib/admin/introduktion";
 import NyMedarbetare from "./NyMedarbetare";
+import { MaskinKodRad } from "./MaskinkontoSektion";
+import { maskinerIDrift, maskinRadText, maskinVal, operatorDetalj } from "@/lib/admin/medarbetarMaskiner";
+import { ymdLokal } from "@/lib/datumLokal";
 import { ROLLER, HempunktKort, KopplaOperatörModal, useAnstKontroll, AnstKontrollText, type Medarbetare, type OperatorRad } from "./medarbetarDelar";
 
 /** Listan är grupperad på roll: Förare först, sedan Admin. */
@@ -30,6 +33,8 @@ export default function MedarbetareFlik() {
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [operatorerPerMed, setOperatorerPerMed] = useState<Record<string, OperatorRad[]>>({});
   const [maskiner, setMaskiner] = useState<Record<string, string>>({});
+  // Maskiner i drift (aktiv_till saknas eller är idag/senare): en såld maskin står inte på personens rad eller i maskinvalet.
+  const [iDrift, setIDrift] = useState<Set<string>>(new Set());
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [kontroller, setKontroller] = useState<MedarbetarKontroller | null>(null);
@@ -47,13 +52,14 @@ export default function MedarbetareFlik() {
       .catch(e => { setKontroller(null); setKontrollFel(e?.message || String(e)); });
     try {
       const [medRes0, opMedRes, dimOpRes, maskinRes] = await Promise.all([
+        // Maskinkontona (roll 'maskin') är ingen person: de hör till sektionen Maskinkonton längst ned.
         supabase.from("medarbetare")
           .select(`${MED_KOLUMNER}, foretagsledare, skyddsombud`)
           .order("namn"),
         supabase.from("operator_medarbetare").select("operator_id, medarbetare_id"),
         supabase.from("dim_operator").select("operator_id, operator_namn, operator_key, maskin_id"),
         // Maskinnamn: EN källa, dim_maskin (lib/maskinNamn) — aldrig `maskiner`.
-        supabase.from("dim_maskin").select(DIM_MASKIN_NAMN_KOLUMNER),
+        supabase.from("dim_maskin").select(`${DIM_MASKIN_NAMN_KOLUMNER}, aktiv_till`),
       ]);
       // Kolumnen foretagsledare kommer med migrationen 20261013155407. Före den läses listan utan den (och rutan döljs).
       let medRes: { data: any[] | null; error: any } = medRes0 as any;
@@ -63,6 +69,7 @@ export default function MedarbetareFlik() {
         medRes = await supabase.from("medarbetare").select(MED_KOLUMNER).order("namn") as any;
       }
       if (medRes.error) throw medRes.error;
+      medRes = { ...medRes, data: (medRes.data || []).filter((m: { roll?: string }) => m.roll !== "maskin") };   // maskinkontona är ingen person
       setHarForetagsledare(harForetagsledare);
 
       const opMap = new Map<string, OperatorRad>();
@@ -81,6 +88,7 @@ export default function MedarbetareFlik() {
       setMedarbetare(medRes.data || []);
       setOperatorerPerMed(opPerMed);
       setMaskiner(maskinMap);
+      setIDrift(maskinerIDrift((maskinRes.data || []) as { maskin_id: string; aktiv_till?: string | null }[], ymdLokal(new Date())));
     } catch (e: any) {
       setFel(e.message || String(e));
     } finally {
@@ -110,6 +118,7 @@ export default function MedarbetareFlik() {
         medarbetare={m}
         operatorer={operatorerPerMed[m.id] || []}
         maskiner={maskiner}
+        iDrift={iDrift}
         harForetagsledare={harForetagsledare}
         // Listan i minnet följer med: öppnas personen igen utan omladdning ska reglaget visa det som sparades.
         onForetagsledareSparad={(id, v) => setMedarbetare(lista => lista.map(x => x.id === id ? { ...x, foretagsledare: v } : x))}
@@ -128,6 +137,7 @@ export default function MedarbetareFlik() {
         medarbetare={medarbetare}
         operatorerPerMed={operatorerPerMed}
         maskiner={maskiner}
+        iDrift={iDrift}
         onValj={oppnaPerson}
         onNy={() => gaTill({ flik: "medarbetare", params: { ny: "1" } })}
       />
@@ -138,11 +148,12 @@ export default function MedarbetareFlik() {
 /* ─── LISTA ─── */
 
 function ListaVy({
-  medarbetare, operatorerPerMed, maskiner, onValj, onNy,
+  medarbetare, operatorerPerMed, maskiner, iDrift, onValj, onNy,
 }: {
   medarbetare: Medarbetare[];
   operatorerPerMed: Record<string, OperatorRad[]>;
   maskiner: Record<string, string>;
+  iDrift: Set<string>;
   onValj: (id: string) => void;
   onNy: () => void;
 }) {
@@ -170,19 +181,19 @@ function ListaVy({
               <Lista>
                 {grupp.map((m, i) => {
                   const ops = operatorerPerMed[m.id] || [];
-                  const maskinNamn = new Set<string>();
-                  for (const o of ops) if (o.maskin_id) maskinNamn.add(maskiner[o.maskin_id] || o.maskin_id);
-                  if (m.maskin_id) maskinNamn.add(maskiner[m.maskin_id] || m.maskin_id);
+                  const ids: string[] = ops.map(o => o.maskin_id).filter((x): x is string => !!x);
+                  if (m.maskin_id) ids.push(m.maskin_id);
+                  const maskinText = maskinRadText(ids, maskiner, iDrift);
                   // En förare utan koppling till maskinfilerna får ingen tid till lönen: det är det enda som står på raden utöver maskinen.
                   const utanKoppling = m.roll === "forare" && ops.length === 0;
                   const skyddsombud = m.roll === "forare" && m.skyddsombud === true;
                   return (
                     <Rad key={m.id} onClick={() => onValj(m.id)} chevron sista={i === grupp.length - 1}
                       rubrik={m.namn || "Namnlös"}
-                      detalj={(maskinNamn.size > 0 || utanKoppling || skyddsombud) ? <>
-                        {Array.from(maskinNamn).join(", ")}
-                        {skyddsombud && <>{maskinNamn.size > 0 ? " · " : ""}Skyddsombud</>}
-                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinNamn.size > 0 || skyddsombud ? " · " : ""}saknar koppling till maskinen</span>}
+                      detalj={(maskinText || utanKoppling || skyddsombud) ? <>
+                        {maskinText}
+                        {skyddsombud && <>{maskinText ? " · " : ""}Skyddsombud</>}
+                        {utanKoppling && <span style={{ color: FARG.orange }}>{maskinText || skyddsombud ? " · " : ""}saknar koppling till maskinen</span>}
                       </> : undefined} />
                   );
                 })}
@@ -198,11 +209,12 @@ function ListaVy({
 /* ─── DETALJ ─── */
 
 function DetaljVy({
-  medarbetare, operatorer, maskiner, harForetagsledare, onForetagsledareSparad, onSkyddsombudSparad, onKlar, onLadda, onTillbaka,
+  medarbetare, operatorer, maskiner, iDrift, harForetagsledare, onForetagsledareSparad, onSkyddsombudSparad, onKlar, onLadda, onTillbaka,
 }: {
   medarbetare: Medarbetare;
   operatorer: OperatorRad[];
   maskiner: Record<string, string>;
+  iDrift: Set<string>;
   /** Kolumnen medarbetare.foretagsledare finns (migration 20261013155407 körd). */
   harForetagsledare: boolean;
   /** Reglaget sparades (verifierat med .select()): uppdatera personen i listans minne. */
@@ -367,7 +379,7 @@ function DetaljVy({
       {/* Sidhuvudet: tillbaka till vänster, Spara till höger (grå tills något är ändrat) — inte 1 700 px längre ned. */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: AVSTAND.m }}>
         <Tillbaka onClick={onTillbaka}>Medarbetare</Tillbaka>
-        <Lank onClick={spara} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara"}</Lank>
+        <Sekundar smal onClick={spara} disabled={!ändrat || sparar}>{sparar ? "Sparar…" : "Spara"}</Sekundar>
       </div>
       {sparFel && <Besked>{sparFel}</Besked>}
 
@@ -394,10 +406,7 @@ function DetaljVy({
             : <span style={{ color: FARG.orange }}>Ingen inloggning kopplad — den kopplas när ett konto med samma e-post finns.</span>} />
         <Falt label="Hemadress" value={hemadress} onChange={setHemadress} placeholder="Kompersmåla 3, 362 96 Ryd" />
         <Val label="Roll" value={roll} onChange={setRoll} options={ROLLER} />
-        <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={[
-          { value: "", label: "Ingen maskin" },
-          ...Object.entries(maskiner).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => ({ value: id, label: `${n} (${id})` })),
-        ]} />
+        <Val label="Maskin" value={maskinId} onChange={setMaskinId} options={maskinVal(maskiner, iDrift, maskinId)} />
         {harForetagsledare && (
           <Reglage label="Företagsledare / delägare" value={foretagsledare} onChange={v => { if (!foretagsledareSparar) valjForetagsledare(v); }}
             hint={foretagsledareSparar ? "Sparar…" : "Sparas direkt. Ingen lön i appen."} />
@@ -426,6 +435,9 @@ function DetaljVy({
               : "Utan nummer kan lönen inte skickas."} />
       </Kort>
 
+      {/* Koden för maskinen: förarens egen, nollställs här (förut en lista över alla längst ned i Medarbetare). */}
+      <MaskinKodRad personId={medarbetare.id} />
+
       {/* Kopplade operatörer */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m }}>
         <Sektion>Kopplade operatörer ({operatorer.length})</Sektion>
@@ -437,8 +449,9 @@ function DetaljVy({
         <Lista>
           {operatorer.map((o, i) => (
             <Rad key={o.operator_id} sista={i === operatorer.length - 1}
-              rubrik={o.operator_namn || o.operator_key || o.operator_id}
-              detalj={`${o.operator_id}${o.maskin_id ? ` · ${maskiner[o.maskin_id] || o.maskin_id}` : ""}`}
+              // Maskinen och profilen är det som skiljer raderna åt ("Elefant AF · profil 1"); namnet i filen står bara när det är ett annat än personens.
+              rubrik={operatorDetalj(o.operator_id, o.maskin_id ? (maskiner[o.maskin_id] || o.maskin_id) : null) || o.operator_namn || o.operator_id}
+              detalj={o.operator_namn && o.operator_namn !== medarbetare.namn ? `Heter ${o.operator_namn} i maskinen` : undefined}
               hoger={<Destruktiv smal onClick={() => kopplaLossOperator(o.operator_id)}>Ta bort</Destruktiv>} />
           ))}
         </Lista>

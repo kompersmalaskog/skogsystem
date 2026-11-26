@@ -110,6 +110,20 @@ export async function sparaKopplingar(risjobbId: string, valda: string[]): Promi
     }
   }
 
+  // Det människan valt är hennes: kopplingar som appen satt (kalla 'auto') och som hon behöll
+  // blir manuella, så timjobbet (grot_auto) aldrig tar bort dem. Utan kolumnen (migrationen
+  // 20261121…_grot_hamtad_automatiskt ej körd) finns inga auto-kopplingar — då hoppas steget över.
+  if (valda.length > 0) {
+    const { error } = await supabase
+      .from('grot_koppling')
+      .update({ kalla: 'manuell' })
+      .eq('risjobb_objekt_id', risjobbId)
+      .in('avverknings_objekt_id', valda);
+    if (error && error.code !== '42703' && error.code !== 'PGRST204') {
+      return { ok: false, message: 'Kunde inte spara kopplingen: ' + error.message };
+    }
+  }
+
   // Läs tillbaka och bekräfta att mängden faktiskt stämmer
   const efter = await hamtaKopplingar(risjobbId);
   if (!efter.ok) return { ok: false, message: efter.message };

@@ -9,58 +9,29 @@
 // design-tokens. Så siffrorna är desamma som "innan", bara ny look.
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AVSTAND, FARG, RADIE, TNUM, TYP, overgang } from '@/lib/design/tokens';
+import { AVSTAND, FARG, RADIE, TNUM, TRAFFYTA, TYP, overgang } from '@/lib/design/tokens';
 import { typLabel, arRisjobb } from '@/lib/objekt/typ';
-import { paBackenKvar } from '@/lib/skotat';
 import { uppskattaGrotM3fub, klampaGrotFaktor, GROT_UTTAGSFAKTOR_DEFAULT, GROT_UTTAGSFAKTOR_MIN, GROT_UTTAGSFAKTOR_MAX } from '@/lib/grot';
 import { type UppfoljningObjekt } from './lib/transform';
+import { risLage, risLista, risKvarM3, HAMTAT_VISAS_DAGAR } from './lib/ris';
 import { useUppfoljningList, urlIdFor } from './hooks/useUppfoljningList';
+import { liggetidText as liggetid } from './lib/liggetid';
+import { langstLegat, dagOrd } from './lib/iSkogen';
+import { skogenAvObjekt } from './lib/iSkogenSida';
+import { kvarM3, sektionAv, type Sektion } from './lib/sektion';
+import { svenskIdag } from './lib/datum';
 
 const sv = (n: number) => Math.round(n).toLocaleString('sv-SE');
 const TRAFFYTA_ROW = 56;
-
-// Egen skotning (säljaren skotar själv) → virket är inte VÅRT väntande arbete.
-function kvarM3(o: UppfoljningObjekt): number {
-  return paBackenKvar(o.volymSkordare, o.volymSkotare, o.egenSkotning === true);
-}
 
 // Avslutningsdatum för månadsgruppering (senaste vi har).
 function klartDatum(o: UppfoljningObjekt): string | null {
   return o.skotareSlut || o.skordareSlut || o.sistaAvverkning || null;
 }
 
-type Sektion = 'skordare' | 'oskotat' | 'ovrigt' | 'avslutade';
-
-// Brytdatum: historiken färdigmarkerades i DB detta datum. Objekt avverkade
-// FÖRE med 0 lass skotades utan lassregistrering → Övrigt; EFTER → genuint
-// oskotat på backen. (Oförändrad regel från gamla indexsidan.)
-const LASSDATA_START = '2026-07-21';
-
-function sektionAv(o: UppfoljningObjekt): Sektion {
-  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const skordareAktiv = !!(o.skordareLastDate && o.skordareLastDate >= seven);
-  // "Skördas ännu" bara när skördningen INTE är klar. skordareAktiv (fil senaste
-  // 7 dagarna) är en proxy för "skördar fortfarande" — en trakt som blev
-  // färdigskördad för 2–5 dagar sen har kvar en färsk fil men ÄR klar och väntar
-  // på skotning. skordning_avslutad är den riktiga signalen; respektera den, så
-  // ett sånt objekt landar i oskotat (liggetid) i stället för "skördas ännu".
-  if (skordareAktiv && !o.skotningAvslutad && !o.skordningAvslutad) return 'skordare';
-  if (o.skotningAvslutad) return 'avslutade';
-  if (o.externSkotning || o.egenSkotning) return 'ovrigt';
-  if (kvarM3(o) > 0) {
-    if (o.antalLass > 0) return 'oskotat';
-    if (o.sistaAvverkning && o.sistaAvverkning >= LASSDATA_START) return 'oskotat';
-  }
-  return 'ovrigt';
-}
-
-// Liggetid ur sista avverkningsdag; null skrivs ut ärligt, aldrig gissat.
+// Liggetid ur sista avverkningsdag (lib/liggetid: samma regel som detaljvyn).
 function liggetidText(o: UppfoljningObjekt): string {
-  if (!o.sistaAvverkning) return 'avverkningsdatum saknas';
-  const dag = Math.max(0, Math.round((Date.now() - new Date(o.sistaAvverkning).getTime()) / 864e5));
-  const datum = new Date(o.sistaAvverkning).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
-  const man = dag >= 60 ? ` (${Math.round(dag / 30)} mån)` : '';
-  return `avverkat ${datum} · legat ${dag} dgr${man}`;
+  return liggetid(o.sistaAvverkning, Date.now());
 }
 
 type Vald = 'slutavverkning' | 'gallring' | 'ris' | null;
@@ -69,7 +40,7 @@ type Manad = { key: string; label: string; objs: UppfoljningObjekt[] };
 
 export default function UppfoljningMeny({ valt = null }: { valt?: string | null }) {
   const router = useRouter();
-  const { objekt, loading, error } = useUppfoljningList();
+  const { objekt, loading, error, forsokIgen } = useUppfoljningList();
 
   const [vald, setVald] = useState<Vald>(null);
   const [sok, setSok] = useState('');
@@ -82,7 +53,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
   useEffect(() => {
     try {
       const v = sessionStorage.getItem('uppfoljning:vald');
-      if (v !== null) setVald(JSON.parse(v));
+      if (v !== null) { const p = JSON.parse(v); setVald(p === 'skogen' ? null : p); } // 'skogen' var ett läge innan sidan fanns
       const s = sessionStorage.getItem('uppfoljning:sok');
       if (s !== null) setSok(JSON.parse(s));
       const gf = sessionStorage.getItem('uppfoljning:grotFaktor');
@@ -110,8 +81,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     return b;
   }, [objekt]);
 
-  // Ris-urval: grot-anpassat, har stamvolym, grot inte hämtad.
-  const risAlla = useMemo(() => objekt.filter(o => o.grotAnpassad && o.volymSkordare > 0 && !o.grotHamtad), [objekt]);
+  // Ris att skota (lib/ris): kvar = inget lass än eller skotas nu; hämtat = grot_hamtad satt.
+  const idag = svenskIdag();
+  const ris = useMemo(() => risLista(objekt, grotFaktor, idag), [objekt, grotFaktor, idag]);
 
   // Kort-summor — TOTALEN på backen per typ (inkl. pågående skörd). Virke = mätt
   // kvar (skördat − skotat); ris = schablon. Ärlig nolla: ingen typ → kortet "—".
@@ -121,9 +93,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       if (arRisjobb(o) || kvarM3(o) <= 0) continue;
       if (o.typ === 'gallring') { gM3 += kvarM3(o); gN++; } else { sM3 += kvarM3(o); sN++; }
     }
-    const risM3 = risAlla.reduce((a, o) => a + (uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0), 0);
-    return { sM3, sN, gM3, gN, risM3, risN: risAlla.length };
-  }, [sektioner, risAlla, grotFaktor]);
+    const risM3 = ris.kvar.reduce((a, o) => a + risKvarM3(o, grotFaktor), 0);
+    return { sM3, sN, gM3, gN, risM3, risN: ris.kvar.length };
+  }, [sektioner, ris, grotFaktor]);
 
   // På-backen-virke (oskotat + pågående skörd), filtrerat på valt kort + sök.
   const paBackenVirke = useMemo(() => [...sektioner.skordare, ...sektioner.oskotat].filter(o => !arRisjobb(o) && kvarM3(o) > 0), [sektioner]);
@@ -149,8 +121,14 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
     return lista;
   }, [uppdelning, skordasSet]);
 
-  const risSynlig = useMemo(() => risAlla.filter(matchSok).slice().sort((a, b) =>
-    !a.sistaAvverkning ? 1 : !b.sistaAvverkning ? -1 : a.sistaAvverkning.localeCompare(b.sistaAvverkning)), [risAlla, sok]);
+  // Ligger i skogen (lib/iSkogen): allt virke som skördas eller ligger kvar, oavsett typ och skotare.
+  // Samma urval som sidan /uppfoljning/i-skogen (EN funktion, lib/iSkogenSida).
+  const skogen = useMemo(() => skogenAvObjekt(objekt, Date.now()).skogen, [objekt]);
+  const skogenLangst = useMemo(() => langstLegat(skogen.rader), [skogen]);
+
+  const risSynlig = useMemo(() => ris.kvar.filter(matchSok), [ris, sok]);
+  const risHamtatSynlig = useMemo(() => ris.hamtat.filter(matchSok), [ris, sok]);
+  const [visaHamtat, setVisaHamtat] = useState(false);
 
   // Avslutade (filtrerat på kort + sök) grupperat per månad, nyast överst.
   const manader = useMemo<Manad[]>(() => {
@@ -178,7 +156,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
   const oppna = (o: UppfoljningObjekt) => { const id = urlIdFor(o); if (id) router.push(`/uppfoljning/${encodeURIComponent(id)}`); };
 
   // ── En objektrad ──
-  const rad = (o: UppfoljningObjekt, hoger: 'kvar' | 'volym' | 'schablon', under?: string) => {
+  const rad = (o: UppfoljningObjekt, hoger: 'kvar' | 'volym' | 'schablon' | { tal: string; enhet: string } | null, under?: string, underFarg?: string) => {
     const aktiv = aktivFor(o);
     const annu = skordasSet.has(o);
     const undertext = under ?? (annu ? 'skördas ännu' : liggetidText(o));
@@ -196,20 +174,25 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       >
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', ...TYP.listtitel, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</span>
-          <span style={{ display: 'block', ...TYP.meta, color: annu ? FARG.gron : FARG.text2, marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>
+          <span style={{ display: 'block', ...TYP.meta, color: underFarg ?? (annu ? FARG.gron : FARG.text2), marginTop: AVSTAND.xs, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{undertext}</span>
           {o.skotareAvvikelse && (
-            <span style={{ display: 'block', ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>Lass: {o.skotareAvvikelse.lass} · tilldelad: {o.skotareAvvikelse.tilldelad}</span>
+            <span style={{ display: 'block', ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0 }}>Skotad av {o.skotareAvvikelse.lass} · tilldelad {o.skotareAvvikelse.tilldelad}</span>
           )}
         </span>
-        {hoger === 'kvar' ? (
+        {hoger === null ? null : typeof hoger === 'object' ? (
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
+            <span style={{ ...TYP.listtitel }}>{hoger.tal}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2 }}>{hoger.enhet}</span>
+          </span>
+        ) : hoger === 'kvar' ? (
           <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
             <span style={{ ...TYP.listtitel }}>{sv(kvarM3(o))}</span>
             <span style={{ ...TYP.meta, color: FARG.text2 }}>kvar m³</span>
           </span>
         ) : hoger === 'schablon' ? (
           <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
-            <span style={{ ...TYP.meta, color: FARG.orange, fontWeight: 700 }}>≈</span>
-            <span style={{ ...TYP.listtitel, color: FARG.orange }}>{sv(uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0)}</span>
+            <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 700 }}>≈</span>
+            <span style={{ ...TYP.listtitel }}>{sv(uppskattaGrotM3fub(o.volymSkordare, grotFaktor) || 0)}</span>
             <span style={{ ...TYP.meta, color: FARG.text2 }}>m³fub</span>
           </span>
         ) : (
@@ -237,7 +220,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
         <input
           value={sok} onChange={e => setSok(e.target.value)} placeholder="Sök objekt" inputMode="search" autoComplete="off"
           style={{
-            width: '100%', boxSizing: 'border-box', minHeight: 40, padding: `0 ${AVSTAND.m}px`,
+            width: '100%', boxSizing: 'border-box', minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`,
             background: FARG.fyllning, border: 'none', outline: 'none', borderRadius: RADIE.rad,
             color: FARG.text, ...TYP.text, fontFamily: 'inherit', colorScheme: 'dark',
           }}
@@ -249,7 +232,8 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
       ) : error ? (
         <div style={{ padding: `${AVSTAND.l}px ${AVSTAND.m}px` }}>
           <div style={{ ...TYP.listtitel, color: FARG.orange }}>Kunde inte läsa objekten</div>
-          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Kontrollera anslutningen och försök igen.</div>
+          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>Kontrollera anslutningen.</div>
+          <button onClick={forsokIgen} style={{ marginTop: AVSTAND.s, minHeight: TRAFFYTA.min, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>Försök igen</button>
         </div>
       ) : (
         <>
@@ -276,8 +260,8 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                     <div style={{ ...TYP.rubrik, color: FARG.text3, marginTop: AVSTAND.xs }}>—</div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, marginTop: AVSTAND.xs, ...TNUM }}>
-                      {k.schablon && <span style={{ ...TYP.meta, color: FARG.orange, fontWeight: 700 }}>≈</span>}
-                      <span style={{ ...TYP.rubrik, color: k.schablon ? FARG.orange : FARG.text }}>{sv(k.m3)}</span>
+                      {k.schablon && <span style={{ ...TYP.meta, color: FARG.text2, fontWeight: 700 }}>≈</span>}
+                      <span style={{ ...TYP.rubrik, color: FARG.text }}>{sv(k.m3)}</span>
                       <span style={{ ...TYP.meta, color: FARG.text2 }}>m³</span>
                     </div>
                   )}
@@ -286,7 +270,7 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                       role="button" tabIndex={0}
                       onClick={(e) => { e.stopPropagation(); setVisaFaktor(f => !f); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setVisaFaktor(f => !f); } }}
-                      style={{ display: 'inline-block', ...TYP.micro, color: FARG.orange, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0, cursor: 'pointer' }}
+                      style={{ display: 'inline-block', ...TYP.micro, color: FARG.text2, marginTop: AVSTAND.xs, textTransform: 'none', letterSpacing: 0, cursor: 'pointer' }}
                     >
                       schablon · ×{faktorStr}
                     </span>
@@ -298,6 +282,31 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
             })}
           </div>
 
+          {/* Ligger i skogen — ett eget, brett kort: det är ingen typ utan alla typer. */}
+          <button
+            onClick={() => router.push('/uppfoljning/i-skogen')}
+            data-skogen-kort
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.m,
+              width: `calc(100% - ${AVSTAND.m * 2}px)`, minHeight: TRAFFYTA_ROW, margin: `0 ${AVSTAND.m}px ${AVSTAND.l}px`,
+              textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+              background: FARG.kort, borderRadius: RADIE.kort, border: 'none',
+              padding: `${AVSTAND.m}px ${AVSTAND.m}px`, color: FARG.text,
+            }}
+          >
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: 'block', ...TYP.micro, color: FARG.text2 }}>Ligger i skogen</span>
+              <span style={{ display: 'block', ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
+                {skogen.rader.length === 0 ? 'inget virke i skogen' : `${skogen.rader.length} trakter · längst legat`}
+              </span>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.xs, flexShrink: 0, ...TNUM }}>
+              {skogenLangst != null && <span style={{ ...TYP.rubrik }}>{skogenLangst}</span>}
+              {skogenLangst != null && <span style={{ ...TYP.meta, color: FARG.text2 }}>{dagOrd(skogenLangst)}</span>}
+              <span aria-hidden="true" style={{ ...TYP.listtitel, color: FARG.text3, marginLeft: AVSTAND.xs }}>›</span>
+            </span>
+          </button>
+
           {/* Grot-faktor — öppnas från schablon-taggen (oförändrad regel). */}
           {visaFaktor && (
             <div style={{ background: FARG.kort, borderRadius: RADIE.kort, margin: `0 ${AVSTAND.m}px ${AVSTAND.l}px`, padding: AVSTAND.m }}>
@@ -306,9 +315,9 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
                   <div style={{ ...TYP.meta, color: FARG.text }}>Grot-uttagsfaktor</div>
                   <div style={{ ...TYP.micro, color: FARG.text3, textTransform: 'none', letterSpacing: 0 }}>Skogforsk {GROT_UTTAGSFAKTOR_MIN.toLocaleString('sv-SE')}–{GROT_UTTAGSFAKTOR_MAX.toLocaleString('sv-SE')} av stamvolym</div>
                 </div>
-                <button onClick={() => steg(-0.01)} disabled={grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9} style={{ width: 32, height: 32, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Minska">−</button>
+                <button onClick={() => steg(-0.01)} disabled={grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9} style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor <= GROT_UTTAGSFAKTOR_MIN + 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Minska">−</button>
                 <span style={{ ...TYP.listtitel, ...TNUM, minWidth: 40, textAlign: 'center' }}>{faktorStr}</span>
-                <button onClick={() => steg(0.01)} disabled={grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9} style={{ width: 32, height: 32, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Öka">+</button>
+                <button onClick={() => steg(0.01)} disabled={grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9} style={{ width: TRAFFYTA.min, height: TRAFFYTA.min, borderRadius: RADIE.knapp, border: `1px solid ${FARG.linje}`, background: 'transparent', color: grotFaktor >= GROT_UTTAGSFAKTOR_MAX - 1e-9 ? FARG.text3 : FARG.text, cursor: 'pointer', fontFamily: 'inherit', ...TYP.rubrik, lineHeight: 1 }} aria-label="Öka">+</button>
               </div>
               <div style={{ ...TYP.micro, color: FARG.text3, marginTop: AVSTAND.s, textTransform: 'none', letterSpacing: 0, lineHeight: 1.45 }}>
                 Grot är en uppskattning (Skogforsk-schablon: stamvolym × faktor), inte en mätning. Faktisk volym registreras vid skotning.
@@ -320,15 +329,50 @@ export default function UppfoljningMeny({ valt = null }: { valt?: string | null 
             <button onClick={() => setVald(null)} style={{ display: 'block', margin: `0 ${AVSTAND.m}px ${AVSTAND.m}px`, padding: 0, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...TYP.meta, color: FARG.bla }}>✕ Visa alla typer</button>
           )}
 
-          {/* Ris valt → ris-listan (schablon, liggetid); annars per skotare. */}
+          {/* Ris valt → ris-listan; annars per skotare. */}
           {vald === 'ris' ? (
             <section style={{ marginBottom: AVSTAND.l }}>
-              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Ris kvar på hygget · äldst först</div>
+              <div style={{ ...TYP.micro, color: FARG.text2, margin: `0 ${AVSTAND.m}px ${AVSTAND.s}px` }}>Ris att skota</div>
               {risSynlig.length === 0 ? (
-                <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inget ris kvar.</div>
+                <div style={{ ...TYP.meta, color: FARG.text3, padding: `${AVSTAND.s}px ${AVSTAND.m}px` }}>Inget ris kvar att skota.</div>
               ) : (
                 <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
-                  {risSynlig.map(o => rad(o, 'schablon', o.risskotningPagar ? 'risskotning pågår · ' + liggetidText(o) : liggetidText(o)))}
+                  {risSynlig.map(o => {
+                    const l = risLage(o, grotFaktor);
+                    if (l.lage === 'skotas') {
+                      return rad(o, { tal: sv(l.m3), enhet: l.delas ? 'm³ hela risjobbet' : 'm³ hämtat' },
+                        l.delas ? 'Skotas nu · risjobbet gäller fler trakter' : 'Skotas nu', FARG.gron);
+                    }
+                    return rad(o, 'schablon', 'Ris kvar · ' + liggetidText(o));
+                  })}
+                </div>
+              )}
+              {risSynlig.length > 0 && (
+                <div style={{ ...TYP.micro, color: FARG.text3, margin: `${AVSTAND.s}px ${AVSTAND.m}px 0`, textTransform: 'none', letterSpacing: 0, lineHeight: 1.45 }}>
+                  ≈ är en uppskattning tills första lasset. Raden blir Hämtat när risjobbet är färdigskotat.
+                </div>
+              )}
+              {risHamtatSynlig.length > 0 && (
+                <div style={{ marginTop: AVSTAND.l }}>
+                  <button
+                    onClick={() => setVisaHamtat(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, width: '100%', padding: `${AVSTAND.s}px ${AVSTAND.m}px`, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    <span style={{ ...TYP.micro, color: FARG.text2 }}>Hämtat senaste {HAMTAT_VISAS_DAGAR} dagarna ({risHamtatSynlig.length})</span>
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke={FARG.text2} strokeWidth="2" strokeLinecap="round" style={{ transform: visaHamtat ? 'rotate(90deg)' : 'none', transition: overgang('transform') }}>
+                      <polyline points="4 2 8 6 4 10" />
+                    </svg>
+                  </button>
+                  {visaHamtat && (
+                    <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden' }}>
+                      {risHamtatSynlig.map(o => {
+                        const l = risLage(o, grotFaktor);
+                        if (l.lage !== 'hamtat') return null;
+                        const datum = new Date(l.datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+                        return rad(o, l.m3 != null ? { tal: sv(l.m3), enhet: 'm³ hämtat' } : null, `Hämtat ${datum}`);
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </section>

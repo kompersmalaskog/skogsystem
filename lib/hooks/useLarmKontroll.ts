@@ -1,6 +1,7 @@
 'use client';
 // Larmplatsernas kontroller för ett objekt (tabellen larmplats_kontroll, lib/larmKontroll.ts): läs, svara, och vilka punkter man
 // redan tryckt bort på den här enheten. Läsfel = `rader` null (ingen fråga ställs då). I testläget (`torr`) sparas svaren bara i minnet.
+import { kompletteraNamn } from '@/lib/medarbetarNamn';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { punktNyckel, type LarmKontrollRad } from '@/lib/larmKontroll';
@@ -26,10 +27,12 @@ export function useLarmKontroll(o: { objektId: string | null; medarbetareId: str
   const las = useCallback(async () => {
     if (!o.objektId) { setRader(null); return; }
     const { data, error } = await supabase.from('larmplats_kontroll')
-      .select('id, lat, lng, svar, kommentar, skapad_at, medarbetare:medarbetare_id(namn)')
+      .select('id, lat, lng, svar, kommentar, skapad_at, medarbetare_id, medarbetare:medarbetare_id(namn)')
       .eq('objekt_id', o.objektId).order('skapad_at', { ascending: false }).limit(200);
     if (error || !Array.isArray(data)) { setRader(null); return; }
-    setRader((data as any[]).map((r) => ({
+    // Namnet på en annan persons svar ligger bakom radnivåspärren (en förare och maskinen ser bara sin egen rad): kompletteras som namn och inget mer.
+    const med = await kompletteraNamn(data as any[], (r) => r.medarbetare_id, (r) => r.medarbetare?.namn, (r, n) => ({ ...r, medarbetare: { namn: n } }));
+    setRader(med.map((r) => ({
       id: r.id, lat: Number(r.lat), lng: Number(r.lng), svar: r.svar === 'ja' ? 'ja' : 'nej', kommentar: r.kommentar ?? null,
       vem: forNamn(r.medarbetare?.namn), skapadAt: r.skapad_at,
     })));

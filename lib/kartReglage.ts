@@ -2,13 +2,15 @@
 // Mönstret kommer från skogsbruksplanen (src/app.js LAGER_OP / lagerOp): ett reglage 15–100 steg 5 under varje påslaget lager, sparat per enhet i localStorage,
 // gäller direkt när man drar. Här: ren logik (klamning, läsa/skriva lagring) — hooken är lib/hooks/useKartReglage, kartpåverkan i lib/lagerOpacitet.
 import { KARTLAGER, type Kartlager } from './kartlager';
-import { KARTBAS_STANDARD_STYRKA } from './kartBas';
+import { kartBasStandard, klamKartBasStyrka } from './kartBas';
 
 export const STYRKA_NYCKEL = 'kartlager_styrka_v1';
 export const LAGER_OP_NYCKEL = 'lager_opacitet_v1';
 
 export const STYRKA_MIN = 0;
+/** Skarp: reglagets högsta värde för alla bakgrunder utom Flygfoto (som har Ljus på 120, `KARTBAS_MAX_STYRKA`). */
 export const STYRKA_MAX = 100;
+const STYRKA_MAX_ALLA = 120;
 export const LAGER_OP_MIN = 15;
 export const LAGER_OP_MAX = 100;
 export const REGLAGE_STEG = 5;
@@ -18,8 +20,9 @@ type Skriv = Pick<Storage, 'setItem'> | null | undefined;
 
 const tillSteg = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(v / REGLAGE_STEG) * REGLAGE_STEG));
 
-/** Bakgrundens styrka: 0–100 i steg om 5. Skräp ger standarden. */
-export const klamStyrka = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? tillSteg(v, STYRKA_MIN, STYRKA_MAX) : KARTBAS_STANDARD_STYRKA);
+/** Bakgrundens styrka: 0–100 i steg om 5 (Flygfoto upp till 120, Ljus). Skräp ger bakgrundens standard. */
+export const klamStyrka = (v: unknown, lager: Kartlager = 'lantmateriet'): number =>
+  typeof v === 'number' && Number.isFinite(v) ? klamKartBasStyrka(lager, tillSteg(v, STYRKA_MIN, STYRKA_MAX_ALLA)) : kartBasStandard(lager);
 /** Ett överläggs opacitet i procent: 15–100 i steg om 5. */
 export const klamLagerOp = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? tillSteg(v, LAGER_OP_MIN, LAGER_OP_MAX) : LAGER_OP_MAX);
 
@@ -42,14 +45,14 @@ function lasJson(lager: Las, nyckel: string): Record<string, unknown> {
 export function lasStyrkor(lager: Las): Styrkor {
   const j = lasJson(lager, STYRKA_NYCKEL);
   const ut: Styrkor = {};
-  for (const l of KARTLAGER) if (typeof j[l] === 'number') ut[l] = klamStyrka(j[l]);
+  for (const l of KARTLAGER) if (typeof j[l] === 'number') ut[l] = klamStyrka(j[l], l);
   return ut;
 }
 export function skrivStyrkor(lager: Skriv, s: Styrkor): void {
   try { lager?.setItem(STYRKA_NYCKEL, JSON.stringify(s)); } catch { /* privat läge / full lagring: valet gäller i minnet i den här sessionen */ }
 }
 /** Styrkan för en bakgrund: eget val, annars standarden. */
-export const styrkaFor = (s: Styrkor, lager: Kartlager): number => s[lager] ?? KARTBAS_STANDARD_STYRKA;
+export const styrkaFor = (s: Styrkor, lager: Kartlager): number => s[lager] ?? kartBasStandard(lager);
 
 /** Sparad opacitet (procent) per överlägg. */
 export function lasLagerOp(lager: Las): LagerOpacitet {

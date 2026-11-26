@@ -14,6 +14,10 @@ const lage = (over: Partial<Parameters<typeof arbetsLage>[0]> = {}) =>
   arbetsLage({ roll: 'forare', rollLaddar: false, maskinId: 'A030353', maskiner, idag: IDAG, ...over });
 
 describe('arbetsLage — vem får göra vad', () => {
+  it('maskinkontot är maskinen själv: förarens läsläge på sin egen maskin — aldrig förman, aldrig skrivknappar', () => {
+    expect(lage({ roll: 'maskin', maskinId: 'R64428' })).toEqual({ typ: 'forare', maskinId: 'R64428' });
+    expect(lage({ roll: 'maskin', maskinId: null })).toEqual({ typ: 'karta' });
+  });
   it('admin är förman (den enda med skrivknappar); rollen chef finns inte längre och får bara kartan', () => {
     expect(lage({ roll: 'admin', maskinId: null })).toEqual({ typ: 'forman' });
     expect(lage({ roll: 'chef', maskinId: null })).toEqual({ typ: 'karta' });

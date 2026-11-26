@@ -3620,15 +3620,93 @@ def insert_if_not_exists(table: str, data: List[Dict], filnamn_key: str = 'filna
         return 0
 
 
-def spara_apteringsfonster(rader: List[Dict], filnamn: str):
-    """Skriver fönstret per (objekt, sortiment) — och ändrar ALDRIG ett
-    fönster som redan står där.
+FONSTER_FALT = ('dia_min_top_mm', 'dia_max_mm', 'dia_max_butt_mm',
+                'dia_under_bark', 'langd_min_cm', 'langd_max_cm')
 
-    Fönstret är knutet till objektet just för att prislistan byts över tid.
-    Skulle samma objekt ändå få ett nytt fönster (prislistbyte mitt i en
-    trakt) är det inte ett värde att uppdatera utan ett fynd att rapportera:
-    överskrivning hade räknat om trakten bakåt med de nya gränserna, tyst.
-    Första fönstret vinner, avvikelsen hamnar i import_fel.
+
+def _fonster_text(v):
+    """Värde som text — historiken lagrar både heltal och boolean i samma kolumn."""
+    return None if v is None else str(v)
+
+
+def planera_fonsterbyten(rader: List[Dict], befintliga: Dict[tuple, Dict],
+                         historik: Dict[tuple, List[Dict]]) -> Dict[str, Any]:
+    """Ren funktion: vad ska skrivas, vad är oförändrat, vad har bytt fönster.
+
+    byten[i] = {'rad', 'gammal', 'forandringar': [(falt, fran, till)], 'flipflop': [falt]}.
+    Ett fält 'hoppar fram och tillbaka' när det nya värdet är ett värde som fältet
+    redan har lämnat tidigare (står som fran_varde i historiken för samma
+    objekt, sortiment och fält).
+    """
+    nya, byten, oforandrade = [], [], 0
+    for r in rader:
+        nyckel = (r['objekt_id'], r['sortiment_id'])
+        gammal = befintliga.get(nyckel)
+        if gammal is None:
+            nya.append(r)
+            continue
+        forandringar = [(f, gammal.get(f), r.get(f)) for f in FONSTER_FALT
+                        if f in r and gammal.get(f) != r.get(f)]
+        if not forandringar:
+            oforandrade += 1
+            continue
+        lamnade: Dict[str, set] = defaultdict(set)
+        for h in historik.get(nyckel, []):
+            lamnade[h.get('falt')].add(h.get('fran_varde'))
+        flipflop = [f for f, _, till in forandringar if _fonster_text(till) in lamnade.get(f, ())]
+        byten.append({'rad': r, 'gammal': gammal, 'forandringar': forandringar, 'flipflop': flipflop})
+    return {'nya': nya, 'byten': byten, 'oforandrade': oforandrade}
+
+
+def _las_fonsterhistorik(objekt_ids: List[str]) -> Dict[tuple, List[Dict]]:
+    """Historiken för objekten, per (objekt, sortiment). Tom vid fel — då kan
+    en pendling inte upptäckas, men bytet i sig hanteras ändå."""
+    historik: Dict[tuple, List[Dict]] = defaultdict(list)
+    try:
+        for i in range(0, len(objekt_ids), 50):
+            grupp = ','.join('"%s"' % o.replace('"', '') for o in objekt_ids[i:i + 50])
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dim_objekt_sortiment_fonster_historik"
+                f"?select=objekt_id,sortiment_id,falt,fran_varde&objekt_id=in.({grupp})",
+                headers=SUPABASE_HEADERS, timeout=20)
+            if resp.status_code == 200:
+                for h in resp.json():
+                    historik[(h['objekt_id'], h['sortiment_id'])].append(h)
+    except Exception as e:
+        logger.warning("Kunde inte läsa apteringsfönstrets historik: %s", e)
+    return historik
+
+
+def _skriv_fonsterhistorik(byte: Dict[str, Any], filnamn: str) -> bool:
+    """Sparar det gamla värdet. True bara om raderna verkligen nådde tabellen —
+    annars får fönstret inte bytas (då försvinner det gamla värdet spårlöst)."""
+    r = byte['rad']
+    rader = [{'objekt_id': r['objekt_id'], 'sortiment_id': r['sortiment_id'],
+              'falt': f, 'fran_varde': _fonster_text(fran), 'till_varde': _fonster_text(till),
+              'filnamn': filnamn} for f, fran, till in byte['forandringar']]
+    try:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/dim_objekt_sortiment_fonster_historik",
+            headers=SUPABASE_HEADERS, json=rader, timeout=20)
+        return 200 <= resp.status_code < 300
+    except Exception as e:
+        logger.warning("Kunde inte skriva apteringsfönstrets historik: %s", e)
+        return False
+
+
+def spara_apteringsfonster(rader: List[Dict], filnamn: str):
+    """Skriver fönstret per (objekt, sortiment). Maskinens fil gäller.
+
+    Ändras ett fönster som redan står där (prislistbyte, maskinens egen
+    justering) skrivs det nya värdet, men först sparas det gamla i
+    dim_objekt_sortiment_fonster_historik (vad, från, till, fil, tid) och bytet
+    loggas som INFO — inte som importfel, så datahälsan inte larmar på varje
+    timfil. Larm (felkod FONSTER_FLIPFLOP) bara när ett fält går tillbaka till
+    ett värde det redan lämnat.
+
+    Går historiken inte att skriva (tabellen saknas) byts INTE fönstret: det
+    gamla värdet får aldrig försvinna spårlöst. Då gäller den gamla regeln —
+    avvikelsen går till import_fel som FONSTER_BYTTE.
     """
     if not rader:
         return (0, 0, 0)
@@ -3647,37 +3725,39 @@ def spara_apteringsfonster(rader: List[Dict], filnamn: str):
     except Exception as e:
         logger.warning("Kunde inte läsa befintliga apteringsfönster: %s", e)
 
-    FALT = ('dia_min_top_mm', 'dia_max_mm', 'dia_max_butt_mm',
-            'dia_under_bark', 'langd_min_cm', 'langd_max_cm')
-    att_skriva = []
-    oforandrade = 0
+    historik = _las_fonsterhistorik(objekt_ids) if befintliga else {}
+    plan = planera_fonsterbyten(rader, befintliga, historik)
+    att_skriva = list(plan['nya'])
     bytten = 0
-    for r in rader:
-        gammal = befintliga.get((r['objekt_id'], r['sortiment_id']))
-        if gammal is None:
-            att_skriva.append(r)
-            continue
-        skillnad = [f"{f}: {gammal.get(f)} -> {r.get(f)}"
-                    for f in FALT if f in r and gammal.get(f) != r.get(f)]
-        if skillnad:
-            # Larma, skriv inte över. Det gamla fönstret är det som gällde
-            # när virket faktiskt kapades.
-            bytten += 1
+    for b in plan['byten']:
+        r = b['rad']
+        bytten += 1
+        beskrivning = f"{r['objekt_id']} / {r['sortiment_id']}: " + '; '.join(
+            f"{f}: {fran} -> {till}" for f, fran, till in b['forandringar'])
+        if not _skriv_fonsterhistorik(b, filnamn):
             _rapportera_import_fel(
                 'dim_objekt_sortiment_fonster', filnamn, 1, 'FONSTER_BYTTE',
-                f"{r['objekt_id']} / {r['sortiment_id']}: " + '; '.join(skillnad))
-            logger.warning("Apteringsfönstret bytte för %s / %s: %s",
-                           r['objekt_id'], r['sortiment_id'], '; '.join(skillnad))
-        else:
-            oforandrade += 1
+                beskrivning + ' (historiktabellen kunde inte skrivas — fönstret byttes inte)')
+            logger.warning("Apteringsfönstret bytte för %s men historiken kunde inte skrivas: %s",
+                           r['sortiment_id'], beskrivning)
+            continue
+        logger.info("Apteringsfönstret ändrat enligt %s — %s", filnamn, beskrivning)
+        att_skriva.append(dict(r, uppdaterad=datetime.now(timezone.utc).isoformat()))
+        if b['flipflop']:
+            _rapportera_import_fel(
+                'dim_objekt_sortiment_fonster', filnamn, 1, 'FONSTER_FLIPFLOP',
+                beskrivning + ' — går tillbaka till ett värde som fältet redan lämnat ('
+                + ', '.join(b['flipflop']) + ')')
+            logger.warning("Apteringsfönstret pendlar för %s / %s: %s",
+                           r['objekt_id'], r['sortiment_id'], ', '.join(b['flipflop']))
     # Tre tal, inte ett. "0 skrivna" betyder antingen att allt redan stod där
     # eller att skrivningen dog — och de två får aldrig se likadana ut för den
     # som läser utfallet.
     if not att_skriva:
-        return (0, oforandrade, bytten)
+        return (0, plan['oforandrade'], bytten)
     return (upsert_nyckelgrupperat('dim_objekt_sortiment_fonster', att_skriva,
                                    ['objekt_id', 'sortiment_id']),
-            oforandrade, bytten)
+            plan['oforandrade'], bytten)
 
 
 def _rapportera_import_fel(tabell: str, filnamn, antal: int, felkod, feltext):
@@ -5797,9 +5877,12 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #   * Ett väderfel får ALDRIG stoppa importen: hamta_vader_vid_skord() kastar aldrig, anroparen sparar raden utan
 #     `weather_at_harvest`-nyckeln (en merge-upsert rör då inte ett befintligt värde) och felet loggas + går till import_fel
 #     (felkod VADER_SAKNAS) så det SYNS i datahälsan.
-#   * ERA5 ligger ca 5 dygn efter verkligheten: en kontroll från idag har inget arkivvärde än (svaret ger null). Det är
-#     inget fel utan "inte klart än" — `komplettera_saknat_vader()` fyller i det vid nästa import när dygnet är klart.
-#     Raden får ALDRIG ett prognosvärde i stället (arkiv och prognos är olika källor).
+#   * VÄDRET KOMMER DIREKT (Martin 2026-11-23: "vädret ska komma direkt, inte efter fem dagar"). ERA5-arkivet ligger ca
+#     5 dygn efter verkligheten, så en kontroll yngre än VADER_ARKIV_FORDROJNING_DAGAR hämtas i stället ur Open-Meteos
+#     vanliga väder-API (VADER_PROGNOS_URL: vädermodellens bild av timmen, finns samma dag). Äldre kontroller hämtas ur
+#     arkivet som förut. Vilken källa som gav värdet står i JSON:ens `model` ('forecast' | 'era5'; rader från före
+#     ändringen saknar nyckeln och är era5). Vädret hämtas EN gång och skrivs aldrig om av importen — ett prognosvärde byts
+#     alltså inte mot arkivets senare. Ger tjänsten null för timmen är det "inte klart än" och kompletteringen försöker igen.
 #   * Position och tid = stammen som valj_vaderpunkt väljer: HQC-filerna är ackumulerande, så det är den tidigaste stammen med
 #     GPS vars skördedatum är kontrollens eget datum, annars den senaste stammen med GPS (inte "tidigaste i filen").
 #     Tiden räknas som verkligt UTC (stockholm_lokal_till_utc) och hämtas för närmaste hel timme.
@@ -5809,9 +5892,10 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 #     till import_fel som VADER_PERMANENT och hoppas över därefter; bara riktiga nätanrop räknas mot taket. Ett nätfel
 #     (timeout, 5xx, 429) avbryter kompletteringen för den importen och loggas en gång — ingen väntar 25 × timeout.
 VADER_ARKIV_URL = 'https://archive-api.open-meteo.com/v1/archive'
+VADER_PROGNOS_URL = 'https://api.open-meteo.com/v1/forecast'   # yngre kontroller: vädret samma dag (se REGLER ovan)
 VADER_TIMEOUT_S = 10
 VADER_KALLA = 'open-meteo.com'
-VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller försöks inte och räknas som "inte klart än"
+VADER_ARKIV_FORDROJNING_DAGAR = 6   # ERA5 är klart ca 5 dygn efter; yngre kontroller hämtas ur VADER_PROGNOS_URL
 VADER_PAGINERING = 200              # rader per läsning av kandidater (nyckelpaginering på id)
 VADER_NAT_PAUS_S = 300              # efter ett nätfel i den här importen försöker kompletteringen inte igen på så här länge
 
@@ -5867,7 +5951,7 @@ def valj_vaderpunkt(stockar: List[Dict], kontroll_datum):
     return bast[0], bast[1], stockholm_lokal_till_utc(bast[2])
 
 
-def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Optional[Dict]:
+def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime, model: str = 'era5') -> Optional[Dict]:
     """Ett ERA5-timsvar ({temperature_2m, precipitation, snowfall, wind_speed_10m} för EN timme) → samma JSON som
     befintliga rader (source, fetched_at, harvest_time, temperature_c, precipitation_mm, snowfall_cm, wind_speed_ms,
     is_freezing). None om temperaturen saknas — då finns inget värde ännu, och vi hittar inte på ett."""
@@ -5885,20 +5969,23 @@ def bygg_vader_json(timdata: Dict, skord_utc: datetime, hamtad: datetime) -> Opt
         'snowfall_cm': r(timdata.get('snowfall'), 1),
         'wind_speed_ms': r(timdata.get('wind_speed_10m'), 2),
         'is_freezing': float(temp) < 0,
+        'model': model,
     }
 
 
 def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None, nu: datetime = None):
-    """Hämtar vädret för närmaste hela timme runt skord_utc ur ERA5-arkivet. Returnerar (väderJSON, None, 'ok') eller
+    """Hämtar vädret för närmaste hela timme runt skord_utc: ur ERA5-arkivet när timmen är äldre än
+    VADER_ARKIV_FORDROJNING_DAGAR, annars ur Open-Meteos vanliga väder-API (samma timvärden, finns samma dag). Returnerar (väderJSON, None, 'ok') eller
     (None, skäl, art) med art enligt VADER_* ovan. KASTAR ALDRIG. Skälet är en kort svensk text för logg och import_fel."""
     http = http or requests
     nu = nu or datetime.now(timezone.utc)
     try:
         timme = (skord_utc + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
-        if timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
-            return None, f"inte klart än: ERA5-arkivet ligger ca 5 dygn efter (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)", VADER_EJ_KLART
+        if timme > nu:
+            return None, f"inte klart än: timmen har inte varit (skörd {skord_utc:%Y-%m-%d %H:%M} UTC)", VADER_EJ_KLART
+        prognos = timme > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR)
         dag = f"{timme:%Y-%m-%d}"
-        r = http.get(VADER_ARKIV_URL, params={
+        r = http.get(VADER_PROGNOS_URL if prognos else VADER_ARKIV_URL, params={
             'latitude': f"{lat:.4f}", 'longitude': f"{lon:.4f}",
             'start_date': dag, 'end_date': dag,
             'hourly': 'temperature_2m,precipitation,snowfall,wind_speed_10m',
@@ -5924,9 +6011,9 @@ def hamta_vader_vid_skord(lat: float, lon: float, skord_utc: datetime, http=None
         i = tider.index(onskad)
         timdata = {k: (h.get(k) or [None] * len(tider))[i] for k in
                    ('temperature_2m', 'precipitation', 'snowfall', 'wind_speed_10m')}
-        vader = bygg_vader_json(timdata, skord_utc, nu)
+        vader = bygg_vader_json(timdata, skord_utc, nu, 'forecast' if prognos else 'era5')
         if vader is None:
-            return None, "inte klart än: Open-Meteo har inget arkivvärde för timmen", VADER_EJ_KLART
+            return None, "inte klart än: Open-Meteo har inget värde för timmen", VADER_EJ_KLART
         return vader, None, VADER_OK
     except Exception as e:
         # nätverksfel, timeout, avbruten anslutning — nätet/tjänsten är nere, inget fel i just den här kontrollen
@@ -6056,7 +6143,10 @@ def komplettera_saknat_vader(max_antal: int = 25, skriv: bool = True, http=None,
                         if gammal is not None and abs((gammal - punkt[2]).total_seconds()) < 1:
                             rapport['redan_ratta'] += 1
                             continue
-                    if punkt[2] + timedelta(minutes=30) > nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR):
+                    # Yngre kontroller hämtas ur prognos-API:t (vädret direkt). Bara en timme som inte varit, och — vid
+                    # skriv_over (backfill) — en ung rad, hoppas över: ett befintligt värde ska aldrig bytas mot ett prognosvärde.
+                    grans = nu - timedelta(days=VADER_ARKIV_FORDROJNING_DAGAR) if skriv_over else nu
+                    if punkt[2] + timedelta(minutes=30) > grans:
                         rapport['inte_klara'] += 1   # hämtas inte: kostar inget nätanrop
                         continue
                     forsok += 1
@@ -6383,8 +6473,28 @@ def save_fpr_to_supabase(data: Dict) -> bool:
 # FILHANTERING
 # ============================================================
 
+def unik_destination(filtyp_mapp: str, filnamn: str) -> str:
+    """Sökväg i Behandlade som ALDRIG skriver över något: basnamnet om det är
+    ledigt, annars _YYYYMMDD_HHMMSS, och om också det är upptaget (två filer med
+    samma namn inom samma sekund) _2, _3 … Suffixet efter tidsstämpeln läses
+    fortfarande rätt av fil_recency."""
+    dest_path = os.path.join(filtyp_mapp, filnamn)
+    if not os.path.exists(dest_path):
+        return dest_path
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base, ext = os.path.splitext(filnamn)
+    dest_path = os.path.join(filtyp_mapp, f"{base}_{timestamp}{ext}")
+    n = 2
+    while os.path.exists(dest_path):
+        dest_path = os.path.join(filtyp_mapp, f"{base}_{timestamp}_{n}{ext}")
+        n += 1
+    return dest_path
+
+
 def move_to_behandlade(filepath: str, maskin_id: str, filtyp: str) -> bool:
     """Flytta fil till Behandlade/MaskinID/Filtyp/. Returnerar True om lyckad.
+    Namnkrock i Behandlade löses med suffix (unik_destination) — en fil som
+    redan ligger där skrivs aldrig över.
     3 försök med exponentiell backoff (3s, 9s) för OneDrive-lås."""
     try:
         maskin_mapp = os.path.join(BEHANDLADE, maskin_id)
@@ -6392,12 +6502,7 @@ def move_to_behandlade(filepath: str, maskin_id: str, filtyp: str) -> bool:
         os.makedirs(filtyp_mapp, exist_ok=True)
 
         filnamn = os.path.basename(filepath)
-        dest_path = os.path.join(filtyp_mapp, filnamn)
-
-        if os.path.exists(dest_path):
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base, ext = os.path.splitext(filnamn)
-            dest_path = os.path.join(filtyp_mapp, f"{base}_{timestamp}{ext}")
+        dest_path = unik_destination(filtyp_mapp, filnamn)
 
         for attempt in range(1, 4):
             try:
@@ -6571,6 +6676,52 @@ def mark_file_imported(filnamn: str, filtyp: str, maskin_id: str, status: str = 
     except Exception as e:
         logger.error(f"  Kunde inte logga import: {e}")
 
+def hamta_meta_ok(filnamn: str) -> Optional[Dict[str, Any]]:
+    """Metaraden (maskin_id, filtyp) om filen har status OK, annars None.
+    Maskin och filtyp ur raden är samma värden som flytten använde —
+    filnamnet bär dem inte alltid (Gallring Santhe 2026. … .mom,
+    Ponsse-objektet PONS20SDJAA… matchar inte _PONS\\d+_)."""
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&status=eq.OK"
+            f"&select=maskin_id,filtyp&limit=1",
+            headers=SUPABASE_HEADERS, timeout=30)
+        if response.status_code == 200:
+            rows = response.json()
+            if rows:
+                return rows[0] or {}
+        return None
+    except Exception:
+        return None
+
+
+def finns_i_behandlade(filnamn: str) -> bool:
+    """Ligger filen (under sitt eget namn) i Behandlade/<någon maskin>/<filtyp>/?
+    Alla maskinmappar och skiftlägen prövas: hellre en missad flytt-miss än en
+    onödig omimport."""
+    try:
+        for maskin in os.listdir(BEHANDLADE):
+            for sub in ('MOM', 'mom', 'HPR', 'hpr', 'HQC', 'hqc', 'FPR', 'fpr'):
+                if os.path.exists(os.path.join(BEHANDLADE, maskin, sub, filnamn)):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
+def flytta_redan_importerad(filepath: str, meta: Dict[str, Any]) -> bool:
+    """Filen är redan importerad (OK i meta) och arkiverad men en kopia ligger
+    i Inkommande. Flytta ut den — annars ligger den kvar för alltid, körs om
+    vid varje genomsökning och gap_check larmar. Namnkrock → suffix, inget
+    skrivs över. Importen körs INTE om (datan är redan sparad)."""
+    filnamn = os.path.basename(filepath)
+    ext = os.path.splitext(filnamn)[1].lower()
+    maskin_id = (meta or {}).get('maskin_id') or 'Okand'
+    filtyp = (meta or {}).get('filtyp') or ext[1:].upper()
+    logger.info(f"  Redan importerad och arkiverad — flyttar kopian i Inkommande till Behandlade (suffix vid namnkrock)")
+    return move_to_behandlade(filepath, maskin_id, filtyp)
+
+
 # ============================================================
 # PROCESSERA FIL
 # ============================================================
@@ -6586,26 +6737,23 @@ def process_file(filepath: str) -> bool:
     
     # Startup-scan: om filen är markerad OK i meta men saknas i Behandlade har
     # flytten misslyckats (t.ex. OneDrive-lås). Rensa meta så att importen körs om.
-    if is_file_already_imported(filnamn):
-        maskin_id_i_namn = None
-        m_maskin = re.search(r'_((?:PONS|R|A)\d+)_', filnamn)
-        if m_maskin:
-            maskin_id_i_namn = m_maskin.group(1)
-        if maskin_id_i_namn:
-            for sub in ('MOM', 'mom', 'HPR', 'hpr', 'HQC', 'hqc', 'FPR', 'fpr'):
-                dest_kand = os.path.join(BEHANDLADE, maskin_id_i_namn, sub, filnamn)
-                if os.path.exists(dest_kand):
-                    break
-            else:
-                logger.warning(
-                    f"  ⚠ {filnamn}: meta=OK men saknas i Behandlade"
-                    f" — trolig flytt-miss. Rensar meta och re-importerar.")
-                delete_meta_entry(filnamn)
+    # Maskin och filtyp läses ur metaraden, inte ur filnamnet: filer som heter
+    # "Gallring Santhe 2026. … .mom" eller Ponsse-objekt (PONS20SDJAA…) har
+    # ingen maskin som regexen _(PONS|R|A)\d+_ kan hitta, och hoppade förut över
+    # kontrollen helt.
+    meta = hamta_meta_ok(filnamn)
+    if meta is not None and not finns_i_behandlade(filnamn):
+        logger.warning(
+            f"  ⚠ {filnamn}: meta=OK men saknas i Behandlade"
+            f" — trolig flytt-miss. Rensar meta och re-importerar.")
+        delete_meta_entry(filnamn)
+        meta = None
 
     # Kolla om redan importerad
-    if is_file_already_imported(filnamn):
+    if meta is not None:
         # Kumulativa filer (MOM/FPR) kan ha uppdaterats sedan import.
         # Jämför filens mtime med importerad_tid — omimportera om nyare.
+        uppdaterad = False
         if ext in ('.mom', '.fpr'):
             try:
                 file_mtime = os.path.getmtime(filepath)
@@ -6613,15 +6761,12 @@ def process_file(filepath: str) -> bool:
                 if import_time and file_mtime > import_time + 60:  # 60s marginal
                     logger.info(f"  Fil uppdaterad sedan import — omimporterar")
                     delete_meta_entry(filnamn)
-                else:
-                    logger.info(f"  Redan importerad, hoppar över")
-                    return False
-            except:
-                logger.info(f"  Redan importerad, hoppar över")
-                return False
-        else:
-            logger.info(f"  Redan importerad, hoppar över")
-            return False
+                    uppdaterad = True
+            except Exception:
+                pass
+        if not uppdaterad:
+            # En fil som är OK i meta ska aldrig bli liggande i Inkommande.
+            return flytta_redan_importerad(filepath, meta)
 
     # Vänta lite så filen hinner skrivas klart
     time.sleep(1)

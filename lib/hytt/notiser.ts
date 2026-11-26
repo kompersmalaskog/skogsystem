@@ -13,7 +13,7 @@ import { kommerText } from '@/lib/besok/tid';
 import { kommentarPunkter } from '@/lib/kommentarPunkter';
 import type { FonsterLage } from './notisFonster';
 
-export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test';
+export type NotisTyp = 'fara' | 'besok' | 'omrade' | 'gps' | 'test' | 'vader';
 
 export const NOTIS_IKON: Record<NotisTyp, string> = {
   fara: '/notis-fara.png',
@@ -21,6 +21,7 @@ export const NOTIS_IKON: Record<NotisTyp, string> = {
   omrade: '/notis-omrade.png',
   gps: '/notis-fara.png',   // röd, som faran: skyddet mot faror är borta
   test: '/notis-test.png',
+  vader: '/notis-omrade.png',   // neutral: information, ingen fara
 };
 
 export type NotisKnapp = { action: 'uppfattat' | 'visa'; title: string };
@@ -104,6 +105,18 @@ export function omradeNotis(o: OmradeIn, url: string): HyttNotis {
   };
 }
 
+// ── VÄDRET HAR SLAGIT OM ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Skickas av servern till MASKINENS prenumerationer (lib/kalibrering/vaderServer koaVaderOmslag) på morgonen. Ingen knapp utöver Öppna kartan: kortet i appen har Sett.
+// En per maskin och dag (taggen); kommer föraren till appen stängs den (data.hytt) och kortet tar över.
+
+export function vaderHyttNotis(maskinId: string, text: string, dag: string): HyttNotis {
+  return {
+    typ: 'vader', tag: `vader-${maskinId}-${dag}`, titel: 'Vädret har slagit om', text, ikon: NOTIS_IKON.vader,
+    kvarTillTryck: true, renotify: false, knappar: [{ action: 'visa', title: 'Öppna kartan' }],
+    data: { hytt: true, typ: 'vader', url: '/planering', maskinId },
+  };
+}
+
 // ── GPS SAKNAS ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Utan position larmar ingenting (ledning, hänsynsyta, fällningscirkel) — föraren ska veta att skyddet är borta även när appen ligger i bakgrunden. */
@@ -147,7 +160,7 @@ export type NotisIndata = {
 
 export type NotisUtfall = { state: NotisState; visa: HyttNotis[]; stang: string[]; /** Appen är framme: stäng varje notis från hytten som ligger uppe. */ stangAlla: boolean };
 
-const RANG: Record<NotisTyp, number> = { omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };   // lägst först: det som skapas sist hamnar överst
+const RANG: Record<NotisTyp, number> = { vader: 0, omrade: 0, besok: 1, fara: 2, test: 3, gps: 4 };   // lägst först: det som skapas sist hamnar överst
 
 /**
  * Ett steg: givet fönsterläget och vad som väntar — vad ska visas, vad ska stängas. Anropas vid varje ändring (fönster, larm, besök, instruktion) och av en tickande klocka.

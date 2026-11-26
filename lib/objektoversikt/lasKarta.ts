@@ -10,8 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { beslutaOrigo, lasVidaGrans, markeringsGranser, markeringsPunkter, type VidaGrans } from '@/lib/egenkontrollOrigo';
 import type { Origo } from '@/lib/kartkoordinater';
-import { hyttsparRitadeLinjer } from '@/lib/sparJamning';
-import { byggStrak } from '@/lib/strak';
+import { korsparLinjerForServer } from '@/lib/korspar';
 import { hamtaAlla } from '@/lib/supabaseAlla';
 import { optiTidUtcMs } from '@/lib/optiTid';
 import {
@@ -137,15 +136,15 @@ export async function lasKartdata(
       const punkter = (rad.points as { lat?: unknown; lng?: unknown; tid?: unknown }[])
         .filter(p => typeof p?.lat === 'number' && typeof p?.lng === 'number')
         .map(p => ({ lat: p.lat as number, lng: p.lng as number, tid: typeof p.tid === 'string' ? p.tid : '' }));
-      for (const linje of hyttsparRitadeLinjer(punkter)) per[rad.roll].push(linje as LngLat[]);
+      // Körspåren (lib/korspar): en rensad linje per dag och körning, i hela sin längd. Bara ritningen — skotarSpar nedan är rådata.
+      per[rad.roll].push(...(korsparLinjerForServer(punkter) as LngLat[][]));
       // Skotarens rådata med tider (aldrig de utjämnade linjerna): Opti-lassens väg mellan två lossningar.
       if (rad.roll === 'skotare' && rad.maskin_id) {
         skotarSpar.push({ maskin: rad.maskin_id, punkter: punkter.map(p => ({ lng: p.lng, lat: p.lat, ms: Date.parse(p.tid) })).filter(p => Number.isFinite(p.ms)) });
       }
     }
   }
-  // STRÅK (lib/strak): alla körningar per roll ihop till stråk — bara ritningen; skotarSpar (rådata) räknas som förut.
-  const spar = (['skordare', 'skotare'] as const).filter(r => per[r].length > 0).map(roll => ({ roll, linjer: byggStrak(per[roll], roll) as LngLat[][] }));
+  const spar = (['skordare', 'skotare'] as const).filter(r => per[r].length > 0).map(roll => ({ roll, linjer: per[roll] }));
 
   // Skotarens lass. Går appens eller Opti-lassen inte att läsa finns inget skotat (aldrig en halv summa).
   let skotarLass: SkotarLass[] | null = null;

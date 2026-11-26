@@ -52,12 +52,15 @@ export interface UseUppfoljningListResult {
   objekt: UppfoljningObjekt[];
   loading: boolean;
   error: Error | null;
+  /** Läs om listan (efter ett läsfel). */
+  forsokIgen: () => void;
 }
 
 export function useUppfoljningList(): UseUppfoljningListResult {
   const [objekt, setObjekt] = useState<UppfoljningObjekt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [forsok, setForsok] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,6 +178,17 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         kopplingar.forEach(k => {
           if (!k.avverknings_objekt_id || !k.risjobb_objekt_id) return;
           if (risjobbKlart.get(k.risjobb_objekt_id) === false) harPagaendeRis.add(k.avverknings_objekt_id);
+        });
+        // Ris att skota: per avverkningsobjekt vilka risjobb som kopplats dit, och
+        // per risjobb hur många trakter det gäller (lassen går inte att dela upp).
+        const risjobbPerAvv = new Map<string, Set<string>>();
+        const avvPerRisjobb = new Map<string, Set<string>>();
+        kopplingar.forEach(k => {
+          if (!k.avverknings_objekt_id || !k.risjobb_objekt_id) return;
+          if (!risjobbPerAvv.has(k.avverknings_objekt_id)) risjobbPerAvv.set(k.avverknings_objekt_id, new Set());
+          risjobbPerAvv.get(k.avverknings_objekt_id)!.add(k.risjobb_objekt_id);
+          if (!avvPerRisjobb.has(k.risjobb_objekt_id)) avvPerRisjobb.set(k.risjobb_objekt_id, new Set());
+          avvPerRisjobb.get(k.risjobb_objekt_id)!.add(k.avverknings_objekt_id);
         });
 
         const voGroups = new Map<string, any[]>();
@@ -387,6 +401,22 @@ export function useUppfoljningList(): UseUppfoljningListResult {
           // Alla objekt_id i VO-gruppen, per roll — så detaljvyn räknar/hämtar över
           // HELA gruppen (delat VO → flera skotare) och blir identisk med listan.
           const skordareObjektIds = Array.from(new Set(skordareEntries.map((e: any) => e.objekt_id).filter(Boolean))) as string[];
+          // Riktiga lass (helikopter_lass, m³fub) på risjobben som kopplats till trakten.
+          const egnaIds = new Set(entries.map((e: any) => e.objekt_id).filter(Boolean) as string[]);
+          const risjobb = new Set<string>();
+          egnaIds.forEach(id => risjobbPerAvv.get(id)?.forEach(r => risjobb.add(r)));
+          let risSkotatM3: number | null = null;
+          let risDelas = false;
+          risjobb.forEach(r => {
+            const lass = lassPerMaskinById.get(r);
+            if (lass) {
+              let summa = 0;
+              lass.forEach(v => { summa += v; });
+              if (summa > 0) risSkotatM3 = (risSkotatM3 || 0) + summa;
+            }
+            const avv = avvPerRisjobb.get(r);
+            if (avv && Array.from(avv).some(a => !egnaIds.has(a))) risDelas = true;
+          });
           const skotareObjektIds = Array.from(new Set(skotareEntries.map((e: any) => e.objekt_id).filter(Boolean))) as string[];
 
           result.push({
@@ -418,6 +448,8 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             skotareKalla,
             skotareAvvikelse,
             risskotningPagar: entries.some((e: any) => harPagaendeRis.has(e.objekt_id)),
+            risSkotatM3,
+            risDelas,
             antalLass: stCount,
             dieselTotal: 0, // visas inte på förstasidan; detaljvyn hämtar sitt eget
             dagar,
@@ -474,7 +506,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
     })();
 
     return () => { cancelled = true; };
-  }, []);
+  }, [forsok]);
 
-  return { objekt, loading, error };
+  return { objekt, loading, error, forsokIgen: () => setForsok(f => f + 1) };
 }

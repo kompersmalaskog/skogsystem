@@ -133,7 +133,10 @@ describe('server-översättning', () => {
       bekraftad_av: 'forare', bekraftad_tid: l.bekraftadTid, spar: [], vagar: [], skapad: l.skapad, andrad: l.andrad,
       skotar_lass_del: [{ del_nr: 1, avlagg_id: 'vida:2', avlagg_nummer: '2', lossad_tid: l.andrad, lat: 56.6, lng: 15.8, skotar_lass_sortiment: [{ sortiment_nyckel: 'tall', sortiment_namn: 'Tall', m3_forare: '10' }] }],
     };
-    expect(lassFranServer(rad)).toEqual(l);
+    expect(lassFranServer(rad)).toEqual({ ...l, breddat: false });
+    expect(lassFranServer({ ...rad, breddat: true })?.breddat).toBe(true);
+    expect((lassTillPayload({ ...l, breddat: true }) as any).lass.breddat).toBe(true);
+    expect(lassFranServer({ ...rad, breddat: undefined })?.breddat).toBe(false);   // kolumnen saknas före migrationen: läsningen faller inte
     expect(lassFranServer(null)).toBeNull();
   });
 });

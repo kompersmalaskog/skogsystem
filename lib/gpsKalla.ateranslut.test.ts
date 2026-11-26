@@ -138,6 +138,6 @@ describe("källvakt", () => {
     expect(k).toContain("serial.addEventListener?.('connect', vidConnect)");
     expect(k).toContain("serial.removeEventListener?.('connect', vidConnect)");
     expect(k).toContain("setTimeout(() => { pagaende = kor(); }, vantaMs)");
-    expect(k).toContain(": 10000;");
+    expect(k).toContain("backoffBasMs: 10_000");     // reservtimern: 10 s för första omförsöket, växande därefter (se gpsKalla.tyst.test.ts)
   });
 });

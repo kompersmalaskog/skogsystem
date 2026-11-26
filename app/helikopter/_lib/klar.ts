@@ -6,7 +6,10 @@
 // klar.test.ts kör TS-räkningen mot ett svar ur prod: de två ska ge samma datum.
 //
 // Regler (samma som i SQL):
-//  · trakterna på en maskin i ordning (`sortn`, sätts i SQL ur objekt.ordning, ar/manad, namn);
+//  · trakterna på en maskin i ordning (`sortn`, sätts i SQL ur objekt.ordning, ar/manad, namn) — MEN en PÅBÖRJAD trakt (maskinrollen har
+//    redan kört där: utfört G15 eller volym > 0) går före allt som inte är påbörjat (`korOrdning`, 2026-11-23, Martin: Bondeskog låg trea i
+//    Elefantens kö bakom Brokamåla, fast Elefanten stod på Bondeskog → klar i januari i stället för om några dagar). AVSTEG FRÅN SQL:en:
+//    helikopter_ny_klar räknar fortfarande på sortn ensam; dess klar_datum/efter_manad läses men visas ingenstans — appens räkning gäller;
 //  · dagar för en trakt = kvarvarande timmar / maskinens G15 per arbetsdag — eller, för maskin med manuell datakälla, kvarvarande volym / snittakt;
 //  · trakt n börjar på dag floor(kumulativt före)+1 och slutar på dag ceil(kumulativt efter), räknat på maskinens lediga dagar (avrundat till 6 decimaler);
 //  · saknas prognos (eller volym/takt för den manuella) på någon trakt: maskinen har inget datum (null) — aldrig en gissning.
@@ -63,6 +66,9 @@ export type KlarTrakt = {
   utfort_volym: number
   /** timmar är ett G15-förslag ur uppmätt utfall, inte planerarens prognos (medUppskattadPrognos). */
   uppskattad?: boolean
+  /** Det UPPMÄTTA prediktionsfelet för `timmar` (25:e–75:e percentilen, i kvarvarande G15-timmar, samma skala som `timmar`). Bara på `uppskattad` trakter med nog många
+   *  jämförbara avslutade trakter att mäta felet på (lib/g15Forslag `intervall`); saknas = prognosen är ett punktvärde och räknas inte med osäkerhet. */
+  timmar_spann?: { lag: number; hog: number }
   /** timmar räknas på traktens egen takt (medFoljandePrognos): resten enligt prognosen rakt av, och uppmätt takt mot prognosens. */
   foljer?: { restPlanH: number | null; skillnad: number | null; utfortH: number }
   /** `volym` är uppmätt på trakten (medMattVolym): laserns volym × uttaget skördaren faktiskt gjort. `vida` = volymen som stod där förut. */
@@ -200,6 +206,11 @@ export function kanTa(m: KlarMaskin, t: Pick<KlarTrakt, 'typ'>): boolean {
   return klararTraktTyp(m, t.typ) && (!m.manuell || manuellTakt(m, t.typ) > 0)
 }
 
+/** Kan man VÄLJA maskinen åt trakten? Rätt typ räcker: 810E ska kunna läggas på en slutavverkning även innan den har en snittakt där — då saknas tid och datum (ingen gissad takt), men valet är fritt. Förslag (flyttförslag) använder fortfarande `kanTa`. */
+export function kanValjas(m: Pick<KlarMaskin, 'klarar_typ'>, t: Pick<KlarTrakt, 'typ'>): boolean {
+  return klararTraktTyp(m, t.typ)
+}
+
 /** Dagar en trakt tar på maskinen; null = det går inte att räkna (prognos, volym eller takt saknas). */
 /** Den manuella maskinens snittakt för en typ; GROT/energiklippning har ingen (0). */
 function manuellTakt(m: Pick<KlarMaskin, 'takt'>, t: KlarTyp): number {
@@ -233,8 +244,18 @@ export type MaskinPlan = {
 }
 
 /** Maskinens kö: `trakter` är de som ligger på maskinen (i valfri ordning). */
+/** Har maskinrollen redan kört på trakten? Då är det den maskinen står på — den går först i kön. */
+export const arPaborjad = (t: KlarTrakt): boolean => (t.utfort_h ?? 0) > 0 || (t.utfort_volym ?? 0) > 0
+
+/** Körordningen i en maskins kö: påbörjade trakter först, sedan planerarens ordning (`sortn`). EN regel för klar-datum och Tavlan. */
+export function korOrdning(a: KlarTrakt, b: KlarTrakt): number {
+  const pa = arPaborjad(a), pb = arPaborjad(b)
+  if (pa !== pb) return pa ? -1 : 1
+  return a.sortn - b.sortn
+}
+
 export function raknaMaskin(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string): MaskinPlan {
-  const ordnade = trakter.filter(t => arKvar(m, t)).sort((a, b) => a.sortn - b.sortn || (a.roll < b.roll ? -1 : a.roll > b.roll ? 1 : 0))
+  const ordnade = trakter.filter(t => arKvar(m, t)).sort((a, b) => korOrdning(a, b) || (a.roll < b.roll ? -1 : a.roll > b.roll ? 1 : 0))
   const saknar = ordnade.some(t => dagarBehov(m, t) == null)
   // Som i SQL: summan av oavrundade dagar avrundas till 6 decimaler; "före" = avrundad summa − traktens egna dagar.
   let summa = 0
@@ -285,7 +306,9 @@ export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, sk
       skotareKlass: t.roll === 'skotare' && t.maskin_id != null ? klass.get(t.maskin_id) ?? null : null }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
-    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
+    const iv = f.forslag.intervall
+    const spann = iv && iv.lag > 0 && iv.hog >= iv.lag ? { timmar_spann: { lag: Math.round(iv.lag * andel * 100) / 100, hog: Math.round(iv.hog * andel * 100) / 100 } } : {}
+    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true, ...spann }
   })
   return { ...d, trakter }
 }
@@ -523,7 +546,7 @@ export function valForTrakt(d: KlarData, objektId: string, r: KlarRoll): ValRad[
   const t = d.trakter.find(x => x.objekt_id === objektId && x.roll === r)
   if (!t) return []
   return d.maskiner
-    .filter(m => m.roll === r && kanTa(m, t))
+    .filter(m => m.roll === r && kanValjas(m, t))
     .map(m => {
       const p = raknaAlla(d, { objekt_id: objektId, roll: r, maskin_id: m.maskin_id })[m.maskin_id]
       return { maskin: m, nuvarande: t.maskin_id === m.maskin_id, klar: p.klar, saknar: p.saknar, efterManad: p.efterManad }

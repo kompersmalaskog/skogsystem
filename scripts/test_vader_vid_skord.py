@@ -153,7 +153,8 @@ class ByggJson(unittest.TestCase):
         v = M.bygg_vader_json({'temperature_2m': 10.64, 'precipitation': 0.24, 'snowfall': 0.0, 'wind_speed_10m': 4.743},
                               datetime(2026, 5, 14, 12, 59, 35, tzinfo=UTC), NU)
         self.assertEqual(set(v), {'source', 'fetched_at', 'harvest_time', 'temperature_c', 'precipitation_mm',
-                                  'snowfall_cm', 'wind_speed_ms', 'is_freezing'})
+                                  'snowfall_cm', 'wind_speed_ms', 'is_freezing', 'model'})
+        self.assertEqual(v['model'], 'era5')
         self.assertEqual((v['source'], v['temperature_c'], v['precipitation_mm'], v['snowfall_cm'], v['wind_speed_ms']),
                          ('open-meteo.com', 10.6, 0.2, 0.0, 4.74))
         self.assertEqual(v['harvest_time'], '2026-05-14T12:59:35+00:00')
@@ -173,7 +174,8 @@ class Hamta(unittest.TestCase):
         v, fel, art = M.hamta_vader_vid_skord(56.8123456, 15.0, datetime(2026, 5, 14, 12, 59, 35, tzinfo=UTC), http=h, nu=NU)
         self.assertIsNone(fel)
         url, p, timeout = h.anrop[0]
-        self.assertIn('archive-api.open-meteo.com/v1/archive', url)      # arkivet, aldrig prognos-API:t
+        self.assertIn('archive-api.open-meteo.com/v1/archive', url)      # äldre än 6 dygn: arkivet
+        self.assertEqual(v['model'], 'era5')
         self.assertEqual((p['latitude'], p['longitude']), ('56.8123', '15.0000'))
         self.assertEqual((p['start_date'], p['end_date'], p['timezone'], p['wind_speed_unit']),
                          ('2026-05-14', '2026-05-14', 'UTC', 'ms'))
@@ -186,11 +188,34 @@ class Hamta(unittest.TestCase):
         self.assertIsNone(fel)
         self.assertEqual(h.anrop[0][1]['start_date'], '2026-05-15')
 
-    def test_for_ny_kontroll_ar_inte_klar_an_och_inget_anrop_gors(self):
-        h = FejkHttp(Svar(200, timsvar('2026-10-20')))
+    def test_ny_kontroll_hamtas_direkt_ur_prognos_api(self):
+        # Martin 2026-11-23: vädret ska komma direkt, inte efter fem dagar.
+        h = FejkHttp(Svar(200, timsvar('2026-10-21', temp=-2.0, sno=0.4)))
         v, fel, art = M.hamta_vader_vid_skord(56.8, 15.0, NU - timedelta(hours=3), http=h, nu=NU)
+        self.assertIsNone(fel); self.assertEqual(art, M.VADER_OK)
+        url, p, _ = h.anrop[0]
+        self.assertEqual(url, M.VADER_PROGNOS_URL)
+        self.assertEqual((p['start_date'], p['end_date'], p['timezone'], p['wind_speed_unit']),
+                         ('2026-10-21', '2026-10-21', 'UTC', 'ms'))
+        self.assertEqual((v['temperature_c'], v['snowfall_cm'], v['is_freezing'], v['model']), (-2.0, 0.4, True, 'forecast'))
+
+    def test_gransen_mellan_prognos_och_arkiv(self):
+        dagar = M.VADER_ARKIV_FORDROJNING_DAGAR
+        url = lambda t: (lambda h: (M.hamta_vader_vid_skord(56.8, 15.0, t, http=h, nu=NU), h.anrop[0][0])[1])(
+            FejkHttp(Svar(200, timsvar(f"{(t + timedelta(minutes=30)):%Y-%m-%d}"))))
+        self.assertEqual(url(NU - timedelta(days=dagar) + timedelta(hours=2)), M.VADER_PROGNOS_URL)
+        self.assertEqual(url(NU - timedelta(days=dagar) - timedelta(hours=2)), M.VADER_ARKIV_URL)
+
+    def test_en_timme_som_inte_varit_ar_inte_klar_och_inget_anrop_gors(self):
+        h = FejkHttp(Svar(200, timsvar('2026-10-21')))
+        v, fel, art = M.hamta_vader_vid_skord(56.8, 15.0, NU + timedelta(hours=2), http=h, nu=NU)
         self.assertIsNone(v); self.assertTrue(fel.startswith('inte klart än')); self.assertEqual(h.anrop, [])
         self.assertEqual(art, M.VADER_EJ_KLART)
+
+    def test_null_varden_fran_prognos_api_ar_inte_klart_an(self):
+        h = FejkHttp(Svar(200, timsvar('2026-10-21', saknar=True)))
+        v, fel, art = M.hamta_vader_vid_skord(56.8, 15.0, NU - timedelta(hours=3), http=h, nu=NU)
+        self.assertIsNone(v); self.assertEqual(art, M.VADER_EJ_KLART)
 
     def test_null_varden_fran_arkivet_ar_inte_klart_an(self):
         h = FejkHttp(Svar(200, timsvar('2026-10-10', saknar=True)))
@@ -386,11 +411,25 @@ class Komplettera(unittest.TestCase):
         r = M.komplettera_saknat_vader(http=RaknaHttp(bra), nu=NU)
         self.assertEqual(r['fyllda'], 0); self.assertEqual(len(r['misslyckade']), 1)
 
+    def test_ung_kontroll_fylls_direkt_ur_prognos_api(self):
+        fr = self.fejk([kontroll(7)], {'k7.hqc': stock()})
+        h = RaknaHttp(bra)
+        r = M.komplettera_saknat_vader(http=h, nu=datetime(2026, 5, 15, tzinfo=UTC))
+        self.assertEqual((r['fyllda'], r['inte_klara'], h.anrop), (1, 0, 1))
+        self.assertEqual(fr.kontroller[0]['weather_at_harvest']['model'], 'forecast')
+
     def test_inte_klara_raknas_separat_och_kostar_inget_anrop(self):
         self.fejk([kontroll(7)], {'k7.hqc': stock()})
         h = RaknaHttp(bra)
-        r = M.komplettera_saknat_vader(http=h, nu=datetime(2026, 5, 15, tzinfo=UTC))
+        r = M.komplettera_saknat_vader(http=h, nu=datetime(2026, 5, 14, 12, 0, tzinfo=UTC))   # timmen har inte varit
         self.assertEqual((r['fyllda'], r['inte_klara'], h.anrop), (0, 1, 0))
+
+    def test_backfill_byter_aldrig_ett_befintligt_varde_mot_ett_prognosvarde(self):
+        gammalt = {'fetched_at': '2026-05-14T13:00:00+00:00', 'harvest_time': '2026-05-14T09:00:00+00:00', 'temperature_c': 5.0}
+        self.fejk([kontroll(7, vader=gammalt)], {'k7.hqc': stock()})
+        h = RaknaHttp(bra)
+        r = M.komplettera_saknat_vader(http=h, nu=datetime(2026, 5, 15, tzinfo=UTC), skriv_over=True)
+        self.assertEqual((r['ersatta'], h.anrop), (0, 0))
 
     def test_trasig_anslutning_kastar_inte(self):
         M.requests = None

@@ -9,7 +9,10 @@ export interface KommentarRad {
   id: string;
   objekt_id: string;
   yta_nyckel: string;
+  /** "Övrigt": den fria texten (det som alltid funnits). Tom när kommentaren bara har en Viktigt-rad. */
   text: string;
+  /** "Viktigt": EN rad (högst `VIKTIGT_MAX` tecken) som föraren ska se direkt. Null = ingen. */
+  viktigt?: string | null;
   skapad_av: string | null;
   /** Författarens namn (null = okänt). */
   namn: string | null;
@@ -23,6 +26,18 @@ export interface KommentarVy extends KommentarRad {
   /** En kommentar från före författare sparades (markeringens gamla kommentarfält). Visas som "Äldre kommentar", utan namn och tid. */
   aldre?: boolean;
 }
+
+/** Längsta Viktigt-raden (databasens check säger samma). */
+export const VIKTIGT_MAX = 60;
+
+/** Viktigt-raden som sparas: en rad (radbrytningar och dubbla mellanslag blir ett mellanslag), trimmad, klippt till `VIKTIGT_MAX`; tomt blir null. */
+export function rensaViktigt(t: string | null | undefined): string | null {
+  const r = String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, VIKTIGT_MAX).trim();
+  return r || null;
+}
+
+/** En kommentar måste ha minst ett av fälten: Viktigt eller Övrigt. */
+export const harInnehall = (text: string | null | undefined, viktigt: string | null | undefined): boolean => !!String(text ?? '').trim() || !!rensaViktigt(viktigt);
 
 export const markerNyckel = (markerId: string | number): string => `marker:${markerId}`;
 
@@ -72,9 +87,10 @@ export function senasteKommentar<T extends KommentarVy>(rader: readonly T[]): T 
 }
 
 /** Raden i larmkortet: "Daniel: Stolpe lutar". Utan namn bara texten. */
-export function larmKommentarText(r: Pick<KommentarVy, 'namn' | 'text' | 'aldre'>): string {
+export function larmKommentarText(r: Pick<KommentarVy, 'namn' | 'text' | 'aldre'> & { viktigt?: string | null }): string {
   const f = r.aldre ? '' : fornamn(r.namn);
-  return f ? `${f}: ${r.text}` : r.text;
+  const t = rensaViktigt(r.viktigt) ?? r.text;   // Viktigt är det som ska stå på en rad
+  return f ? `${f}: ${t}` : t;
 }
 
 /** Larmets kommentar per nyckel: den senaste, med namn. Nyckeln ingår i kvittensens hash, så en ny eller ändrad kommentar ger ett nytt larm. */
@@ -109,6 +125,8 @@ export interface KoPost {
   yta_nyckel: string;
   op: KoOp;
   text: string;
+  /** Viktigt-raden. `undefined` = fältet rörs inte (äldre poster, och när kolumnen inte finns); `null` = tas bort. */
+  viktigt?: string | null;
   skapad_av: string | null;
   /** Författarens namn, för visningen medan kommentaren väntar. */
   namn: string | null;
@@ -125,7 +143,7 @@ export function slaIhopOp(befintlig: KoPost | undefined, ny: KoPost): KoPost | n
   if (!befintlig) return ny;
   if (befintlig.op === 'radera') return befintlig;
   if (ny.op === 'radera') return befintlig.op === 'ny' ? null : { ...befintlig, op: 'radera', forsok: 0, nasta: 0 };
-  return { ...befintlig, text: ny.text, op: befintlig.op === 'ny' ? 'ny' : 'andra', forsok: 0, nasta: 0 };
+  return { ...befintlig, text: ny.text, viktigt: ny.viktigt !== undefined ? ny.viktigt : befintlig.viktigt, op: befintlig.op === 'ny' ? 'ny' : 'andra', forsok: 0, nasta: 0 };
 }
 
 /** Lägger köns åtgärder OVANPÅ serverns rader: ny visas direkt (med märket "väntar"), ändra byter texten, radera tar bort raden. */
@@ -136,8 +154,8 @@ export function laggKoOvanpa(server: readonly KommentarRad[], ko: readonly KoPos
     if (p.objekt_id !== objektId) continue;
     if (p.op === 'radera') { ut.delete(p.id); continue; }
     const finns = ut.get(p.id);
-    if (finns) { ut.set(p.id, { ...finns, text: p.text, vantar: true }); continue; }
-    if (p.op === 'ny') ut.set(p.id, { id: p.id, objekt_id: p.objekt_id, yta_nyckel: p.yta_nyckel, text: p.text, skapad_av: p.skapad_av, namn: p.namn, skapad_at: p.skapad_lokalt, andrad_at: p.skapad_lokalt, vantar: true });
+    if (finns) { ut.set(p.id, { ...finns, text: p.text, ...(p.viktigt !== undefined ? { viktigt: p.viktigt } : null), vantar: true }); continue; }
+    if (p.op === 'ny') ut.set(p.id, { id: p.id, objekt_id: p.objekt_id, yta_nyckel: p.yta_nyckel, text: p.text, viktigt: p.viktigt ?? null, skapad_av: p.skapad_av, namn: p.namn, skapad_at: p.skapad_lokalt, andrad_at: p.skapad_lokalt, vantar: true });
   }
   return [...ut.values()];
 }
@@ -154,13 +172,24 @@ export function arVaranFel(fel: { code?: string | null; status?: number | null }
   return false;
 }
 
+/** Kolumnen `viktigt` finns inte (migrationen ej körd): PostgREST säger PGRST204 vid skrivning, Postgres 42703 vid läsning. */
+export function arViktigtKolumnSaknas(fel: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!fel) return false;
+  const c = String(fel.code ?? '');
+  const m = String(fel.message ?? '');
+  return (c === 'PGRST204' || c === '42703') && /viktigt/i.test(m);
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Raderna på kortet
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 export interface KortKommentar {
   id: string;
+  /** Övrigt. Kan vara tom när kommentaren bara har Viktigt. */
   text: string;
+  /** Viktigt: en rad, gul och överst. Null/saknas = ingen. */
+  viktigt?: string | null;
   /** "Martin · i går 16:20"; null för en äldre kommentar (visas som "Äldre kommentar"). */
   forfattare: string | null;
   vantar: boolean;
@@ -174,12 +203,37 @@ export function kortKommentarer(i: {
 }): KortKommentar[] {
   const aldre = aldreKommentar(i.objektId, i.nyckel, i.aldreText);
   const lista = [...(aldre ? [aldre] : []), ...kommentarerForNyckel(i.rader, i.nyckel)];
-  return lista.map((r) => ({
+  const rader = lista.map((r) => ({
     id: r.id,
     text: r.text,
+    viktigt: rensaViktigt(r.viktigt),
     forfattare: r.aldre ? null : forfattarText(r.namn, r.skapad_at, i.nu),
     vantar: r.vantar,
     kanAndra: !r.aldre && kanAndraKommentar(r, i.minId),
     kanRadera: kanRaderaKommentar(r, i.minId, i.arAdmin) && (!r.aldre || i.arAdmin),
   }));
+  // Viktigt överst (stabil sortering: äldst först inom varje grupp).
+  return [...rader.filter((r) => r.viktigt), ...rader.filter((r) => !r.viktigt)];
+}
+
+/** Texten som "nytt/ändrat"-signaturer (Hela trakten, instruktioner) räknar på: Övrigt som förut, med Viktigt först när den finns — så en ny eller ändrad Viktigt-rad räknas som nytt, och en kommentar utan Viktigt behåller sin signatur. */
+export const kommentarSigText = (r: { text: string; viktigt?: string | null }): string => (rensaViktigt(r.viktigt) ? `${rensaViktigt(r.viktigt)}\n${r.text}` : r.text);
+
+/** Viktigt-raderna på en nyckel, äldst först (för kartetiketten och "Hela trakten"). */
+export function viktigtForNyckel(rader: readonly KommentarVy[], nyckel: string): { id: string; viktigt: string; forfattare: string | null }[] {
+  return kommentarerForNyckel(rader, nyckel)
+    .filter((r) => rensaViktigt(r.viktigt))
+    .map((r) => ({ id: r.id, viktigt: rensaViktigt(r.viktigt)!, forfattare: forfattarText(r.namn, r.skapad_at) }));
+}
+
+/** Nycklarna som har minst en Viktigt-rad, med raden (den äldsta först; flera på samma nyckel läggs ihop med " · "). */
+export function viktigtPerNyckel(rader: readonly KommentarVy[]): Map<string, string> {
+  const ut = new Map<string, string>();
+  for (const r of sorteraKommentarer(rader)) {
+    const v = rensaViktigt(r.viktigt);
+    if (!v) continue;
+    const f = ut.get(r.yta_nyckel);
+    ut.set(r.yta_nyckel, f ? `${f} · ${v}` : v);
+  }
+  return ut;
 }

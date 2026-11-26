@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useMaskinKonto } from "@/components/maskinkonto/MaskinKontoProvider";
 import { fetchAll, getPeriodRange, type Period } from "@/app/maskinvy/OversiktShared";
 import { useMaskinvyMaskiner } from "@/app/maskinvy/useMaskinvyMaskiner";
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from "@/lib/g15";
@@ -82,6 +83,7 @@ function DelRad({ etikett, forklaring, varde, dampad }: { etikett: string; forkl
 export default function TuTabell() {
   const [period, setPeriod] = useState<Period>("M");
   const [offset, setOffset] = useState(0);
+  const maskinKonto = useMaskinKonto().lage === "last";
   const { maskiner: skordare, laddar: lS } = useMaskinvyMaskiner("skordare");
   const { maskiner: skotare, laddar: lK } = useMaskinvyMaskiner("skotare");
   const [nu, setNu] = useState<Map<string, Agg> | null>(null);
@@ -110,13 +112,14 @@ export default function TuTabell() {
           fetchAll("fakt_avbrott", AVB, ids, range.start, range.end),
           fetchAll("fakt_tid", TID, ids, prevRange.start, prevRange.end),
           fetchAll("fakt_avbrott", AVB, ids, prevRange.start, prevRange.end),
-          supabase.from("arbetsdag").select("datum, maskin_id, start_tid, slut_tid, rast_min, arbetad_min, bekraftad, synk_avvikelse")
+          // Maskinkontot får aldrig läsa arbetsdag (timmar per person): där visas ingen avvikelsekolumn alls — hellre inget än ett falskt "0".
+          maskinKonto ? Promise.resolve(null) : supabase.from("arbetsdag").select("datum, maskin_id, start_tid, slut_tid, rast_min, arbetad_min, bekraftad, synk_avvikelse")
             .gte("datum", range.start).lte("datum", range.end).not("maskin_id", "is", null)
             .order("datum").order("id").range(0, 1999),
         ]);
         if (avbruten) return;
         setNu(summera(tidNu, avbNu)); setForr(summera(tidForr, avbForr));
-        setArbetsdagar(arb.error ? [] : (arb.data || []));
+        setArbetsdagar(arb === null ? null : arb.error ? [] : (arb.data || []));
       } catch (e: any) {
         if (!avbruten) setFel(e?.message || String(e));
       } finally {
@@ -125,7 +128,7 @@ export default function TuTabell() {
     })();
     return () => { avbruten = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsNyckel, lS, lK, range.start, range.end]);
+  }, [idsNyckel, lS, lK, range.start, range.end, maskinKonto]);
 
   const rader: Rad[] = useMemo(() => {
     if (!nu) return [];
@@ -222,7 +225,8 @@ export default function TuTabell() {
                   <DelRad etikett="Utan registrerad orsak" forklaring="ingår i avbrott" varde={tim(r.oklassad)} dampad />
                 )}
                 <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: FARG.text3 }}>
-                  {arbetsdagar == null ? "Kontrollerar dagarna…"
+                  {maskinKonto ? `${r.dagar} maskindagar`
+                    : arbetsdagar == null ? "Kontrollerar dagarna…"
                     : !tf ? `${r.dagar} maskindagar · inga förardagar registrerade`
                     : tf.avv > 0 ? `${tf.avv} av ${tf.dagar} förardagar har avvikelse i Dagar — talet är osäkert`
                     : `${tf.dagar} förardagar utan avvikelse i Dagar`}

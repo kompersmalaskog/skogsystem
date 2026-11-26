@@ -57,11 +57,11 @@ describe.skipIf(!HAR_PROD_ENV)("GET /api/lon/min-manad/pdf", () => {
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: buf });
     const txt = (await parser.getText()).text;
-    expect(txt).toContain("Tidsspecifikation");
+    expect(txt).toContain("Din tid");
     expect(txt).toContain("Stefan");
-    expect(txt).toContain("Går till lönen");
+    expect(txt).toContain("DET HÄR GÅR TILL LÖNEN");
     expect(txt).toContain("Timlön");
-    expect(txt).toContain("Dag för dag");
+    expect(txt).toContain("DAG FÖR DAG");
     expect(txt).not.toMatch(/\bkr\b/i);
     console.log(`  PDF ${buf.length} bytes, ${txt.split("\n").length} textrader → ${ut}`);
     console.log("  utdrag: " + txt.replace(/\s+/g, " ").slice(0, 400));

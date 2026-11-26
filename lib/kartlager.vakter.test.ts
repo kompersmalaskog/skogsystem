@@ -113,3 +113,23 @@ describe('kartlagret Mörk: migrationen vidgar kolumnen och RPC:n (Martin 2026-1
     expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
   });
 });
+
+describe('IR som bakgrundsval är borta, men IR-lagret som tänds finns kvar (Martin 2026-11-21)', () => {
+  const lasFil = (f: string) => readFileSync(join(rot, f), 'utf8');
+  it('ingen bakgrundskod nämner ir-layer, KARTRUTA_MALL_IR eller layer=ir, och den körda IR-migrationen ligger kvar ofarlig', () => {
+    for (const f of ['app/planering/page.tsx', 'lib/kartlager.ts', 'lib/kartBas.ts', 'lib/objektKarta.ts', 'lib/mapLayers.ts', 'lib/kartNedladdning.ts', 'app/api/forarkarta/route.ts']) {
+      const t = lasFil(f);
+      expect(t, f).not.toMatch(/ir-layer|KARTRUTA_MALL_IR|layer=ir\b/);
+    }
+    // Migrationen är körd i prod och ligger kvar oförändrad: den tillåter bara 'ir' och ändrar inga rader — ingen ny migration.
+    const fil = readdirSync(join(rot, 'supabase/migrations')).filter((n) => /kartlager_ir/.test(n));
+    expect(fil).toEqual(['20261121180001_kartlager_ir.sql']);
+    const sql = readFileSync(join(rot, 'supabase/migrations', fil[0]), 'utf8');
+    expect(sql).not.toMatch(/^\s*update\s+medarbetare\s+set\s+kartlager\s*=\s*'/im);
+  });
+  it('ritunderlaget Ortofoto IR (lm_ortofoto_ir) finns kvar som lager att tända, via wms-proxy', () => {
+    expect(lasFil('lib/mapLayers.ts')).toMatch(/id: 'lm_ortofoto_ir'[^\n]*layers: 'Ortofoto_IR'/);
+    expect(lasFil('app/api/wms-proxy/route.ts')).toMatch(/lm_ortofoto_ir:/);
+    expect(lasFil('app/planering/page.tsx')).toMatch(/'lm_ortofoto_ir'/);
+  });
+});

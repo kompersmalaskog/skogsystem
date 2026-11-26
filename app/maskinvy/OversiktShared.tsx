@@ -19,7 +19,7 @@ import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/
 // iOS systemfärger (exakt) + bas-tokens
 // ─────────────────────────────────────────────────────────────
 // Färger och typsnitt kommer från lib/design/tokens (PR 1, 2026-10-21). Flyttserien (lila) finns i tokens bara som
-// DELFARG[4] (#5e5ce6) — samma värde som maskinvyn alltid använt för "Flytt"/"Korta pauser".
+// DELFARG[4] (#5e5ce6) — samma värde som maskinvyn alltid använt för "Flytt"/"Korta stopp".
 export const FLYTT_FARG = DELFARG[4]
 
 /** En token-färg med genomskinlighet (staplar, markeringar, tonade ytor) — samma färg som tokens, bara tunnare. */
@@ -248,7 +248,7 @@ export type Data = {
   operatorer: Operator[]      // filter: volym > 0 || stammar > 0
   avbrottPerKat: AvbrottKat[] // sorterad fallande på sek
   // avbr + avbrottPerKat = ENBART avbrott ≥ G15-gränsen. DownTime UNDER gränsen
-  // räknas in i 'kort' (Korta pauser) — samma fenomen som kort_stopp_sek
+  // räknas in i 'kort' (Korta stopp) — samma fenomen som kort_stopp_sek
   // (objektbytesglapp m.m.; 0 väggklocke-överlapp, verifierat i MOM-källor).
   // TU (lib/g15.ts tuProcent, Skogforsk): (P+T + avbrott < 15 min) /
   // (P+T + OW + alla avbrott). Avbrotten ur fakt_avbrott — SAMMA källa som
@@ -374,7 +374,7 @@ export async function fetchData(
   }
 
   // fakt_avbrott → total + per kategori — ENBART ≥ G15-gränsen (riktiga avbrott).
-  // DownTime UNDER gränsen flyttas hem till 'kort' (Korta pauser) nedan — samma
+  // DownTime UNDER gränsen flyttas hem till 'kort' (Korta stopp) nedan — samma
   // fenomen som kort_stopp_sek; väggklocke-separata → adderbara utan dubbelräkning.
   let avbr = 0
   let kortaAvbrottSek = 0
@@ -974,7 +974,7 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
   const segments = [
     { key: 'proc', label: 'Process',     color: FARG.gron  },
     { key: 'terr', label: 'Kör',         color: FARG.bla   },
-    { key: 'kort', label: 'Korta pauser', color: FLYTT_FARG },
+    { key: 'kort', label: 'Korta stopp', color: FLYTT_FARG },
     { key: 'avbr', label: 'Avbrott',     color: FARG.rod    },
     { key: 'rast', label: 'Rast',        color: FARG.text2  },
   ] as const

@@ -58,13 +58,19 @@ function tileBbox3857(z: number, x: number, y: number): string {
 // Vad rutan föreställer: 'dampad' = Karta, 'farg' = Topokarta (full färg), 'ortofoto' = Flygfoto.
 type TileKind = 'dampad' | 'farg' | 'ortofoto';
 
+// Rutstorlek i bildpunkter. Bara flygfotot har 512 (`s=512`); allt annat och varje annat värde är 256.
+type TileSize = 256 | 512;
+
 // Upstream-URL för en enskild ruta. Öppna data (WMTS) om token satt, annars minkarta (WMS).
-function tileUpstreamUrl(z: number, x: number, y: number, kind: TileKind): string {
+function tileUpstreamUrl(z: number, x: number, y: number, kind: TileKind, size: TileSize = 256): string {
   if (kind === 'ortofoto') {
     // Flygfoto går alltid via minkarta — ingen öppen data-ortofoto finns att flippa till.
+    // 512 (skärmar med hög upplösning, lib/flygfotoRuta): samma markyta i dubbel upplösning, som JPEG — en 512-PNG är 4 × så tung som en 256-PNG
+    // (591 mot 148 kB uppmätt), en 512-JPEG hälften av den (71 kB). 256 är oförändrat PNG, så maskindatorerna får exakt samma bild och trafik som förut.
     const b = tileBbox3857(z, x, y);
+    const format = size === 512 ? 'image/jpeg' : 'image/png';
     return `${LM_ORTO_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=${LM_ORTO_LAYER}` +
-      `&STYLES=&FORMAT=image/png&CRS=EPSG:3857&BBOX=${encodeURIComponent(b)}&WIDTH=256&HEIGHT=256`;
+      `&STYLES=&FORMAT=${format}&CRS=EPSG:3857&BBOX=${encodeURIComponent(b)}&WIDTH=${size}&HEIGHT=${size}`;
   }
   if (OPEN_TOKEN) {
     // WMTS REST: .../{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol} = 3857/{z}/{y}/{x}.
@@ -136,14 +142,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     const lp = p.get('layer');
     const kind: TileKind = lp === 'ortofoto' ? 'ortofoto' : lp === 'farg' ? 'farg' : 'dampad';
-    const cacheKey = `t:${kind}:${OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
+    // Storleken ingår i cachenyckeln (en 512-ruta får aldrig serveras som svar på en 256-förfrågan); bara flygfotot har 512.
+    const size: TileSize = kind === 'ortofoto' && p.get('s') === '512' ? 512 : 256;
+    const cacheKey = `t:${kind}:${size}:${OPEN_TOKEN ? 'o' : 'm'}:${z}/${x}/${y}`;
     const cached = getCached(cacheKey);
     if (cached) {
       return new NextResponse(cached.body, {
         headers: { 'Content-Type': cached.ct, 'Cache-Control': RUTA_CACHE, 'X-Cache': 'HIT' },
       });
     }
-    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), kind), cacheKey);
+    return serveUpstream(tileUpstreamUrl(Number(z), Number(x), Number(y), kind, size), cacheKey);
   }
 
   // === bbox-läge (översikt/förarkarta) — oförändrat, nyckellös minkarta-WMS ===

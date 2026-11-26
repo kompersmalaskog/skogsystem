@@ -262,22 +262,27 @@ describe("Redigera: redigerad_av skrivs vid varje redigering", () => {
     expect((g.__db.arbetsdag as any[]).find(r => r.datum === D).redigerad_av).toBe("m-1");
   });
 
-  it("'Det var fel — använd maskinens tider': redigerad_av skrivs, utan krav på anledning", async () => {
-    aldreDag({ bekraftad: true, bekraftad_tid: D + "T17:00:00Z", rast_min: 10, synk_avvikelse: { mom_start: "10:00", mom_slut: "18:00", mom_rast_min: 70, bekraftad_start: "10:00", bekraftad_slut: "18:00", bekraftad_rast_min: 10, upptackt: "2026-10-05T01:00:00Z" } });
-    // en bekräftad dag öppnas via Kalender (den väntar inte på bekräftelse)
+  it("bekräftad dag med tid som inte var maskin: frågan 'Vad gjorde du …?' står i Redigera", async () => {
+    aldreDag({ bekraftad: true, bekraftad_tid: D + "T17:00:00Z", start_tid: "09:00:00", rast_min: 10, synk_avvikelse: { mom_start: "10:00", mom_slut: "18:00", mom_rast_min: 10, bekraftad_start: "09:00", bekraftad_slut: "18:00", bekraftad_rast_min: 10, upptackt: "2026-10-05T01:00:00Z" } });
     await montera();
     await klick("Kalender");
     await vänta(6, 40);
     const cell = Array.from(behallare!.querySelectorAll<HTMLElement>("main span")).find(x => x.textContent === "2");
     await act(async () => { cell!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     await vänta(8, 40);
-    expect(text()).toMatch(/Maskintiden skiljer sig/);
-    await klickKnapp("Det var fel — använd maskinens tider");
-    const upd = skrivna("arbetsdag", "update").filter(s => s.vals.redigerad === true && "synk_avvikelse" in s.vals);
-    expect(upd.length).toBe(1);
-    expect(upd[0].vals.rast_min).toBe(70);
-    expect(upd[0].vals.redigerad_av).toBe("m-1");
-    expect("redigerad_anl" in upd[0].vals).toBe(false);
+    expect(text()).toMatch(/Vad gjorde du 09:00–10:00\?/);
+    // Det gamla kortet finns inte längre.
+    expect(text()).not.toMatch(/Maskintiden skiljer sig/);
+
+    // Två tryck och sparat: Service → Nej. Inget Spara, kvittot med Ändra.
+    await klick("Vad gjorde du 09:00–10:00?");
+    await klick("Service");
+    await klickKnapp("Nej");
+    await vänta(6, 40);
+    const seg = g.__skriv.find((x: any) => x.tabell === "arbetsdag_segment" && x.op === "insert");
+    expect(seg?.vals).toMatchObject({ start_tid: "09:00", slut_tid: "10:00", aktivitet_typ: "service", debiterbar: false });
+    expect(text()).toMatch(/Sparat · Service 09:00–10:00 · faktureras inte/);
+    expect(knapp("Ändra")).toBeTruthy();
   });
 
   it("bakåt rörs inget: gamla redigerade rader behåller redigerad_av = null", async () => {

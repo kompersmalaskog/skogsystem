@@ -28,8 +28,8 @@ describe('KartKort — en komponent för alla typer', () => {
 
   it('Vidas objekt: kommentaren (kartkommentar) och fotot (ytfoto-flödet) sparas hos oss, aldrig i Vidas data', () => {
     const trakt = sida.slice(sida.indexOf('const bet = traktKortBetydelse(traktInfo)'));
-    expect(trakt).toContain('kk.lagg(nyckel!');
-    expect(trakt).toContain('kk.andra(id, t)');
+    expect(trakt).toContain('kk.lagg(nyckel!, t, v)');
+    expect(trakt).toContain('kk.andra(id, t, v)');
     expect(trakt).toContain('kk.radera(id)');
     expect(trakt).toContain('ytaFotoInputRef.current?.click()');
     expect(trakt).toContain('sparaYtaMediaText');
@@ -39,7 +39,7 @@ describe('KartKort — en komponent för alla typer', () => {
 
   it('en egen markering: en kommentarsrad per kommentar (marker:<id>) och fotot går via samma filväljare som förut', () => {
     const mark = sida.slice(sida.indexOf('testid="marker-kort"'));
-    expect(mark).toContain('kk.lagg(markerNyckel(marker.id), t)');
+    expect(mark).toContain('kk.lagg(markerNyckel(marker.id), t, v)');
     expect(mark).toContain('setPendingPhotoMarkerId(marker.id); fileInputRef.current?.click()');
     // Det gamla enda kommentarfältet skrivs inte längre över av kortet (det visas som "Äldre kommentar"):
     expect(mark).not.toContain('saveMarkerToDb({ ...marker, comment: t }');

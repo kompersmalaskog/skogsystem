@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { utanMaskinkonton } from "@/lib/admin/utanMaskinkonton";
 import { AVSTAND, FARG, TYP } from "@/lib/design/tokens";
 import { ymdLokal } from "@/lib/datumLokal";
 import { veckoText, delaUpp, grupperaPerioder, overenskommelseRad, type PeriodGrupp, type PeriodRad } from "@/lib/admin/utjamningsperiod";
@@ -29,12 +30,12 @@ export default function UtjamningsSektion({ namnInloggad }: { namnInloggad: stri
     setFel(null);
     const [p, m] = await Promise.all([
       supabase.from("utjamningsperiod").select("id, namn, startdatum, slutdatum, medarbetare_id, anteckning, overenskommen_datum, skapad_av").order("startdatum", { ascending: true }),
-      supabase.from("medarbetare").select("id, namn").order("namn", { ascending: true }),
+      supabase.from("medarbetare").select("id, namn, roll").order("namn", { ascending: true }),
     ]);
     const e = p.error || m.error;
     if (e) { setFel(e.message || String(e)); setRader(null); return; }
     setRader((p.data || []) as PeriodRad[]);
-    setPersoner((m.data || []) as Person[]);
+    setPersoner(utanMaskinkonton(m.data as (Person & { roll?: string | null })[]));
   }, []);
   useEffect(() => { ladda(); }, [ladda]);
 
