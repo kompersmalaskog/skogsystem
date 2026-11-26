@@ -6,8 +6,8 @@
 // beskedet aldrig kan betyda olika saker på olika ställen.
 //
 // Designprinciper (juli-26-lärdomarna):
-//  - Larm ska LARMA — men bara på verkliga problem. Kända arv
-//    hanteras med daterade baslinjer; larm vid FÖRÄNDRING.
+//  - BARA DET SOM ÄR FEL JUST NU (Martin 2026-11-25). Beskedet är listan
+//    med problem ur lib/datahalsa/felNu — inga räknare över fel som läkt.
 //  - Skilj OFARLIGT från ÄKTA: en avvisad dubblett (409) är ingen
 //    datatapp — den ska aldrig lysa rött. Rött reserveras för
 //    verkligt tapp (parse-fel, DB-fel som inte är 409).
@@ -17,21 +17,14 @@
 //  - Vyn visar VAD den vet, gissar aldrig varför. Maskintystnad
 //    VISAS men larmar aldrig (semester ser ut som fel).
 // ─────────────────────────────────────────────────────────────
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { SKARP_START, franGolv } from '@/lib/skarpStart'
-import { statusPunkter, type StatusRad } from '@/lib/datahalsa/status'
-
-// Importfel räknas från SKARP START (lib/skarpStart). De fyra kända felen
-// från maj/juni 2026 (2 "Kunde inte spara", 2 "No such file") ligger före
-// golvet och behöver ingen handräknad baslinje längre — varje fel efter
-// golvet är ett äkta larm.
-export const KANDA_IMPORTFEL = 0
-
-// Importfärskhet (Martins trösklar 2026-07-13): filer kommer flera
-// gånger om dagen, men helg/semester ger naturliga luckor.
-const GRONT_TIM = 24
-const GULT_TIM = 72
+import { type StatusRad } from '@/lib/datahalsa/status'
+import { FEL_NU_DYGN, type FilIn, type ImportFelIn } from '@/lib/datahalsa/lakt'
+import { beskedAv, felNu, type FelNu, type Problem } from '@/lib/datahalsa/felNu'
+import { lasObekraftade } from '@/lib/skotarLass/granskaKopplad'
+import { obekraftadeGrupper } from '@/lib/skotarLass/granskning'
 
 // Leverans per maskin — tid sedan senaste FIL (inte produktion). Trösklar
 // satta så normal maskinkadens är grön (Scorpion dagligen, Wisent 2 fil/vecka,
@@ -41,13 +34,13 @@ const GULT_TIM = 72
 export const LEV_GRON_DYGN = 3
 export const LEV_GUL_DYGN = 10
 
-export type FelFil = { filnamn: string; felmeddelande: string | null; importerad_tid: string }
-
 export type FilerData = {
   senasteImport: string | null   // ISO
   timmarSedan: number | null
-  antal7d: number
-  felFiler: FelFil[]
+  /** Filloggen de senaste FEL_NU_DYGN dygnen, alla statusar — underlaget för läkt-regeln. */
+  filer7d: FilIn[]
+  /** Äldre rader med fel i filloggen (från skarp start). Bara historik: aldrig ett fel nu. */
+  gamlaFel: { antal: number; forsta: string | null; sista: string | null }
 }
 
 // Leverans-överblick: en rad per maskin med tid sedan senaste DATA.
@@ -88,31 +81,12 @@ export type InvarianterData = {
 // All tolkning — texter, lägen, ordning — bor i lib/datahalsa/status.
 export type { StatusRad } from '@/lib/datahalsa/status'
 
-// import_fel — verifierade datatapp: tabellskrivningar som misslyckades i
-// Python-importen (upsert_data:s felgren). Wisent-läxan 21/7: skiftdata
-// tappades tyst i en logg ingen läser; nu läser datahälsan tabellen direkt.
-export type ImportFelRad = {
-  tid: string
-  tabell: string
-  filnamn: string | null
-  felkod: string | null
-  feltext: string | null
-}
-
-// Skilj OFARLIGT tabellskrivfel från ÄKTA datatapp. Importern lagrar felkod =
-// HTTP-status (t.ex. "409") vid DB-avvisning, feltext = PostgREST-svaret.
-//  - 409 / unique-constraint (23505) / "already exists" = raden finns REDAN =
-//    ingen data tappad, tvärtom (dubbletten stoppades korrekt).
-//  - flytt/arkiverings-strul = filen sparades, bara filflytten failade.
-//  - allt annat (parse-fel, 4xx/5xx som inte är 409, saknad data) = ÄKTA tapp.
-export function importFelKlass(r: ImportFelRad): 'ofarligt' | 'akta' {
-  const kod = (r.felkod || '').toLowerCase()
-  const txt = (r.feltext || '').toLowerCase()
-  if (kod === '409') return 'ofarligt'
-  if (txt.includes('duplicate key') || txt.includes('23505') || txt.includes('already exists')) return 'ofarligt'
-  if (txt.includes('flytt') || /\bmove\b/.test(txt)) return 'ofarligt'
-  return 'akta'
-}
+// import_fel — tabellskrivningar som misslyckades i Python-importen (upsert_data:s
+// felgren). Wisent-läxan 21/7: skiftdata tappades tyst i en logg ingen läser; nu
+// läser datahälsan tabellen direkt. Vad som är ofarligt och när ett fel har läkt
+// avgörs i lib/datahalsa/lakt.
+export type ImportFelRad = ImportFelIn
+export { importFelKlass } from '@/lib/datahalsa/lakt'
 
 // Objekt utan koordinat → km kan inte beräknas → tyst 0 i löneunderlaget. Fångas
 // den dagen dagen registreras i stället för veckor senare (Oskars Rössmåla stod
@@ -135,15 +109,27 @@ export type Besked = {
   punkter: string[]
 }
 
+/** De gamla självbekräftade lassen som ingen granskat (skotarläget). */
+export type LassData = { antal: number; m3: number }
+
 export type Datahalsa = {
   filer: Sektion<FilerData>
   leverans: Sektion<LeveransRad[]>
   invarianter: Sektion<InvarianterData>
   /** Alla statusrader. Vyn delar dem i import_live (överst) och importdatorns kontroller (lib/datahalsa/status). */
   status: Sektion<StatusRad[]> & { tabellSaknas: boolean }
-  importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
+  importFel: Sektion<ImportFelRad[]>
   koordinatLarm: Sektion<KoordinatLarmData>
+  lass: Sektion<LassData>
+  /** Det som är fel just nu, en rad per problem — samma lista som beskedet räknar. */
+  problem: Problem[]
+  /** Importfelen bedömda med läkt-regeln (null medan det laddar eller när underlaget inte gick att läsa). */
+  importfel: FelNu['importfel']
   besked: Besked
+  /** Läs allt en gång till (knappen "Försök igen"). */
+  lasOm: () => void
+  /** Läs bara de obekräftade lassen igen (efter en granskning) — utan att sidan blinkar. */
+  lasOmLass: () => void
 }
 
 // Paginerad hämtning (fakt_tid är >1000 rader; PostgREST svarar max 1000/anrop)
@@ -169,38 +155,73 @@ export function useDatahalsa(): Datahalsa {
   const [invarianter, setInvarianter] = useState<Sektion<InvarianterData>>({ laddar: true, fel: null, data: null })
   const [status, setStatus] = useState<Sektion<StatusRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
-  const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]> & { tabellSaknas: boolean }>(
-    { laddar: true, fel: null, data: null, tabellSaknas: false })
+  const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]>>({ laddar: true, fel: null, data: null })
   const [koordinatLarm, setKoordinatLarm] = useState<Sektion<KoordinatLarmData>>({ laddar: true, fel: null, data: null })
+  const [lass, setLass] = useState<Sektion<LassData>>({ laddar: true, fel: null, data: null })
+  const [omgang, setOmgang] = useState(0)
+  const [lassOmgang, setLassOmgang] = useState(0)
+  const lasOmLass = useCallback(() => setLassOmgang((n) => n + 1), [])
+  const lasOm = useCallback(() => {
+    const tom = { laddar: true, fel: null, data: null }
+    setFiler(tom); setLeverans(tom); setInvarianter(tom); setImportFel(tom); setKoordinatLarm(tom); setLass(tom)
+    setStatus({ ...tom, tabellSaknas: false })
+    setOmgang((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     let avbruten = false
+    const fran7d = new Date(Date.now() - FEL_NU_DYGN * 86400_000).toISOString()
 
     // ── 1. Kommer filerna in? (meta_importerade_filer) ──
+    // Filloggen de senaste sju dygnen läses HEL (alla statusar): den är underlaget för läkt-regeln
+    // (en senare fil i samma serie som gick in OK). Äldre fel läses bara som historik.
     ;(async () => {
-      const [senaste, veckan, fel] = await Promise.all([
+      const filer7d: FilIn[] = []
+      let fran = 0
+      let lasFel: string | null = null
+      while (true) {
+        const { data, error } = await supabase.from('meta_importerade_filer')
+          .select('id, filnamn, maskin_id, importerad_tid, status, felmeddelande')
+          .gte('importerad_tid', fran7d)
+          .order('id', { ascending: true })
+          .range(fran, fran + 999)
+        if (error) { lasFel = error.message; break }
+        for (const r of (data ?? []) as any[]) {
+          filer7d.push({
+            filnamn: String(r.filnamn), maskinId: (r.maskin_id ?? '').trim() || null,
+            importeradTid: String(r.importerad_tid), status: String(r.status ?? ''), felmeddelande: r.felmeddelande ?? null,
+          })
+        }
+        if (!data || data.length < 1000) break
+        fran += 1000
+      }
+      const [senaste, gamla] = lasFel ? [null, null] : await Promise.all([
         supabase.from('meta_importerade_filer')
           .select('importerad_tid').order('importerad_tid', { ascending: false }).limit(1),
         supabase.from('meta_importerade_filer')
-          .select('id', { count: 'exact', head: true })
-          .gte('importerad_tid', new Date(Date.now() - 7 * 86400_000).toISOString()),
-        supabase.from('meta_importerade_filer')
-          .select('filnamn, felmeddelande, importerad_tid')
-          .eq('status', 'FEL')
+          .select('importerad_tid', { count: 'exact' })
+          .neq('status', 'OK')
           .gte('importerad_tid', `${SKARP_START}T00:00:00`)
-          .order('importerad_tid', { ascending: false }),
+          .lt('importerad_tid', fran7d)
+          .order('importerad_tid', { ascending: true })
+          .limit(1000),
       ])
       if (avbruten) return
-      const errMsg = senaste.error?.message || veckan.error?.message || fel.error?.message || null
+      const errMsg = lasFel || senaste?.error?.message || gamla?.error?.message || null
       if (errMsg) { setFiler({ laddar: false, fel: errMsg, data: null }); return }
-      const senasteIso = senaste.data?.[0]?.importerad_tid ?? null
+      const senasteIso = senaste?.data?.[0]?.importerad_tid ?? null
+      const gamlaRader = (gamla?.data ?? []) as { importerad_tid: string }[]
       setFiler({
         laddar: false, fel: null,
         data: {
           senasteImport: senasteIso,
           timmarSedan: senasteIso ? (Date.now() - new Date(senasteIso).getTime()) / 3600_000 : null,
-          antal7d: veckan.count ?? 0,
-          felFiler: (fel.data ?? []) as FelFil[],
+          filer7d,
+          gamlaFel: {
+            antal: gamla?.count ?? gamlaRader.length,
+            forsta: gamlaRader[0]?.importerad_tid ?? null,
+            sista: gamlaRader[gamlaRader.length - 1]?.importerad_tid ?? null,
+          },
         },
       })
     })()
@@ -372,23 +393,27 @@ export function useDatahalsa(): Datahalsa {
       })
     })()
 
-    // ── 5. Tappades något vid import? (import_fel — kräver migration) ──
-    // Sektionen visar 7 dygn; beskedet blir rött bara på ÄKTA rader senaste
-    // DYGNET (409-dubbletter räknas aldrig som tapp), så ett åtgärdat tapp
-    // inte skriker i en vecka. Äldre/ofarliga rader syns ändå i listan.
+    // ── 5. Tappades något vid import? (import_fel) ──
+    // Alla rader de senaste sju dygnen, sida för sida (förr högst 50 — 23 nov kom 100 på en dag
+    // och hälften syntes aldrig). Vilka som är fel NU avgör läkt-regeln (lib/datahalsa/lakt).
     ;(async () => {
-      const { data, error } = await supabase.from('import_fel')
-        .select('tid, tabell, filnamn, felkod, feltext')
-        .gte('tid', new Date(Date.now() - 7 * 86400_000).toISOString())
-        .order('tid', { ascending: false })
-        .limit(50)
-      if (avbruten) return
-      if (error) {
-        const saknas = /does not exist|relation|schema cache/i.test(error.message)
-        setImportFel({ laddar: false, fel: saknas ? null : error.message, data: null, tabellSaknas: saknas })
-        return
+      const rader: ImportFelRad[] = []
+      let fran = 0
+      while (true) {
+        const { data, error } = await supabase.from('import_fel')
+          .select('id, tid, tabell, filnamn, felkod, feltext')
+          .gte('tid', fran7d)
+          .order('tid', { ascending: false }).order('id', { ascending: true })
+          .range(fran, fran + 999)
+        if (avbruten) return
+        if (error) { setImportFel({ laddar: false, fel: error.message, data: null }); return }
+        for (const r of (data ?? []) as any[]) {
+          rader.push({ tid: String(r.tid), tabell: String(r.tabell ?? ''), filnamn: r.filnamn ?? null, felkod: r.felkod ?? null, feltext: r.feltext ?? null })
+        }
+        if (!data || data.length < 1000) break
+        fran += 1000
       }
-      setImportFel({ laddar: false, fel: null, tabellSaknas: false, data: (data ?? []) as ImportFelRad[] })
+      setImportFel({ laddar: false, fel: null, data: rader })
     })()
 
     // ── 6. Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ──
@@ -500,63 +525,53 @@ export function useDatahalsa(): Datahalsa {
     })()
 
     return () => { avbruten = true }
-  }, [])
+  }, [omgang])
 
-  // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
-  //    matar ALDRIG beskedet: semester ser ut som fel. ──
-  const laddar = filer.laddar || invarianter.laddar || status.laddar || importFel.laddar || koordinatLarm.laddar
-  let besked: Besked
-  if (laddar) {
-    besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
-  } else {
-    const punkter: string[] = []
-    // röda villkor
-    if (filer.data && filer.data.felFiler.length > KANDA_IMPORTFEL)
-      punkter.push(`${filer.data.felFiler.length - KANDA_IMPORTFEL} importfel sedan ${SKARP_START}`)
-    if (filer.data?.timmarSedan != null && filer.data.timmarSedan > GULT_TIM)
-      punkter.push(`Ingen fil på ${Math.round(filer.data.timmarSedan / 24)} dygn`)
-    if (invarianter.data) {
-      if (invarianter.data.over24h.length > 0)
-        punkter.push(`${invarianter.data.over24h.length} dag(ar) med >24h motortid`)
-      if (invarianter.data.dubbletter.length > 0)
-        punkter.push(`${invarianter.data.dubbletter.length} dubblett-signatur(er)`)
-      if (invarianter.data.tomgangInkonsistenta > 0)
-        punkter.push(`${invarianter.data.tomgangInkonsistenta} tomgångs-inkonsistenta rader`)
-    }
-    // Statusraderna: importen felar / kontrolleras inte, och varje kontroll på importdatorn som larmar.
-    if (status.data) punkter.push(...statusPunkter(status.data, Date.now()))
-    // Bara ÄKTA tapp senaste dygnet är rött — avvisade dubbletter (409) är
-    // ingen datatapp och räknas aldrig hit.
-    const farskaAktaImportFel = (importFel.data ?? [])
-      .filter(r => importFelKlass(r) === 'akta' && Date.now() - new Date(r.tid).getTime() < 86400_000).length
-    if (farskaAktaImportFel > 0)
-      punkter.push(`${farskaAktaImportFel} tabellskrivfel senaste dygnet — data tappades vid import`)
-    // Koordinatlarm: flägga FÄRSKA fall (senaste 7 d) i beskedet så en ny dag på
-    // koordinatlöst objekt syns direkt; hela 60-dagarslistan bor i kortet.
-    if (koordinatLarm.data) {
-      const cutoff7 = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10)
-      const farska = koordinatLarm.data.koordlosa.filter(k => k.datum >= cutoff7).length
-      if (farska > 0)
-        punkter.push(`${farska} arbetsdag(ar) senaste veckan på objekt utan koordinat — km kan inte beräknas`)
-      if (koordinatLarm.data.dupTrakt.length > 0)
-        punkter.push(`${koordinatLarm.data.dupTrakt.length} trakt(er) på flera vo-nummer — koordinat kan tappas vid vo-byte`)
-    }
+  // ── Obekräftade lass (den gamla självbekräftelsen) — ett fel så länge något väntar på granskning.
+  //    Egen läsning: efter en granskning läses bara den om, så sidan inte blinkar. ──
+  useEffect(() => {
+    let avbruten = false
+    ;(async () => {
+      const l = await lasObekraftade()
+      if (avbruten) return
+      if (!l) { setLass({ laddar: false, fel: 'Kunde inte läsa skotarens lass', data: null }); return }
+      const grupper = obekraftadeGrupper(l)
+      setLass({
+        laddar: false, fel: null,
+        data: { antal: grupper.reduce((n, g) => n + g.lass.length, 0), m3: grupper.reduce((n, g) => n + g.m3, 0) },
+      })
+    })()
+    return () => { avbruten = true }
+  }, [omgang, lassOmgang])
 
-    const kundeInteLasa = [filer.fel, invarianter.fel, status.fel, importFel.fel, koordinatLarm.fel].some(Boolean)
-    if (punkter.length > 0) {
-      besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
-    } else if (kundeInteLasa) {
-      besked = { niva: 'okant', rubrik: 'Kunde inte kontrollera allt', punkter: [] }
-    } else if (filer.data?.timmarSedan != null && filer.data.timmarSedan > GRONT_TIM) {
-      besked = {
-        niva: 'gul',
-        rubrik: `Inga larm — senaste fil för ${Math.round(filer.data.timmarSedan)} tim sedan`,
-        punkter: [],
-      }
-    } else {
-      besked = { niva: 'gron', rubrik: 'Allt lugnt', punkter: [] }
-    }
-  }
+  // ── Beskedet — EN sammanvägning, samma överallt: listan med det som är fel NU
+  //    (lib/datahalsa/felNu). Leverans (maskintystnad) är aldrig ett fel: semester
+  //    ser ut som fel. Ett läsfel är alltid ett problem, aldrig "Allt fungerar". ──
+  const laddar = filer.laddar || leverans.laddar || invarianter.laddar || status.laddar || importFel.laddar || koordinatLarm.laddar || lass.laddar
+  const maskinNamnMap = useMemo(
+    () => new Map((leverans.data ?? []).map((m) => [m.maskinId.toUpperCase(), m.namn])), [leverans.data])
+  const bedomt = useMemo(() => laddar ? null : felNu({
+    nu: Date.now(),
+    // En tabell som saknas är också "kunde inte kontrollera".
+    status: { fel: status.fel ?? (status.tabellSaknas ? 'tabellen saknas' : null), data: status.data },
+    filer: { fel: filer.fel, data: filer.data?.filer7d ?? null },
+    importFel: { fel: importFel.fel, data: importFel.data },
+    invarianter: {
+      fel: invarianter.fel,
+      data: invarianter.data && {
+        over24h: invarianter.data.over24h.length, dubbletter: invarianter.data.dubbletter.length, tomgang: invarianter.data.tomgangInkonsistenta,
+      },
+    },
+    koordinat: {
+      fel: koordinatLarm.fel,
+      data: koordinatLarm.data && { koordlosa: koordinatLarm.data.koordlosa.length, dupTrakt: koordinatLarm.data.dupTrakt.length },
+    },
+    lass: { fel: lass.fel, data: lass.data },
+    leverans: { fel: leverans.fel },
+    maskinNamn: (id) => maskinNamnMap.get(id.toUpperCase()) ?? id,
+  }), [laddar, status, filer, importFel, invarianter, koordinatLarm, lass, leverans.fel, maskinNamnMap])
+  const problem = bedomt?.problem ?? []
+  const besked: Besked = beskedAv(problem, laddar)
 
-  return { filer, leverans, invarianter, status, importFel, koordinatLarm, besked }
+  return { filer, leverans, invarianter, status, importFel, koordinatLarm, lass, problem, importfel: bedomt?.importfel ?? null, besked, lasOm, lasOmLass }
 }

@@ -1,39 +1,32 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────
-// Datahälsa — "kan jag lita på datan idag?" på 10 sekunder.
-// Överst: fungerar importen just nu? (raden 'import_live', kontrollerad
-// i databasen var 15:e minut). Sedan ansiktet på larmen (>24h-invarianten,
-// dubblett-signaturen, tomgångs-konsistensen, kontrollerna på importdatorn)
-// — DATA-hälsa, inte maskinprestanda (det bor i maskinvyn).
+// Datahälsa — BARA DET SOM ÄR FEL JUST NU (Martin 2026-11-25:
+// "så enkelt att ett barn förstår direkt").
 //
-// Vyn visar VAD den vet, gissar aldrig varför. Maskintystnad
-// visas men larmar aldrig (semester ser ut som fel). Målet är
-// att vyn oftast är nästan tom och grön.
+//  1. Överst svaret: "Allt fungerar" eller "N saker är fel" + en rad
+//     per problem, i ord, med vad man gör. EN sanning: listan kommer
+//     ur lib/datahalsa/felNu och är samma som startsidans prick räknar.
+//  2. Ett kort syns bara när det har ett problem NU. Resten ligger
+//     bakom EN grå rad längst ner ("Visa allt · 7 kontroller").
+//  3. Historiken (läkta fel) står bara där, grått, i ord.
 //
-// Skiljer OFARLIGT från ÄKTA: avvisade dubbletter (409) visas
-// dämpat/grupperat, aldrig rött — inget tappades. Rött = verkligt tapp.
+// Rött och orange finns bara i svaret. Korten är läsning: inget i dem
+// lyser om det inte är ett fel nu. Maskintystnad visas men är aldrig
+// ett fel (semester ser ut som fel).
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect } from 'react'
-import { SKARP_START } from '@/lib/skarpStart'
+import { useState } from 'react'
+import Sektion from '@/components/design/Sektion'
+import Rad from '@/components/design/Rad'
+import Ikon from '@/components/design/Ikon'
 import SkotarLassKort from './SkotarLassKort'
-import ImportLive from './ImportLive'
-import { kontrollRader, kontrollerSenastKord, narText } from '@/lib/datahalsa/status'
-import { TYP } from '@/lib/design/tokens'
-import {
-  useDatahalsa, KANDA_IMPORTFEL, LEV_GRON_DYGN, LEV_GUL_DYGN,
-  importFelKlass, type Besked, type LeveransRad, type ImportFelRad,
-} from './useDatahalsa'
+import { AVSTAND, FARG, FONT, KNAPP, KORT, RADIE, TRAFFYTA, TYP, medSafeBotten, underTopbar } from '@/lib/design/tokens'
+import { IMPORT_LIVE, importLiveVy, kontrollRader, kontrollerSenastKord, narText } from '@/lib/datahalsa/status'
+import { SEKTIONER, laktText, serieNamn, serieVad, type Problem, type SektionId } from '@/lib/datahalsa/felNu'
+import { useDatahalsa, type Besked, type Datahalsa, type LeveransRad } from './useDatahalsa'
 
-const C = {
-  bg: '#000', card: '#141416', divider: 'rgba(255,255,255,0.06)',
-  text: '#f2f2f4', muted: '#8e8e93', dim: '#5c5c61',
-  gron: '#30d158', gul: '#ffd60a', rod: '#ff453a', bla: '#0a84ff',
-}
-const FONT = "-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,sans-serif"
-
-const KVITT_NYCKEL = 'datahalsa_leverans_forvantat'
-const KVITT_DYGN = 21   // hur länge en "förväntat"-kvittering håller (täcker semester)
+const MANADER = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+const datumKort = (d: string) => `${Number(d.slice(8, 10))} ${MANADER[Number(d.slice(5, 7)) - 1] ?? ''}`
 
 function tidSedan(iso: string | null): string {
   if (!iso) return '—'
@@ -52,431 +45,283 @@ function minText(sek: number): string {
   return m === 0 ? `${h} h` : `${h} h ${m} min`
 }
 
-const MANADER = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
-function datumKort(d: string): string {
-  return `${Number(d.slice(8, 10))} ${MANADER[Number(d.slice(5, 7)) - 1] ?? ''}`
+const PRICK: Record<Besked['niva'], string> = {
+  gron: FARG.gron, rod: FARG.rod, gul: FARG.orange, okant: FARG.text3, laddar: FARG.text3,
 }
 
-function Prick({ farg }: { farg: string }) {
-  return <span style={{
-    display: 'inline-block', width: 10, height: 10, borderRadius: 5,
-    background: farg, flexShrink: 0,
-  }} />
+/** Leveransen i ord. Aldrig en färg: tystnad kan vara semester och är inget fel. */
+function levText(m: LeveransRad): { text: string; dampad: boolean } {
+  if (m.aktivTill) return { text: `ur drift ${m.aktivTill.slice(0, 10)}`, dampad: true }
+  if (!m.sanderFiler) return { text: 'skickar inga filer', dampad: true }
+  if (m.senasteData == null || m.dagarSedan == null) return { text: 'ingen data än', dampad: true }
+  return { text: m.dagarSedan <= 0 ? 'i dag' : m.dagarSedan === 1 ? 'i går' : `${m.dagarSedan} dagar sedan`, dampad: false }
 }
 
-function Kort({ rubrik, laddar, fel, children }: {
-  rubrik: string; laddar: boolean; fel: string | null; children: React.ReactNode
+const SEKTION_RUBRIK: Record<SektionId, string> = {
+  filer: 'Kommer filerna in?',
+  leverans: 'Levererar maskinerna?',
+  importfel: 'Tappades något vid import?',
+  invarianter: 'Är datan galen?',
+  kontroller: 'Kontroller på importdatorn',
+  koordinat: 'Objekt utan koordinat',
+  skotarlass: 'Skotarens lass',
+}
+
+/** En rad som säger att kortet inte gick att läsa — aldrig ett tomt kort som ser ut som "inget". */
+function KundeInteLasa({ fel }: { fel: string }) {
+  // Feltexten kan vara en lång adress utan mellanslag: den får brytas var som helst (mätt i Chromium, 360 px).
+  return <Rad sista titel="Kunde inte läsas" under={<span style={{ overflowWrap: 'anywhere' }}>{fel}</span>} />
+}
+function Laser() {
+  return <Rad sista dampad titel="Läser …" />
+}
+
+// ── SVARET — det enda på sidan som lyser ──
+function Svar({ besked, problem, kontrollerat, onForsokIgen }: {
+  besked: Besked; problem: Problem[]; kontrollerat: string | null; onForsokIgen: () => void
 }) {
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: 16, marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.4, marginBottom: 12 }}>
-        {rubrik}
+    <section data-testid="svar" data-niva={besked.niva} aria-live="polite"
+      style={{ ...KORT, marginBottom: AVSTAND.xl, display: 'flex', flexDirection: 'column', gap: AVSTAND.m }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.m }}>
+        <span aria-hidden data-testid="svar-prick"
+          style={{ width: AVSTAND.l, height: AVSTAND.l, borderRadius: RADIE.cirkel, background: PRICK[besked.niva], flexShrink: 0 }} />
+        <h1 data-testid="svar-rubrik" style={{ ...TYP.titel, color: FARG.text, margin: 0 }}>{besked.rubrik}</h1>
       </div>
-      {laddar ? (
-        <div style={{ height: 18, width: '55%', borderRadius: 4, background: 'rgba(255,255,255,0.06)' }} />
-      ) : fel ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: C.rod, fontSize: 14 }}>
-          <Prick farg={C.rod} /> Kunde inte läsa: {fel}
-        </div>
-      ) : children}
-    </div>
+      {problem.length > 0 && (
+        <ul data-testid="svar-problem" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {problem.map((p, i) => (
+            <li key={p.id} data-problem={p.id} data-sektion={p.sektion}
+              style={{ padding: `${AVSTAND.m}px 0`, borderTop: `1px solid ${FARG.linje}`, paddingBottom: i === problem.length - 1 ? 0 : AVSTAND.m }}>
+              <div style={{ ...TYP.listtitel, color: FARG.text, overflowWrap: 'anywhere' }}>{p.text}</div>
+              {p.gor && <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs, overflowWrap: 'anywhere' }}>{p.gor}</div>}
+              {p.lasfel && (
+                <button type="button" onClick={onForsokIgen} style={{ ...KNAPP.tertiar, minWidth: TRAFFYTA.min }}>Försök igen</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {besked.niva === 'gron' && kontrollerat && (
+        <div data-testid="svar-kontrollerat" style={{ ...TYP.meta, color: FARG.text3 }}>{kontrollerat}</div>
+      )}
+    </section>
   )
 }
 
-function Rad({ vanster, hoger, dimmad, hogerFarg }: {
-  vanster: React.ReactNode; hoger: React.ReactNode; dimmad?: boolean; hogerFarg?: string
-}) {
+// ── KORTEN — läsning. Samma kort oavsett om det står uppe (har ett problem) eller under "Visa allt". ──
+
+function FilerKort({ d }: { d: Datahalsa }) {
+  const live = importLiveVy((d.status.data ?? []).find((r) => r.id === IMPORT_LIVE) ?? null, Date.now())
   return (
-    <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '9px 0', borderTop: `0.5px solid ${C.divider}`,
-      fontSize: 14, color: dimmad ? C.dim : C.text,
-    }}>
-      <span>{vanster}</span>
-      <span style={{
-        fontVariantNumeric: 'tabular-nums', color: hogerFarg ?? (dimmad ? C.dim : C.text),
-        display: 'flex', alignItems: 'center', gap: 6, textAlign: 'right',
-      }}>{hoger}</span>
-    </div>
+    <Sektion rubrik={SEKTION_RUBRIK.filer}>
+      {d.status.laddar ? <Laser /> : d.status.fel || d.status.tabellSaknas ? <KundeInteLasa fel={d.status.fel ?? 'Statusraderna saknas'} /> : (
+        <Rad titel="Importen just nu" attr={{ 'data-rad': 'import-live' }}
+          under={<>{live.rader.map((r) => <div key={r} style={{ overflowWrap: 'anywhere' }}>{r}</div>)}{live.kontrollerad && <div>{live.kontrollerad}</div>}</>}
+          hoger={live.lage === 'ok' ? 'Fungerar' : live.lage === 'larm' ? 'Felar' : 'Kontrolleras inte'} />
+      )}
+      {d.filer.laddar ? <Laser /> : d.filer.fel ? <KundeInteLasa fel={d.filer.fel} /> : (
+        <>
+          <Rad titel="Senaste fil" hoger={tidSedan(d.filer.data?.senasteImport ?? null)} />
+          <Rad sista titel="Senaste 7 dagarna" hoger={`${d.filer.data?.filer7d.length ?? 0} filer`} />
+        </>
+      )}
+    </Sektion>
   )
 }
 
-export function beskedFarg(niva: Besked['niva']): string {
-  return niva === 'gron' ? C.gron : niva === 'gul' ? C.gul
-    : niva === 'rod' ? C.rod : C.muted
+function LeveransKort({ d }: { d: Datahalsa }) {
+  const rader = d.leverans.data ?? []
+  return (
+    <Sektion rubrik={SEKTION_RUBRIK.leverans} not="Senaste dag med data. Tystnad kan vara semester eller uppehåll och är inget fel.">
+      {d.leverans.laddar ? <Laser /> : d.leverans.fel ? <KundeInteLasa fel={d.leverans.fel} /> : rader.length === 0 ? <Rad sista dampad titel="Inga maskiner" /> : (
+        rader.map((m, i) => {
+          const l = levText(m)
+          return <Rad key={m.maskinId} sista={i === rader.length - 1} dampad={l.dampad} titel={m.namn}
+            under={m.bekraftad ? undefined : 'Ny maskin – inte bekräftad'} hoger={l.text} />
+        })
+      )}
+    </Sektion>
+  )
 }
 
-// ── Leverans-rad: färg ur dagar sedan senaste DATA (fakt_tid/fakt_lass),
-//    aldrig ur maskintyp eller fil-loggen ──
-type LevLage = { farg: string; etikett: string; dimmad: boolean; kanKvittera: boolean }
-
-function dagEtikett(dagar: number): string {
-  return dagar <= 0 ? 'i dag' : dagar === 1 ? '1 dag sedan' : `${dagar} dagar sedan`
+function ImportfelKort({ d }: { d: Datahalsa }) {
+  const b = d.importfel
+  const nu = Date.now()
+  const maskin = (id: string) => (d.leverans.data ?? []).find((m) => m.maskinId.toUpperCase() === id.toUpperCase())?.namn ?? id
+  const gamla = d.filer.data?.gamlaFel
+  const laddar = d.importFel.laddar || d.filer.laddar
+  const fel = d.importFel.fel ?? d.filer.fel
+  const historik: { nyckel: string; titel: string; under: string }[] = []
+  if (b) {
+    for (const s of b.laktaSerier) {
+      historik.push({ nyckel: `l:${s.nyckel}`, titel: serieNamn(s, maskin), under: `${serieVad(s)} ${narText(s.sistaFel, nu)}. ${laktText(s)}.` })
+    }
+    for (const s of b.gamlaSerier) {
+      historik.push({ nyckel: `g:${s.nyckel}`, titel: serieNamn(s, maskin), under: `${serieVad(s)} ${narText(s.sistaFel, nu)}. Läkte aldrig – för gammalt för att räknas som ett fel nu.` })
+    }
+    if (b.ofarliga > 0) {
+      historik.push({ nyckel: 'ofarliga', titel: `${b.ofarliga} avvisade dubbletter`, under: 'Ofarligt – raderna fanns redan i databasen.' })
+    }
+  }
+  if (gamla && gamla.antal > 0) {
+    const period = gamla.forsta && gamla.sista ? ` ${datumKort(gamla.forsta)}–${datumKort(gamla.sista)}` : ''
+    historik.push({ nyckel: 'gamla', titel: `${gamla.antal} äldre filer med fel`, under: `Filloggen${period}. Inget av dem är ett fel nu.` })
+  }
+  const nuSerier = b?.nuSerier ?? []
+  return (
+    <Sektion rubrik={SEKTION_RUBRIK.importfel}>
+      {laddar ? <Laser /> : fel ? <KundeInteLasa fel={fel} /> : (
+        <>
+          {nuSerier.length === 0 && (
+            <Rad sista={historik.length === 0} titel="Inga fel just nu" attr={{ 'data-rad': 'importfel-inga' }}
+              under="Ett fel räknas tills nästa fil från samma objekt har gått in." />
+          )}
+          {nuSerier.map((s, i) => (
+            <Rad key={s.nyckel} sista={historik.length === 0 && i === nuSerier.length - 1} attr={{ 'data-rad': 'importfel-nu' }}
+              titel={s.antalFiler === 0 ? serieVad(s) : serieNamn(s, maskin)}
+              under={<>
+                {s.antalFiler > 0 && <div>{serieVad(s)} · senast {narText(s.sistaFel, nu)}</div>}
+                {s.tabeller.length > 0 && <div style={{ overflowWrap: 'anywhere' }}>Skrevs inte: {s.tabeller.join(', ')}</div>}
+                <div style={{ overflowWrap: 'anywhere' }}>{s.orsak}</div>
+              </>} />
+          ))}
+          {historik.length > 0 && (
+            <div data-testid="importfel-historik">
+              <div style={{ ...TYP.micro, color: FARG.text3, padding: `${AVSTAND.m}px 0 0` }}>Historik</div>
+              {historik.map((h, i) => <Rad key={h.nyckel} dampad sista={i === historik.length - 1} titel={h.titel} under={h.under} />)}
+            </div>
+          )}
+        </>
+      )}
+    </Sektion>
+  )
 }
 
-function levLage(m: LeveransRad): LevLage {
-  // Röd kan BARA nås när maskinen både sänder filer OCH är i drift — de två
-  // grå-grindarna nedan ligger före färgberäkningen. En filfri (810) eller
-  // urdriftad maskin bedöms aldrig på filleverans, lyser aldrig rött.
-  if (m.aktivTill)
-    return { farg: C.dim, etikett: `ur drift ${m.aktivTill.slice(0, 10)}`, dimmad: true, kanKvittera: false }
-  if (!m.sanderFiler)
-    return { farg: C.dim, etikett: 'manuell maskin — ej filbaserad', dimmad: true, kanKvittera: false }
-  if (m.senasteData == null || m.dagarSedan == null)
-    return { farg: C.muted, etikett: 'ingen data ännu', dimmad: true, kanKvittera: false }
-  const farg = m.dagarSedan <= LEV_GRON_DYGN ? C.gron : m.dagarSedan <= LEV_GUL_DYGN ? C.gul : C.rod
-  return { farg, etikett: dagEtikett(m.dagarSedan), dimmad: false, kanKvittera: farg === C.rod }
+function InvarianterKort({ d }: { d: Datahalsa }) {
+  const inv = d.invarianter.data
+  const flytt = inv?.motorUtanArbete ?? []
+  return (
+    <Sektion rubrik={SEKTION_RUBRIK.invarianter}>
+      {d.invarianter.laddar ? <Laser /> : d.invarianter.fel || !inv ? <KundeInteLasa fel={d.invarianter.fel ?? 'Ingen data'} /> : (
+        <>
+          <Rad titel="Dagar med mer än 24 timmar motortid" hoger={String(inv.over24h.length)} dampad={inv.over24h.length === 0}
+            under={inv.over24h.length === 0 ? undefined : inv.over24h.map((x) => <div key={x.maskin + x.datum}>{x.maskin} {datumKort(x.datum)}: {x.timmar.toFixed(1)} h</div>)} />
+          <Rad titel="Två förare med exakt samma tid" hoger={String(inv.dubbletter.length)} dampad={inv.dubbletter.length === 0}
+            under={inv.dubbletter.length === 0 ? undefined : inv.dubbletter.map((x) => <div key={x.maskin + x.datum + x.objekt}>{x.maskin} {datumKort(x.datum)} · objekt {x.objekt}: {x.antal} lika rader</div>)} />
+          <Rad titel="Tomgång som inte går ihop" hoger={String(inv.tomgangInkonsistenta)} dampad={inv.tomgangInkonsistenta === 0} />
+          <Rad sista dampad titel="Motorn gick utan arbetstid" hoger={`${flytt.length} ${flytt.length === 1 ? 'dag' : 'dagar'}`}
+            under={flytt.length === 0 ? 'Väntat vid flytt.' : `Väntat vid flytt. Senast ${datumKort(flytt[0].datum)} · ${flytt[0].namn} · ${flytt[0].objektnamn} (${minText(flytt[0].motorSek)}).`} />
+        </>
+      )}
+    </Sektion>
+  )
+}
+
+function KontrollerKort({ d }: { d: Datahalsa }) {
+  const kontroller = kontrollRader(d.status.data ?? [])
+  const korda = narText(kontrollerSenastKord(d.status.data ?? []), Date.now())
+  return (
+    <Sektion rubrik={SEKTION_RUBRIK.kontroller}>
+      {d.status.laddar ? <Laser /> : d.status.fel || d.status.tabellSaknas ? <KundeInteLasa fel={d.status.fel ?? 'Statusraderna saknas'} /> : kontroller.length === 0 ? (
+        <Rad sista titel="Ingen körning registrerad" under="Raderna skrivs när kontrollen på importdatorn har kört." />
+      ) : (
+        <div data-testid="kontroller">
+          <Rad dampad titel="Senast körda" hoger={korda ?? '—'} />
+          {kontroller.map((k, i) => (
+            <Rad key={k.id} sista={i === kontroller.length - 1} dampad={k.lage === 'ok'} titel={k.namn}
+              attr={{ 'data-kontroll': k.id, 'data-lage': k.lage }}
+              hoger={k.lage === 'ok' ? 'Inga larm' : k.lage === 'larm' ? (k.larmAntal > 1 ? `${k.larmAntal} larm` : 'Larm') : 'Okänt'}
+              under={k.rader.length === 0 ? undefined : k.rader.map((r) => <div key={r} style={{ overflowWrap: 'anywhere' }}>{r}</div>)} />
+          ))}
+        </div>
+      )}
+    </Sektion>
+  )
+}
+
+function KoordinatKort({ d }: { d: Datahalsa }) {
+  const k = d.koordinatLarm.data
+  return (
+    <Sektion rubrik={SEKTION_RUBRIK.koordinat} not="Utan koordinat kan vägen till objektet inte räknas, och dagen får 0 km i löneunderlaget.">
+      {d.koordinatLarm.laddar ? <Laser /> : d.koordinatLarm.fel || !k ? <KundeInteLasa fel={d.koordinatLarm.fel ?? 'Ingen data'} /> : k.koordlosa.length === 0 && k.dupTrakt.length === 0 ? (
+        <Rad sista dampad titel="Alla objekt med arbetsdagar har koordinat" under="De senaste 60 dagarna." />
+      ) : (
+        <>
+          {k.dupTrakt.map((t) => (
+            <Rad key={`dup-${t.objektnr}`} titel={`Objektnr ${t.objektnr} ligger på flera VO-nummer`}
+              under={t.vo.map((v) => <div key={v.objekt_id}>VO {v.objekt_id} · {v.objektnamn} · {v.harKoord ? 'har koordinat' : 'saknar koordinat'}</div>)} />
+          ))}
+          {k.koordlosa.map((x, i) => (
+            <Rad key={`${x.medarbetare}-${x.datum}-${x.objekt_id}-${i}`} sista={i === k.koordlosa.length - 1}
+              titel={x.objektnamn} under={`${datumKort(x.datum)} · ${x.medarbetare} · VO ${x.objekt_id}`} />
+          ))}
+        </>
+      )}
+    </Sektion>
+  )
+}
+
+function Kortet({ id, d }: { id: SektionId; d: Datahalsa }) {
+  return (
+    <div data-kort={id}>
+      {id === 'filer' ? <FilerKort d={d} />
+        : id === 'leverans' ? <LeveransKort d={d} />
+        : id === 'importfel' ? <ImportfelKort d={d} />
+        : id === 'invarianter' ? <InvarianterKort d={d} />
+        : id === 'kontroller' ? <KontrollerKort d={d} />
+        : id === 'koordinat' ? <KoordinatKort d={d} />
+        : <SkotarLassKort vidGranskat={d.lasOmLass} />}
+    </div>
+  )
 }
 
 export default function DatahalsaPage() {
-  const { filer, leverans, invarianter, status, importFel, koordinatLarm, besked } = useDatahalsa()
-  const [visaFel, setVisaFel] = useState(false)
-  // Importdatorns kontroller (gap_check.py): en rad per kontroll. import_live ritas för sig, överst.
-  const kontroller = kontrollRader(status.data ?? [])
-  const kontrollerKorda = narText(kontrollerSenastKord(status.data ?? []), Date.now())
+  const d = useDatahalsa()
+  const [visaAllt, setVisaAllt] = useState(false)
 
-  // Kvittering "förväntat tyst" per maskin — client-lokal (ingen migration),
-  // med utgång (KVITT_DYGN) så en glömd kvittering inte döljer ett verkligt
-  // stopp för evigt. Håller bara nere FÄRGEN i denna vy; beskedet påverkas ej.
-  const [kvitt, setKvitt] = useState<Record<string, string>>({})
-  useEffect(() => {
-    try {
-      const rått = JSON.parse(localStorage.getItem(KVITT_NYCKEL) || '{}') as Record<string, string>
-      const nu = Date.now()
-      const giltiga: Record<string, string> = {}
-      for (const [id, until] of Object.entries(rått)) {
-        if (until && new Date(until).getTime() > nu) giltiga[id] = until
-      }
-      setKvitt(giltiga)
-    } catch { /* tom/trasig localStorage — ignorera */ }
-  }, [])
+  // Kort med ett problem NU står uppe. Resten ligger bakom raden längst ner.
+  const medProblem = SEKTIONER.filter((id) => d.problem.some((p) => p.sektion === id))
+  const utanProblem = SEKTIONER.filter((id) => !medProblem.includes(id))
+  const laddar = d.besked.niva === 'laddar'
 
-  const sparaKvitt = (next: Record<string, string>) => {
-    setKvitt(next)
-    try { localStorage.setItem(KVITT_NYCKEL, JSON.stringify(next)) } catch { /* ignore */ }
-  }
-  const kvitteraForvantat = (maskinId: string) => {
-    const until = new Date(Date.now() + KVITT_DYGN * 86400_000).toISOString()
-    sparaKvitt({ ...kvitt, [maskinId]: until })
-  }
-  const angraKvitt = (maskinId: string) => {
-    const next = { ...kvitt }; delete next[maskinId]; sparaKvitt(next)
-  }
-
-  const importFarg = filer.data?.timmarSedan == null ? C.muted
-    : filer.data.timmarSedan < 24 ? C.gron
-    : filer.data.timmarSedan < 72 ? C.gul : C.rod
-
-  const felAntal = filer.data?.felFiler.length ?? 0
-  const nyaFel = Math.max(0, felAntal - KANDA_IMPORTFEL)
-
-  // Klassificera import_fel: ofarliga (409-dubbletter) grupperas dämpat,
-  // äkta tapp listas rött. Rubriken svarar ärligt på om något tappades.
-  const importFelData = importFel.data ?? []
-  const ofarliga = importFelData.filter(r => importFelKlass(r) === 'ofarligt')
-  const akta = importFelData.filter(r => importFelKlass(r) === 'akta')
-  // Gruppera ofarliga per tabell för en dämpad sammanfattning (ej en rad/förekomst).
-  const ofarligaPerTabell = ofarliga.reduce<Record<string, number>>((acc, r) => {
-    acc[r.tabell] = (acc[r.tabell] || 0) + 1
-    return acc
-  }, {})
+  const nu = Date.now()
+  const live = importLiveVy((d.status.data ?? []).find((r) => r.id === IMPORT_LIVE) ?? null, nu)
+  const korda = narText(kontrollerSenastKord(d.status.data ?? []), nu)
+  const kontrollerat = [live.kontrollerad ? live.kontrollerad.replace(/^Senast kontrollerad/, 'Importen kontrollerad') : null, korda ? `importdatorn ${korda}` : null]
+    .filter(Boolean).join(' · ') || null
 
   return (
     <div style={{
       position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch',
-      background: C.bg, fontFamily: FONT, WebkitFontSmoothing: 'antialiased',
+      background: FARG.bg, color: FARG.text, fontFamily: FONT, WebkitFontSmoothing: 'antialiased',
     }}>
       <main style={{
-        maxWidth: 560, margin: '0 auto',
-        padding: 'calc(72px + env(safe-area-inset-top)) 16px 90px',
+        maxWidth: 560, margin: '0 auto', boxSizing: 'border-box',
+        padding: `${underTopbar(AVSTAND.l)} ${AVSTAND.sidmarginal}px ${medSafeBotten(AVSTAND.xxl)}`,
       }}>
+        <Svar besked={d.besked} problem={d.problem} kontrollerat={kontrollerat} onForsokIgen={d.lasOm} />
 
-        {/* ── IMPORTEN JUST NU — raden 'import_live', kontrollerad i databasen var 15:e minut.
-            Överst: kommer ingen data in är allt annat på sidan gammalt. ── */}
-        <ImportLive sektion={status} />
+        {!laddar && medProblem.map((id) => <Kortet key={id} id={id} d={d} />)}
 
-        {/* ── BESKEDET — hela poängen, 10 sekunder ── */}
-        <div style={{
-          background: C.card, borderRadius: 14, padding: '18px 16px', marginBottom: 18,
-          display: 'flex', flexDirection: 'column', gap: 8,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Prick farg={beskedFarg(besked.niva)} />
-            <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>{besked.rubrik}</span>
-          </div>
-          {besked.punkter.length > 0 && (
-            <ul style={{ margin: '4px 0 0 28px', padding: 0, color: C.rod, fontSize: 14, lineHeight: 1.7 }}>
-              {besked.punkter.map(p => <li key={p}>{p}</li>)}
-            </ul>
-          )}
-        </div>
-
-        {/* ── LEVERANS-ÖVERBLICK — senaste DATA per maskin (MAX datum i
-            fakt_tid/fakt_lass, inte fil-loggen). Visas, larmar ALDRIG
-            (tystnad = observation, inte fel). Röd kan kvitteras som
-            "förväntat" (semester) → dämpas utan att döljas. ── */}
-        <Kort rubrik="LEVERERAR MASKINERNA?" laddar={leverans.laddar} fel={leverans.fel}>
-          {(leverans.data ?? []).map(m => {
-            const lage = levLage(m)
-            const kvitteradTill = kvitt[m.maskinId]
-            const kvitterad = !!kvitteradTill && lage.kanKvittera
-            return (
-              <div key={m.maskinId} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '9px 0', borderTop: `0.5px solid ${C.divider}`, gap: 10,
-                fontSize: 14, color: (lage.dimmad || kvitterad) ? C.dim : C.text,
+        {!laddar && utanProblem.length > 0 && (
+          <>
+            <button type="button" data-testid="visa-allt" aria-expanded={visaAllt} onClick={() => setVisaAllt((v) => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: AVSTAND.s, width: '100%',
+                minHeight: TRAFFYTA.primar, padding: `0 ${AVSTAND.l}px`, marginBottom: AVSTAND.xl, boxSizing: 'border-box',
+                background: FARG.kort, border: 'none', borderRadius: RADIE.kort, cursor: 'pointer', fontFamily: 'inherit',
+                ...TYP.text, color: FARG.text2, textAlign: 'left',
               }}>
-                <span style={{ minWidth: 0 }}>
-                  {m.namn}
-                  {!m.bekraftad && <span style={{ color: C.gul }}> · obekräftad</span>}
-                </span>
-                <span style={{
-                  display: 'flex', alignItems: 'center', gap: 8, textAlign: 'right',
-                  fontVariantNumeric: 'tabular-nums', flexShrink: 0,
-                }}>
-                  {kvitterad ? (
-                    <>
-                      <span style={{ color: C.dim, fontSize: 13 }}>
-                        förväntat t.o.m. {kvitteradTill.slice(0, 10)}
-                      </span>
-                      <button onClick={() => angraKvitt(m.maskinId)} style={{
-                        background: 'none', border: 'none', color: C.bla, fontFamily: FONT,
-                        fontSize: 12, cursor: 'pointer', padding: 0,
-                      }}>ångra</button>
-                      <Prick farg={C.gul} />
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ color: lage.dimmad ? C.dim : C.text }}>{lage.etikett}</span>
-                      {lage.kanKvittera && (
-                        <button onClick={() => kvitteraForvantat(m.maskinId)} style={{
-                          background: 'none', border: `0.5px solid ${C.dim}`, color: C.muted,
-                          fontFamily: FONT, fontSize: 11, cursor: 'pointer', padding: '2px 8px',
-                          borderRadius: 7, whiteSpace: 'nowrap',
-                        }}>förväntat?</button>
-                      )}
-                      <Prick farg={lage.farg} />
-                    </>
-                  )}
-                </span>
-              </div>
-            )
-          })}
-          <div style={{ paddingTop: 8, fontSize: 11, color: C.dim }}>
-            Senaste dag med data (fakt_tid/fakt_lass), inte fil-loggen — kumulativa
-            filer bär flera dagar per fil. Tystnad kan vara semester eller planerat
-            uppehåll — visas, larmas aldrig. Ur drift och manuella (filfria)
-            maskiner gråtonas och bedöms aldrig på filleverans.
-          </div>
-        </Kort>
-
-        {/* ── 1. Kommer filerna in? ── */}
-        <Kort rubrik="KOMMER FILERNA IN?" laddar={filer.laddar} fel={filer.fel}>
-          <Rad vanster="Senaste import"
-               hoger={<><span>{tidSedan(filer.data?.senasteImport ?? null)}</span><Prick farg={importFarg} /></>} />
-          <Rad vanster="Senaste 7 dagarna" hoger={`${filer.data?.antal7d ?? 0} filer`} />
-          <Rad
-            vanster={
-              <button onClick={() => setVisaFel(v => !v)} style={{
-                background: 'none', border: 'none', padding: 0, fontFamily: FONT,
-                fontSize: 14, color: nyaFel > 0 ? C.rod : C.dim, cursor: 'pointer',
-              }}>
-                {visaFel ? '▾' : '▸'} Kända importfel
-              </button>
-            }
-            hoger={nyaFel > 0
-              ? `${felAntal} st — ${nyaFel} NYA`
-              : `${felAntal} st · sedan maj`}
-            dimmad={nyaFel === 0}
-            hogerFarg={nyaFel > 0 ? C.rod : undefined}
-          />
-          {visaFel && (filer.data?.felFiler ?? []).map(f => (
-            <div key={f.filnamn + f.importerad_tid} style={{
-              padding: '6px 0 6px 16px', fontSize: 12, color: C.dim,
-              borderTop: `0.5px solid ${C.divider}`, wordBreak: 'break-all',
-            }}>
-              <div style={{ color: C.muted }}>{f.filnamn}</div>
-              <div>{f.importerad_tid?.slice(0, 10)} — {f.felmeddelande || 'okänt fel'}</div>
-            </div>
-          ))}
-        </Kort>
-
-        {/* ── 3. Är datan galen? — ska alltid vara 0 ── */}
-        <Kort rubrik="ÄR DATAN GALEN?" laddar={invarianter.laddar} fel={invarianter.fel}>
-          <Rad vanster="Dagar med >24h motortid"
-               hoger={invarianter.data?.over24h.length === 0 ? '0 ✅' : `${invarianter.data?.over24h.length} ⛔`}
-               hogerFarg={invarianter.data?.over24h.length === 0 ? C.gron : C.rod} />
-          {(invarianter.data?.over24h ?? []).map(x => (
-            <div key={x.maskin + x.datum} style={{ paddingLeft: 16, fontSize: 12, color: C.rod }}>
-              {x.maskin} {x.datum}: {x.timmar.toFixed(1)} h
-            </div>
-          ))}
-          <Rad vanster="Dubblett-signaturer"
-               hoger={invarianter.data?.dubbletter.length === 0 ? '0 ✅' : `${invarianter.data?.dubbletter.length} ⛔`}
-               hogerFarg={invarianter.data?.dubbletter.length === 0 ? C.gron : C.rod} />
-          {(invarianter.data?.dubbletter ?? []).map(x => (
-            <div key={x.maskin + x.datum + x.objekt} style={{ paddingLeft: 16, fontSize: 12, color: C.rod }}>
-              {x.maskin} {x.datum} objekt {x.objekt}: {x.antal} identiska rader
-            </div>
-          ))}
-          <Rad vanster="Tomgångs-inkonsistens"
-               hoger={invarianter.data?.tomgangInkonsistenta === 0 ? '0 · LÄKT ✅' : `${invarianter.data?.tomgangInkonsistenta} ⛔`}
-               hogerFarg={invarianter.data?.tomgangInkonsistenta === 0 ? C.gron : C.rod} />
-          {/* Motortid utan arbetstid — ÄRLIG DATA, inte fel. Motorn gick på en
-              flyttdag (trailer, rast). Dämpad, aldrig röd, matar aldrig beskedet:
-              ett larm som larmar på det normala lär folk att ignorera larm.
-              Tills 2026-10-01 hittade importen på 88 % arbete här — nu står noll. */}
-          <Rad vanster="Motortid utan arbetstid" dimmad
-               hoger={`${invarianter.data?.motorUtanArbete.length ?? 0} dag(ar) · förväntat vid flytt`} />
-          {(invarianter.data?.motorUtanArbete ?? []).map(x => (
-            <div key={x.maskin + x.datum + x.objekt} style={{ paddingLeft: 16, fontSize: 12, color: C.dim, padding: '2px 0 2px 16px' }}>
-              {x.namn} {datumKort(x.datum)} · {x.objektnamn}: motorn gick {minText(x.motorSek)}, ingen arbetstid
-              {x.avbrottSek > 0 ? ` · avbrott ${minText(x.avbrottSek)}` : ''}
-              {x.rastSek > 0 ? ` · rast ${minText(x.rastSek)}` : ''}
-            </div>
-          ))}
-        </Kort>
-
-        {/* ── 3b. Tappades något vid import? — skiljer ÄKTA tapp (rött) från
-            OFARLIGA avvisade dubbletter (409, dämpat). En 409 = raden fanns
-            redan = inget tappades, tvärtom (dedup rätt). ── */}
-        <Kort rubrik="TAPPADES NÅGOT VID IMPORT?" laddar={importFel.laddar} fel={importFel.fel}>
-          {importFel.tabellSaknas ? (
-            <div style={{ fontSize: 13, color: C.muted }}>
-              Kräver att migrationen för <code>import_fel</code> körs — tills dess
-              syns tabellskrivfel bara i importloggen på datorn.
-            </div>
-          ) : (
-            <>
-              {/* Ärligt svar i rubrikraden */}
-              <Rad
-                vanster="Äkta datatapp (7 dygn)"
-                hoger={akta.length === 0
-                  ? (ofarliga.length > 0
-                      ? `Nej — allt sparades`
-                      : '0 ✅')
-                  : `${akta.length} ⛔`}
-                hogerFarg={akta.length === 0 ? C.gron : C.rod}
-              />
-              {/* Äkta tapp — rött, per rad */}
-              {akta.map(r => (
-                <div key={r.tid + r.tabell} style={{
-                  padding: '6px 0 6px 16px', fontSize: 12, color: C.rod,
-                  borderTop: `0.5px solid ${C.divider}`, wordBreak: 'break-all',
-                }}>
-                  <div>{new Date(r.tid).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} · {r.tabell}{r.felkod ? ` · ${r.felkod}` : ''}</div>
-                  {r.filnamn && <div style={{ color: C.muted }}>{r.filnamn}</div>}
-                  {r.feltext && <div style={{ color: C.dim }}>{r.feltext.slice(0, 160)}</div>}
-                </div>
-              ))}
-              {/* Ofarliga avvisade dubbletter — dämpat, grupperat, aldrig rött */}
-              {ofarliga.length > 0 && (
-                <div style={{
-                  marginTop: 8, padding: '10px 12px', borderTop: `0.5px solid ${C.divider}`,
-                  background: 'rgba(255,255,255,0.02)', borderRadius: 8,
-                }}>
-                  <div style={{ fontSize: 13, color: C.muted, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Prick farg={C.dim} />
-                    {ofarliga.length} avvisade dubbletter — ofarligt, fanns redan i databasen
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 12, color: C.dim, paddingLeft: 18 }}>
-                    {Object.entries(ofarligaPerTabell)
-                      .map(([tabell, n]) => `${tabell}: ${n}`)
-                      .join(' · ')}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </Kort>
-
-        {/* ── 4. Kontrollerna på importdatorn (gap_check.py) — en rad per kontroll.
-            Det som bara den datorn kan se: filerna i Behandlade och Inkommande och
-            koden som kör. Importfelen står inte här: de bevakas i databasen (överst). ── */}
-        <Kort rubrik="KONTROLLER PÅ IMPORTDATORN" laddar={status.laddar} fel={status.fel}>
-          {status.tabellSaknas ? (
-            <div style={{ fontSize: 13, color: C.muted }}>
-              Status här kräver att migrationen för <code>meta_datahalsa_status</code> körs —
-              tills dess finns resultatet bara i loggen på datorn.
-            </div>
-          ) : kontroller.length > 0 ? (
-            <div data-testid="kontroller">
-              <Rad vanster="Senast körda" hoger={kontrollerKorda ?? '—'} dimmad />
-              {kontroller.map(k => (
-                <div key={k.id} data-kontroll={k.id} data-lage={k.lage}>
-                  <Rad vanster={k.namn}
-                       hoger={k.lage === 'ok' ? 'Inga larm ✅'
-                         : k.lage === 'larm' ? `${k.larmAntal > 1 ? `${k.larmAntal} larm` : 'Larm'} ⛔`
-                         : 'Kunde inte kontrolleras'}
-                       hogerFarg={k.lage === 'ok' ? C.gron : k.lage === 'larm' ? C.rod : C.muted} />
-                  {k.rader.map(r => (
-                    <div key={r} style={{
-                      padding: '2px 0 8px 16px', ...TYP.meta, wordBreak: 'break-word',
-                      color: k.lage === 'larm' ? C.rod : C.muted,
-                    }}>{r}</div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: 13, color: C.muted }}>
-              Ingen körning registrerad ännu — raderna skrivs när kontrollen på importdatorn har kört.
-            </div>
-          )}
-        </Kort>
-
-        {/* ── Objekt utan koordinat (km kan ej beräknas) + dubblerad trakt ── */}
-        <Kort rubrik="OBJEKT UTAN KOORDINAT" laddar={koordinatLarm.laddar} fel={koordinatLarm.fel}>
-          {koordinatLarm.data && (koordinatLarm.data.koordlosa.length > 0 || koordinatLarm.data.dupTrakt.length > 0) ? (
-            <>
-              {koordinatLarm.data.dupTrakt.length > 0 && (
-                <div style={{ marginBottom: koordinatLarm.data.koordlosa.length > 0 ? 14 : 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.gul, marginBottom: 6 }}>
-                    Samma trakt på flera vo-nummer — koordinat kan tappas vid vo-byte
-                  </div>
-                  {koordinatLarm.data.dupTrakt.map(t => (
-                    <div key={t.objektnr} style={{ padding: '7px 0', borderTop: `0.5px solid ${C.divider}`, fontSize: 14 }}>
-                      <div style={{ color: C.text }}>Objektnr {t.objektnr}</div>
-                      {t.vo.map(v => (
-                        <div key={v.objekt_id} style={{ fontSize: 13, color: C.muted, display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
-                          <span>vo {v.objekt_id} · {v.objektnamn}</span>
-                          <span style={{ color: v.harKoord ? C.gron : C.rod, flexShrink: 0 }}>
-                            {v.harKoord ? 'koordinat ✓' : 'saknar koordinat'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {koordinatLarm.data.koordlosa.length > 0 && (
-                <>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: C.rod, marginBottom: 2 }}>
-                    {koordinatLarm.data.koordlosa.length} arbetsdag(ar) senaste 60 dagarna (från {SKARP_START}) på objekt utan koordinat — km blir tyst 0
-                  </div>
-                  {koordinatLarm.data.koordlosa.map((k, i) => (
-                    <Rad key={`${k.medarbetare}-${k.datum}-${k.objekt_id}-${i}`}
-                         vanster={<span>{k.datum} · {k.medarbetare}</span>}
-                         hoger={<span style={{ color: C.muted }}>{k.objektnamn} <span style={{ color: C.dim }}>({k.objekt_id})</span></span>}
-                         hogerFarg={C.muted} />
-                  ))}
-                </>
-              )}
-            </>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: C.text }}>
-              <Prick farg={C.gron} /> Alla objekt med arbetsdagar (60 d, från {SKARP_START}) har koordinat
-            </div>
-          )}
-          <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
-            Koordinatkälla: dim_objekt → objekt.lat/lng → larmkoordinat. Saknas alla
-            tre kan vägavståndet (km) inte beräknas och dagen blir 0 i löneunderlaget.
-          </div>
-        </Kort>
-
-        {/* ── Skotarens lass i appen mot Opti (admin) ── */}
-        <SkotarLassKort />
-
+              <span>
+                {visaAllt ? 'Dölj' : medProblem.length === 0 ? 'Visa allt' : 'Visa det som fungerar'}
+                {' · '}{utanProblem.length} {utanProblem.length === 1 ? 'kontroll' : 'kontroller'}
+              </span>
+              <Ikon namn={visaAllt ? 'expand_less' : 'expand_more'} farg={FARG.text3} />
+            </button>
+            {visaAllt && <div data-testid="allt">{utanProblem.map((id) => <Kortet key={id} id={id} d={d} />)}</div>}
+          </>
+        )}
       </main>
     </div>
   )
