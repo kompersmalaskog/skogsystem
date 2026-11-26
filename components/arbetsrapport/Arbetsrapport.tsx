@@ -20,7 +20,7 @@ import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import { byggAvtalGrupper } from "@/lib/avtalVy";
 import { oppnaAvtalPdf as oppnaAvtalPdfFil, MEDD_EJ_UPPLADDAT } from "@/lib/avtalPdf";
 import { isoVecka, type VilaTrosklar } from "@/lib/vilobrott";
-import { FRANVARO_VAL, FRANVARO_UNDERRAD, DELDAG_VAL, DELDAG_UNDERRAD, hemskickadMinuter, fmtTimMin, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type FranvaroRad, type Byte, type Deldag } from "@/lib/franvaro";
+import { FRANVARO_VAL, FRANVARO_UNDERRAD, DELDAG_VAL, deldagVal, deldagUnderrad, hemskickadGaller, hemskickadMinuter, fmtTimMin, FRANVARO_TYP_RUBRIK, FRANVARO_ORD, FRANVARO_TYPER, FRANVARO_STATUS_GALLER, BYTE_MAX_DAGAR, hamtaFranvaro, franvaroPerDatum, deldagarPerDatum, fmtKlockslag, registreraFranvaro, bytenPerDatum, bytesdagFel, ansokBytesdag, rodVardagNamn, bytbaraRodaDagar, type FranvaroTyp, type FranvaroRad, type Byte, type Deldag } from "@/lib/franvaro";
 import { SKARP_START, franGolv, foreSkarpStart } from "@/lib/skarpStart";
 import { MAX_BEN_KM } from "@/lib/routing";
 import { arArbetsdag, RAST_FRAGA_MIN, RAST_HJUL_MAX, passMinuter } from "@/lib/arbetsdagRegler";
@@ -2144,6 +2144,7 @@ export default function Arbetsrapport() {
   // härlett ur den arbetade tiden den dagen (maskin + extra tid) — samma tal som lönemotorn. Medan passet pågår är den arbetade tiden inte slutlig.
   // `dagRad` = dagens post som vyerna håller (byggDagPost: `arbMin`) eller en rå arbetsdag-rad (`arbetad_min`).
   const hemskickadDagText = (datum: string, dagRad: any, pagar: boolean): string => {
+    if (!hemskickadGaller(datum)) return "Hemskickad – helg eller röd dag, betalas inte";
     if (pagar) return "Hemskickad – dagen fylls upp till 8 tim och betalas";
     const maskinMin = Number(dagRad?.arbMin ?? dagRad?.arbetad_min ?? 0) || 0;
     const extra = (extraTidData || []).filter((e: any) => e.datum === datum).reduce((a: number, e: any) => a + (e.minuter || 0), 0);
@@ -2163,7 +2164,7 @@ export default function Arbetsrapport() {
             ? "Du får betalt för resten av dagen: dagen fylls upp till 8 tim som timlön."
             : "Förmiddagen räknas som arbete. Frånvarotimmarna räknas mot 8 tim per dag tills schema är beslutat."}</p>
           <div style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.l }}>
-            {DELDAG_VAL.map(v => (
+            {deldagVal(s.datum).map(v => (
               <button key={v.id} onClick={()=>setDeldagSheet({ ...s, typ: v.id, fel: null })} style={{ ...(s.typ === v.id ? KNAPP.primar : KNAPP.sekundar), justifyContent:"flex-start", padding:`0 ${AVSTAND.l}px` }}>
                 <span className="material-symbols-outlined" style={{ fontSize:IKON.text }}>{v.ikon}</span>
                 {v.label}
@@ -3908,10 +3909,10 @@ export default function Arbetsrapport() {
           if ((harMaskinPass || perioddag) && !dagPågår) return null;
           return (
           <section style={{ marginTop:AVSTAND.m }}>
-            {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${DELDAG_UNDERRAD} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
+            {kortKnapp(delDag ? 'Åker hem' : 'Frånvaro', delDag ? `${deldagUnderrad(idagKey)} — resten av dagen` : FRANVARO_UNDERRAD, ()=>setVisaÖvrigt(v=>!v), visaÖvrigt)}
             {visaÖvrigt && (
               <div className="tona-in" style={{ display:"flex", flexDirection:"column", gap:AVSTAND.s, marginTop:AVSTAND.s }}>
-                {(delDag ? DELDAG_VAL : FRANVARO_VAL).map(s=>(
+                {(delDag ? deldagVal(idagKey) : FRANVARO_VAL).map(s=>(
                   <button key={s.id} onClick={async ()=>{
                     const nu = new Date();
                     const franTid = delDag ? `${String(nu.getHours()).padStart(2, "0")}:${String(nu.getMinutes()).padStart(2, "0")}` : null;
@@ -6076,7 +6077,7 @@ export default function Arbetsrapport() {
                 );
                 if (!rd.start_tid || franvaroDagar[rd.datum] || foreSkarpStart(rd.datum)) return null;
                 return (
-                  <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>Åkte hem sjuk, VAB, föräldraledig eller hemskickad?</button>
+                  <button onClick={()=>setDeldagSheet({ datum: rd.datum, typ: null, tid: fmtKlockslag(rd.slut_tid) || "12:00", fel: null, sparar: false })} style={{ ...KNAPP.lank, ...TYP.meta, display:"flex", justifyContent:"flex-start", textAlign:"left", padding:0 }}>{hemskickadGaller(rd.datum) ? "Åkte hem sjuk, VAB, föräldraledig eller hemskickad?" : "Åkte hem sjuk, VAB eller föräldraledig?"}</button>
                 );
               })()}
             </div>

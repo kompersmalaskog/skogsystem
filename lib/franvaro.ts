@@ -114,11 +114,33 @@ export const HEMSKICKAD_VAL: FranvaroVal = { id: "hemskickad", label: "Maskinen 
 /** Valen i "Åkte hem": frånvarotyperna och hemskickad. Morgonkortet har bara FRANVARO_VAL. */
 export const DELDAG_VAL: readonly FranvaroVal[] = [...FRANVARO_VAL, HEMSKICKAD_VAL] as const;
 
+/**
+ * Hemskickad gäller BARA en vanlig arbetsdag: måndag–fredag som inte är en röd dag (Martin 2026-11-26). En helg eller röd dag har ingen
+ * ordinarie tid att fylla upp — en hemskickad-rad där skulle ge betalda timmar för en dag ingen skulle ha jobbat. EN regel för valet i
+ * appen, registreringen, lönen och årsövertiden.
+ */
+export function hemskickadGaller(datum: string | null | undefined): boolean {
+  if (!datum || !/^\d{4}-\d{2}-\d{2}$/.test(datum)) return false;
+  const dow = new Date(datum + "T12:00:00Z").getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  return !getRödaDagar(Number(datum.slice(0, 4)))[datum];
+}
+
+/** Valen i "Åkte hem" för ett visst datum: utan hemskickad på helg och röd dag. */
+export function deldagVal(datum: string): readonly FranvaroVal[] {
+  return hemskickadGaller(datum) ? DELDAG_VAL : FRANVARO_VAL;
+}
+
 /** Underraden på frånvarokortet: man ska se vad som finns under utan att trycka. */
 export const FRANVARO_UNDERRAD = FRANVARO_VAL.map((v) => v.label === "Sjukfrånvaro" ? "Sjuk" : v.label).join(", ");
 
 /** Samma för "Åker hem" (deldag): frånvarotyperna och hemskickad. */
 export const DELDAG_UNDERRAD = [...FRANVARO_VAL.map((v) => v.label === "Sjukfrånvaro" ? "Sjuk" : v.label), "Hemskickad"].join(", ");
+
+/** Underraden för ett visst datum: "Hemskickad" står inte med på helg och röd dag. */
+export function deldagUnderrad(datum: string): string {
+  return hemskickadGaller(datum) ? DELDAG_UNDERRAD : FRANVARO_UNDERRAD;
+}
 
 // ── Läsa ─────────────────────────────────────────────────────
 
@@ -426,6 +448,7 @@ export async function registreraFranvaro(
   if (deldag && !FRANVARO_DELDAG_TYPER.includes(p.typ)) return { ok: false, fel: `${FRANVARO_TYP_RUBRIK[p.typ]} kan inte vara del av dag.` };
   // Hemskickad är alltid en del av dagen: klockslaget föraren åkte hem, ingen sluttid (resten av dagen betalas upp till 8 tim).
   if (p.typ === "hemskickad" && (!p.franTid || p.tillTid)) return { ok: false, fel: "Hemskickad gäller resten av dagen — ange klockslaget du åkte hem." };
+  if (p.typ === "hemskickad" && !hemskickadGaller(p.datum)) return { ok: false, fel: "Hemskickad gäller bara vardagar — en helg eller röd dag har inga timmar att fylla upp." };
   if (p.franTid && p.tillTid && p.franTid >= p.tillTid) return { ok: false, fel: "Från-tiden måste vara före till-tiden." };
   const { data, error } = await supabase
     .from("ledighet_ansokningar")

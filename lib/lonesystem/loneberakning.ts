@@ -36,7 +36,7 @@
 
 import { ersattningsMilDag, KM_GRANS_DEFAULT } from "../kmErsattning";
 import { loneartInfo, enhetForMangd, type LoneartKey, type Loneartskoder } from "./loneart";
-import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter } from "../franvaro";
+import { rodVardagNamn, arDeldag, deldagTimmar, schemaTimmarPerDag, hemskickadMinuter, hemskickadGaller } from "../franvaro";
 import { arArbetsdag, ARBETSDAG_MIN_MINUTER } from "../arbetsdagRegler";
 import { raknaSjuktimmar, type Sjuktimmar } from "./sjuktimmar";
 import { helglonIManad, helglonDagar as helglonDagarArsLista, helglonSkalText, HELGLON_TIMMAR, type HelglonDag, type FranvaroPost } from "./helglon";
@@ -342,6 +342,7 @@ export function beräknaExport(
   let hemArbetsdagMin = 0, hemOvrigMin = 0;
   for (const l of ledigheter) {
     if (String(l.typ || "").toLowerCase() !== "hemskickad" || !arDeldag(l) || !l.startdatum) continue;
+    if (!hemskickadGaller(l.startdatum)) continue;                                   // helg eller röd dag: inget att fylla upp, betalas aldrig
     if (!l.startdatum.startsWith(arbperiod) || hemSedda.has(l.startdatum)) continue;  // utanför månaden / samma dag två gånger = en gång
     hemSedda.add(l.startdatum);
     const arbetadMin = (arbMinPerDatum.get(l.startdatum) || 0) + (extraMinPerDatum.get(l.startdatum) || 0);
