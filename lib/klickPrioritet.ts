@@ -22,15 +22,15 @@
 // VARFÖR 'traktyta' är en egen kategori: Vidas traktdel och hänsyn bär ingen areal i datan (AREA_HA/SHAPE.STAr saknas), så "minsta ytan" kan inte avgöras på storlek —
 // då vinner översta lagret. Sedan lagerordningen (#1008, 2026-10-26) ligger traktgräns-lagren (trakt-gr-*, grans-*) över ytorna, och traktdelen slog hänsynen.
 // Ordningen mellan ytorna avgörs därför av KATEGORIN, aldrig av hur lagren råkar ligga.
-// Väg-⚠ (TMA-varningslinjen) ligger mellan symbol och ytnummer: det som är satt ut går före, varningen före alla ytor.
+// Väg-⚠/✓ (lib/vagRisk) är markörer på vägen och tar emot sitt eget tryck (en DOM-knapp över kartan) — de deltar inte i den här prioriteringen. Förut låg en 30 px bred osynlig träfflinje på traktgränsen
+// (kategorin 'tma'); den är borta tillsammans med den pulserande gränsmarkeringen.
 
-export type KlickKategori = 'larm' | 'symbol' | 'tma' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';
+export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';
 
 // Kategori → dess kart-lager. Ett lager får bara stå i EN kategori.
 export const KLICK_LAGER: { kategori: KlickKategori; lager: string[] }[] = [
   { kategori: 'larm',   lager: ['larm-pin-hit'] },
   { kategori: 'symbol', lager: ['markers-avvikelse', 'markers-hit', 'arrows-hit', 'line-fall-trad', 'line-korupp-traff'] },
-  { kategori: 'tma',    lager: ['tma-warning-hitbox'] },
   { kategori: 'yta-nr', lager: ['yta-nr-hit'] },
   {
     kategori: 'punkt',
