@@ -1,11 +1,12 @@
 // Statusraderna i meta_datahalsa_status — en rad per kontroll, två skribenter:
 //
 //   'import_live'  DATABASEN: pg_cron-jobbet 'import-larm' kör import_larm_kontroll() var 15:e minut.
-//                  Svarar på "fungerar importen just nu?" och står överst på Datahälsa.
+//                  Svarar på "fungerar importen just nu?".
 //   övriga rader   IMPORTDATORN: gap_check.py. Kontroller som bara den kan göra (filerna i Behandlade
 //                  och Inkommande, koden som kör). Samlingsraden 'gap_check' skrivs inte längre.
 //
 // Här finns ALL text och alla regler för hur raderna visas; komponenterna ritar bara.
+// Vad som räknas som ett FEL NU (och därmed står i Datahälsas svar) avgörs i ./felNu.
 // Rena funktioner: tiden kommer in som argument, så samma rad ger samma svar i test och i vyn.
 
 export type StatusRad = {
@@ -151,19 +152,4 @@ export function kontrollerSenastKord(alla: readonly StatusRad[]): string | null 
     if (!bast || Date.parse(r.kordTid) > Date.parse(bast)) bast = r.kordTid
   }
   return bast
-}
-
-/** Punkterna som statusraderna ger i Datahälsas besked (samma på vyn och på startsidan). */
-export function statusPunkter(alla: readonly StatusRad[], nu: number): string[] {
-  const punkter: string[] = []
-  const live = alla.find((r) => r.id === IMPORT_LIVE) ?? null
-  if (live) {
-    const vy = importLiveVy(live, nu)
-    if (vy.lage === 'larm') punkter.push(vy.rader.length === 1 ? `Importen felar: ${vy.rader[0]}` : `Importen felar (${vy.rader.length} problem)`)
-    else if (vy.lage === 'gammal') punkter.push(`Importen kontrolleras inte — ${(vy.kontrollerad ?? 'ingen kontroll').replace(/^S/, 's')}`)
-  }
-  for (const k of kontrollRader(alla)) {
-    if (k.lage === 'larm') punkter.push(`${k.namn}: ${k.larmAntal > 1 ? `${k.larmAntal} larm` : 'larm'}`)
-  }
-  return punkter
 }

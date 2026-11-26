@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  importLiveVy, problemRader, narText, kontrollRader, kontrollerSenastKord, statusPunkter,
+  importLiveVy, problemRader, narText, kontrollRader, kontrollerSenastKord,
   IMPORT_LIVE_GAMMAL_MIN, type StatusRad,
 } from './status'
 
@@ -131,7 +131,6 @@ describe('kontrollRader', () => {
   it('den gamla samlingsraden gap_check visas aldrig, också om den ligger kvar i tabellen', () => {
     const med = [...PROD, { id: 'gap_check', kordTid: '2026-11-25T09:33:20Z', status: 'LARM', larmAntal: 101, sammanfattning: 'LARM gammalt' }]
     expect(kontrollRader(med).some((r) => r.id === 'gap_check')).toBe(false)
-    expect(statusPunkter(med, NU).join(' ')).not.toMatch(/gap_check|101/)
     expect(kontrollerSenastKord(med)).toBe('2026-11-24T16:09:49.916171+00:00')
   })
 
@@ -159,30 +158,5 @@ describe('kontrollerSenastKord', () => {
   it('senaste körningen bland importdatorns rader — import_live räknas inte', () => {
     expect(kontrollerSenastKord(PROD)).toBe('2026-11-24T16:09:49.916171+00:00')
     expect(kontrollerSenastKord([rad()])).toBeNull()
-  })
-})
-
-describe('statusPunkter', () => {
-  it('prod 2026-11-25: importen grön, bara de parkerade filerna är en punkt', () => {
-    expect(statusPunkter(PROD, NU)).toEqual(['Parkerade filer: larm'])
-  })
-  it('importen felar med ett problem: problemet står i punkten', () => {
-    const r = PROD.map((x) => (x.id === 'import_live' ? rad({ status: 'LARM', sammanfattning: 'Ingen fil på 6 timmar' }) : x))
-    expect(statusPunkter(r, NU)[0]).toBe('Importen felar: Ingen fil på 6 timmar')
-  })
-  it('importen felar med flera problem: antalet står i punkten', () => {
-    const r = [rad({ status: 'LARM', sammanfattning: 'A\nB\nC' })]
-    expect(statusPunkter(r, NU)).toEqual(['Importen felar (3 problem)'])
-  })
-  it('kontrollen har stannat är en punkt — tystnad är inte grönt', () => {
-    const r = [rad({ kordTid: '2026-11-25T08:00:00Z' })]
-    expect(statusPunkter(r, NU)).toEqual(['Importen kontrolleras inte — senast kontrollerad 09:00'])
-  })
-  it('raden saknas helt: ingen punkt (jobbet har inte kört än)', () => {
-    expect(statusPunkter([], NU)).toEqual([])
-  })
-  it('flera larm på en kontroll skriver antalet', () => {
-    const r = [{ id: 'inkommande_ko', kordTid: null, status: 'LARM', larmAntal: 4, sammanfattning: 'LARM a\nLARM b' }]
-    expect(statusPunkter(r, NU)).toEqual(['Kön i Inkommande: 4 larm'])
   })
 })

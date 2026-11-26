@@ -10,8 +10,11 @@ import { hamtaAlla } from '@/lib/supabaseAlla'
 import { lasSkotatMerAnSkordat } from '@/lib/skotarLass/granskaKopplad'
 import type { SkotatMerAnSkordat } from '@/lib/skotarLass/kvar'
 import ObekraftadeLass from './ObekraftadeLass'
+import Sektion from '@/components/design/Sektion'
+import { AVSTAND, FARG, TYP } from '@/lib/design/tokens'
 
-const C = { card: '#141416', divider: 'rgba(255,255,255,0.06)', text: '#f2f2f4', muted: '#8e8e93', dim: '#5c5c61', gron: '#30d158', gul: '#ffd60a' }
+// Kortet är läsning: inget lyser här. Det som är ett fel nu (obekräftade lass) står i svaret överst på Datahälsa.
+const C = { divider: FARG.linje, text: FARG.text, muted: FARG.text2, dim: FARG.text3 }
 
 interface Rad { vo_nummer: string; maskin_id: string; app_lass: number; app_m3: number; opti_lass: number; opti_m3: number; gammal_lass?: number; gammal_m3?: number; objekt_id?: string | null }
 interface Visad extends Rad { trakt: string; maskin: string }
@@ -23,7 +26,7 @@ const saknadKolumn = (e: any) => e?.code === '42703' || /column .* does not exis
 
 const tal = (n: number) => Math.round(n).toLocaleString('sv-SE')
 
-export default function SkotarLassKort() {
+export default function SkotarLassKort({ vidGranskat }: { /** Anropas när ett lass granskats, så att svaret överst räknar om. */ vidGranskat?: () => void } = {}) {
   const [rader, setRader] = useState<Visad[] | null>(null)
   const [fel, setFel] = useState<string | null>(null)
   const [saknas, setSaknas] = useState(false)
@@ -72,16 +75,16 @@ export default function SkotarLassKort() {
   }, [omlasning])
 
   return (
-    <div data-testid="skotarlass-kort" style={{ background: C.card, borderRadius: 14, padding: 16, marginBottom: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, letterSpacing: 0.4, marginBottom: 12 }}>SKOTARLASS: APPEN MOT OPTI</div>
+    <Sektion rubrik="Skotarens lass: appen mot Opti" not={'Förarens egna m³ mot Optis lass. Opti är fortfarande facit. Förarna ser inget av detta.'}>
+    <div data-testid="skotarlass-kort" style={{ padding: `${AVSTAND.m}px 0` }}>
       {fel ? (
-        <div style={{ color: C.gul, fontSize: 14 }}>Kunde inte läsa: {fel}</div>
+        <div style={{ ...TYP.text, color: C.text }}>Kunde inte läsas: {fel}</div>
       ) : saknas ? (
-        <div style={{ color: C.muted, fontSize: 14 }}>Lassrapporteringen i appen är inte aktiverad än.</div>
+        <div style={{ ...TYP.text, color: C.muted }}>Lassrapporteringen i appen är inte aktiverad än.</div>
       ) : !rader ? (
-        <div style={{ height: 18, width: '55%', borderRadius: 4, background: 'rgba(255,255,255,0.06)' }} />
+        <div style={{ ...TYP.text, color: C.muted }}>Läser …</div>
       ) : rader.length === 0 ? (
-        <div style={{ color: C.muted, fontSize: 14 }}>Ingen trakt har lass rapporterade i appen än.</div>
+        <div style={{ ...TYP.text, color: C.muted }}>Ingen trakt har lass rapporterade i appen än.</div>
       ) : (
         rader.map((x) => {
           const diff = x.app_m3 - x.opti_m3
@@ -89,27 +92,25 @@ export default function SkotarLassKort() {
             <div key={`${x.vo_nummer}-${x.maskin_id}`} style={{ padding: '9px 0', borderTop: `0.5px solid ${C.divider}`, fontSize: 14 }}>
               <div style={{ color: C.text }}>{x.trakt} · {x.maskin}</div>
               {(x.gammal_lass ?? 0) > 0 && (
-                <div data-testid="skotarlass-gammal" style={{ color: C.gul, fontSize: 13 }}>
+                <div data-testid="skotarlass-gammal" style={{ ...TYP.meta, color: C.text }}>
                   + {x.gammal_lass} obekräftade lass ({tal(x.gammal_m3 ?? 0)} m³, gammal funktion) räknas inte
                 </div>
               )}
               {x.objekt_id && over.get(x.objekt_id) && (
-                <div data-testid="skotarlass-over" style={{ color: C.gul, fontSize: 13 }}>
+                <div data-testid="skotarlass-over" style={{ ...TYP.meta, color: C.muted }}>
                   Skotat {tal(over.get(x.objekt_id)!.skotat)} m³ — skördat {tal(over.get(x.objekt_id)!.skordat)} m³ ({tal(over.get(x.objekt_id)!.over)} m³ mer skotat än skördat)
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, color: C.muted, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
                 <span>Appen {x.app_lass} lass · {tal(x.app_m3)} m³ — Opti {x.opti_lass} lass · {tal(x.opti_m3)} m³</span>
-                <span style={{ color: Math.abs(diff) < 1 ? C.gron : C.text }}>{diff > 0 ? '+' : ''}{tal(diff)} m³</span>
+                <span style={{ color: Math.abs(diff) < 1 ? C.muted : C.text }}>{diff > 0 ? '+' : ''}{tal(diff)} m³</span>
               </div>
             </div>
           )
         })
       )}
-      {!saknas && !fel && <ObekraftadeLass traktNamn={(vo) => (vo ? namn.trakt.get(vo) ?? vo : 'Okänd trakt')} maskinNamn={(id) => namn.mask.get(id) ?? id} vidGranskat={() => setOmlasning((n) => n + 1)} />}
-      <div style={{ paddingTop: 10, fontSize: 11, color: C.dim }}>
-        Förarens egna m³ (hela m³) mot Optis lass. Opti är fortfarande facit. Förarna ser inget av detta. "Skotat mer än skördat" är bara information.
-      </div>
+      {!saknas && !fel && <ObekraftadeLass traktNamn={(vo) => (vo ? namn.trakt.get(vo) ?? vo : 'Okänd trakt')} maskinNamn={(id) => namn.mask.get(id) ?? id} vidGranskat={() => { setOmlasning((n) => n + 1); vidGranskat?.() }} />}
     </div>
+    </Sektion>
   )
 }
