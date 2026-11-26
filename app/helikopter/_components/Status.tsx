@@ -10,9 +10,10 @@ export function Prick({ ton }: { ton: Ton }) {
 }
 
 /** Prick + ord, i TYP.meta: "● Under". Ordet bär betydelsen, pricken förstärker. */
-export function StatusOrd({ ton, ord }: { ton: Ton; ord: string }) {
+/** `bryt`: långa meningar får gå över flera rader (standard är en rad, för korta ord bredvid en siffra). */
+export function StatusOrd({ ton, ord, bryt = false }: { ton: Ton; ord: string; bryt?: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti,...TYP.meta, color: ton === 'dampad' ? FARG.text3 : FARG.text, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: AVSTAND.inuti,...TYP.meta, color: ton === 'dampad' ? FARG.text3 : FARG.text, whiteSpace: bryt ? 'normal' : 'nowrap' }}>
       <Prick ton={ton} />{ord}
     </span>
   )

@@ -6,7 +6,11 @@
 // SKÖRDARE räknas mot trakter med LIKNANDE MEDELSTAM (±25 %, minst 3): medelstam förklarar ca två tredjedelar av variationen i prestation (uppmätt: r² 0,65 slutavverkning,
 // 0,72 gallring). Saknas trakter med liknande medelstam finns inget förslag (tomt, orange) — appen gissar inte. Saknas medelstam på DEN HÄR trakten används snitt över alla
 // trakter av typen och det SÄGS.
-// SKOTARE räknas som snitt över alla trakter av typen: medelstam hjälpte inte skotaren (r² 0,06) och jämförbara trakter blev inte bättre än snittet.
+// SKOTARE räknas på trakter som SAMMA SORTS SKOTARE kört (2026-11-17, `skotarKlass`: Wisent, Elephant King …): maskinen förklarar mest av skotarens takt.
+// Provet på 27 avslutade slutavverkningar (prod 2026-11-17): snittet över alla maskiner låg 27 % fel (median), per maskin 17 % — Wisent ca 15 m³ per G15-timme,
+// Elephant King ca 24 (större lass). Är skotaren okänd, eller har den sorten färre än 3 trakter av typen, gäller snittet över alla trakter av typen som förut.
+// Medelstam hjälpte inte skotaren (r² 0,06). Körsträckan hjälper lite till (18 % medelfel mot 25 %, med den FAKTISKT körda sträckan) men är inte med än:
+// den måste först kunna räknas ur kartan innan trakten körs.
 //
 // INTERVALLET ("troligen 38–45") är UPPMÄTT prediktionsfel, inte spridningen bland jämförbara trakter (den ger falsk säkerhet): varje trakt förutsägs med samma metod ur
 // de övriga (leave-one-out) och 25:e–75:e percentilen av faktisk/förutsagd prestation sätter intervallet. Färre än 5 sådana fel → inget intervall, och det står.
@@ -40,6 +44,8 @@ export interface UtfallRad {
   stammar: number | null;
   skordareG15: number | null;
   skotareG15: number | null;
+  /** Sorten skotare som gjorde jobbet (skotarKlass) — null = okänd, eller flera sorter delade på trakten. */
+  skotareKlass?: string | null;
   /** objekt.id — för att kunna lägga laserdatan på raden (lib/skogsdata/las). */
   objektId?: string | null;
   /** Laserns grundytevägda medeldiameter inom traktgränsen (cm). */
@@ -54,9 +60,35 @@ export interface G15Indata {
   basvagTimmar?: number | null;
   /** Laserns medeldiameter för trakten (cm) — används bara när medelstam saknas. */
   laserDiaCm?: number | null;
+  /** Sorten skotare som ska köra trakten (skotarKlass av maskinens modell) — null/utelämnad = okänd, då gäller snittet över alla skotare. */
+  skotareKlass?: string | null;
 }
 
-export type Metod = 'medelstam' | 'laser' | 'snitt-medelstam-saknas' | 'snitt-typ';
+export type Metod = 'medelstam' | 'laser' | 'snitt-medelstam-saknas' | 'snitt-typ' | 'maskin';
+
+/** Minsta andel av traktens skotartimmar som en sorts skotare ska ha stått för, för att trakten ska räknas som den sortens. */
+export const SKOTARE_MIN_ANDEL = 0.7;
+
+/**
+ * Sorten skotare ur maskinens modell: "Elephant King 2026" och "Elephant King AF" är samma sort ("elephant king"), "Wisent2015" är "wisent".
+ * Årtal och tillägget AF tas bort; resten jämförs med små bokstäver. Tomt = null.
+ */
+export function skotarKlass(modell: string | null | undefined): string | null {
+  const k = (modell ?? '').toLowerCase().replace(/(19|20)\d{2}(?!\d)/g, ' ').replace(/\baf\b/g, ' ').replace(/\s+/g, ' ').trim();
+  return k === '' ? null : k;
+}
+
+/** En rad ur RPC:n prognos_utfall_2 (eller den äldre prognos_utfall, utan skotarens maskin) i formen förslaget vill ha. EN mappning för alla läsare. */
+export function utfallUrRpc(x: any): UtfallRad {
+  const tal = (v: unknown): number | null => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : null; };
+  const andel = tal(x?.skotare_andel);
+  return {
+    typ: x?.typ ?? null, volymObjekt: tal(x?.volym_objekt), skordadM3: tal(x?.skordad_m3), stammar: tal(x?.stammar),
+    skordareG15: tal(x?.skordare_g15), skotareG15: tal(x?.skotare_g15),
+    skotareKlass: andel != null && andel >= SKOTARE_MIN_ANDEL ? skotarKlass(x?.skotare_modell) : null,
+    objektId: x?.objekt_id != null ? String(x.objekt_id) : null,
+  };
+}
 
 export interface RollForslag {
   /** G15-timmar, avrundat */
@@ -69,6 +101,8 @@ export interface RollForslag {
   antal: number;
   /** medelstam hos de jämförbara (bara metod 'medelstam') */
   medelstamSpann: { lag: number; hog: number } | null;
+  /** Sorten skotare förslaget är räknat på (metod 'maskin'). */
+  skotareKlass?: string;
   metod: Metod;
   /** Medelstammen härledd ur laserskanningen (bara metod 'laser'). */
   laserMedelstam?: number;
@@ -90,7 +124,7 @@ export function percentil(xs: number[], p: number): number {
 }
 const median = (xs: number[]) => percentil(xs, 0.5);
 
-interface Trakt { rate: number; medelstam: number | null; dia: number | null }
+interface Trakt { rate: number; medelstam: number | null; dia: number | null; klass: string | null }
 
 const arPos = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
@@ -109,7 +143,7 @@ function underlag(rader: UtfallRad[], typ: string, roll: 'skordare' | 'skotare')
     const g15 = roll === 'skordare' ? r.skordareG15 : r.skotareG15;
     if (!arPos(r.skordadM3) || !arPos(g15) || g15 < G15_MIN_TIM) continue;
     const medelstam = arPos(r.stammar) ? r.skordadM3 / r.stammar : null;
-    ut.push({ rate: r.skordadM3 / g15, medelstam, dia: arPos(r.laserDiaCm) ? r.laserDiaCm : null });
+    ut.push({ rate: r.skordadM3 / g15, medelstam, dia: arPos(r.laserDiaCm) ? r.laserDiaCm : null, klass: roll === 'skotare' ? r.skotareKlass ?? null : null });
   }
   return ut;
 }
@@ -222,10 +256,19 @@ export function beraknaG15Forslag(inp: G15Indata, rader: UtfallRad[]): G15Forsla
     skordare = tomt('for-fa', sk.length, `Färre än ${G15_MIN_TRAKTER} trakter av typen att räkna på — inget förslag`);
   }
 
-  // ── Skotare: snitt över alla trakter av typen ──
+  // ── Skotare: trakter som samma sorts skotare kört; annars snitt över alla trakter av typen ──
   let skotare: RollResultat;
   const so = underlag(rader, typ, 'skotare');
-  if (so.length >= G15_MIN_TRAKTER) {
+  const klass = inp.skotareKlass ?? null;
+  const egna = klass ? so.filter((t) => t.klass === klass) : [];
+  if (klass && egna.length >= G15_MIN_TRAKTER) {
+    const pred = median(egna.map((t) => t.rate));
+    const fel = prediktionsfel(egna, (ov) => (ov.length >= G15_MIN_TRAKTER ? median(ov.map((t) => t.rate)) : null));
+    skotare = { ok: true, forslag: {
+      g15: Math.round(volym / pred + basvag), m3PerG15: pred, intervall: intervallTim(volym, pred, fel, basvag), antal: egna.length,
+      medelstamSpann: null, metod: 'maskin', skotareKlass: klass, basvagTim: basvag, typ,
+    } };
+  } else if (so.length >= G15_MIN_TRAKTER) {
     const pred = median(so.map((t) => t.rate));
     const fel = prediktionsfel(so, (ov) => (ov.length >= G15_MIN_TRAKTER ? median(ov.map((t) => t.rate)) : null));
     skotare = { ok: true, forslag: {
@@ -249,6 +292,7 @@ export function forslagKalla(f: RollForslag): string {
   const typOrd = f.typ === 'gallring' ? 'gallringar' : 'slutavverkningar';
   if (f.metod === 'laser' && f.laserMedelstam != null) return `Medelstam ca ${fmtMs(f.laserMedelstam)} ur laserskanningen · ${intervall} · ur ${f.antal} liknande trakter`;
   if (f.metod === 'medelstam' && f.medelstamSpann) return `${intervall} · ur ${f.antal} trakter med medelstam ${fmtMs(f.medelstamSpann.lag)}–${fmtMs(f.medelstamSpann.hog)}`;
+  if (f.metod === 'maskin') return `${intervall} · ur ${f.antal} ${typOrd} som samma sorts skotare kört`;
   if (f.metod === 'snitt-medelstam-saknas') return `Medelstam saknas – snitt över alla trakter · ur ${f.antal} ${typOrd} · ${intervall}`;
   return `${intervall} · ur ${f.antal} ${typOrd} (snitt)`;
 }

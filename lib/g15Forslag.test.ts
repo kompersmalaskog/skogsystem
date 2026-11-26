@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beraknaG15Forslag, forslagKalla, fmtMs, laserModell, percentil, prestation, prestationVarning, snittTypOrd, type RollForslag, type UtfallRad } from './g15Forslag';
+import { beraknaG15Forslag, forslagKalla, fmtMs, laserModell, percentil, prestation, prestationVarning, skotarKlass, snittTypOrd, utfallUrRpc, type RollForslag, type UtfallRad } from './g15Forslag';
 import { UTFALL_2026_10_17 } from './__fixtures__/utfall_2026-10-17';
 
 const ok = <T extends { ok: boolean }>(r: T) => { expect(r.ok).toBe(true); return (r as any).forslag as RollForslag; };
@@ -195,5 +195,52 @@ describe('medelstam ur laserskanningen (metod laser)', () => {
   it('utan laserdata på raderna (äldre underlag): som förut', () => {
     const gamla = rader.map(({ laserDiaCm: _l, ...r }) => r);
     expect(ok(beraknaG15Forslag({ typ: 'gallring', volym: 300, medelstam: null, laserDiaCm: 14 }, gamla).skordare).metod).toBe('snitt-medelstam-saknas');
+  });
+});
+
+describe('skotaren räknas på trakter som samma sorts skotare kört (2026-11-17)', () => {
+  // Wisent ca 15 m³ per G15-timme, Elephant King ca 24 — som i provet på prod.
+  const rad = (m3: number, g15: number, klass: string | null): UtfallRad => ({ typ: 'slutavverkning', volymObjekt: null, skordadM3: m3, stammar: m3 * 2, skordareG15: m3 / 35, skotareG15: g15, skotareKlass: klass });
+  const rader: UtfallRad[] = [
+    rad(450, 30, 'wisent'), rad(1100, 72, 'wisent'), rad(370, 23, 'wisent'), rad(530, 39, 'wisent'), rad(780, 33, 'wisent'), rad(340, 24, 'wisent'),
+    rad(830, 38, 'elephant king'), rad(1340, 57, 'elephant king'), rad(600, 25, 'elephant king'), rad(930, 27, 'elephant king'), rad(1690, 41, 'elephant king'), rad(620, 25, 'elephant king'),
+    rad(1400, 107, null),
+  ];
+  it('skotarKlass: årtal och AF bort — gamla och nya Elefanten är samma sort', () => {
+    expect(skotarKlass('Elephant King 2026')).toBe('elephant king');
+    expect(skotarKlass('Elephant King AF')).toBe('elephant king');
+    expect(skotarKlass('Wisent2015')).toBe('wisent');
+    expect(skotarKlass('810E')).toBe('810e');
+    expect(skotarKlass(null)).toBeNull(); expect(skotarKlass('  ')).toBeNull();
+  });
+  it('samma trakt: Wisenten får fler timmar än Elefanten, och snittet hamnar emellan', () => {
+    const w = ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: 'wisent' }, rader).skotare);
+    const e = ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: 'elephant king' }, rader).skotare);
+    const s = ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5 }, rader).skotare);
+    expect(w.metod).toBe('maskin'); expect(w.antal).toBe(6); expect(w.skotareKlass).toBe('wisent');
+    expect(e.metod).toBe('maskin'); expect(e.antal).toBe(6);
+    expect(s.metod).toBe('snitt-typ'); expect(s.antal).toBe(13);
+    expect(w.g15).toBeGreaterThan(s.g15); expect(s.g15).toBeGreaterThan(e.g15);
+    expect(w.g15).toBeGreaterThanOrEqual(60); expect(e.g15).toBeLessThanOrEqual(45);
+    expect(forslagKalla(w)).toContain('samma sorts skotare');
+    expect(w.intervall).not.toBeNull();
+  });
+  it('en sort med färre än tre trakter, eller en okänd skotare: snittet över alla, som förut', () => {
+    expect(ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: '810e' }, rader).skotare).metod).toBe('snitt-typ');
+    expect(ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: null }, rader).skotare).metod).toBe('snitt-typ');
+    const tva = rader.filter((r) => r.skotareKlass !== 'wisent').concat([rad(450, 30, 'wisent'), rad(370, 23, 'wisent')]);
+    expect(ok(beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: 'wisent' }, tva).skotare).metod).toBe('snitt-typ');
+  });
+  it('skördarens förslag rörs inte av skotarens sort', () => {
+    const a = beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5, skotareKlass: 'wisent' }, rader).skordare;
+    const b = beraknaG15Forslag({ typ: 'slutavverkning', volym: 1000, medelstam: 0.5 }, rader).skordare;
+    expect(a).toEqual(b);
+  });
+  it('utfallUrRpc: sorten sätts bara när en sorts skotare stod för minst 70 % av timmarna; den äldre funktionens rader saknar den', () => {
+    const bas = { objekt_id: 'a', typ: 'slutavverkning', volym_objekt: null, skordad_m3: '1401', stammar: 4659, skordare_g15: '48.8', skotare_g15: '107.3' };
+    expect(utfallUrRpc({ ...bas, skotare_modell: 'Wisent2015', skotare_andel: '0.574' }).skotareKlass).toBeNull();
+    expect(utfallUrRpc({ ...bas, skotare_modell: 'Wisent2015', skotare_andel: '0.96' }).skotareKlass).toBe('wisent');
+    const gammal = utfallUrRpc(bas);
+    expect(gammal.skotareKlass).toBeNull(); expect(gammal.skordadM3).toBe(1401); expect(gammal.skotareG15).toBe(107.3); expect(gammal.objektId).toBe('a');
   });
 });

@@ -23,7 +23,7 @@
 import { TYP_NAMN, klararTyp } from './berakningar'
 import { MANAD_NAMN, fmt, fmtDag, kortNamn } from './format'
 import type { Maskin, Typ } from './queries'
-import { beraknaG15Forslag, type UtfallRad } from '@/lib/g15Forslag'
+import { beraknaG15Forslag, skotarKlass, type UtfallRad } from '@/lib/g15Forslag'
 import { foljPrognos } from '@/lib/prognosFoljer'
 import { medLaser, type SkogKort } from '@/lib/skogsdata/las'
 
@@ -66,6 +66,9 @@ export type KlarTrakt = {
   utfort_volym: number
   /** timmar är ett G15-förslag ur uppmätt utfall, inte planerarens prognos (medUppskattadPrognos). */
   uppskattad?: boolean
+  /** Det UPPMÄTTA prediktionsfelet för `timmar` (25:e–75:e percentilen, i kvarvarande G15-timmar, samma skala som `timmar`). Bara på `uppskattad` trakter med nog många
+   *  jämförbara avslutade trakter att mäta felet på (lib/g15Forslag `intervall`); saknas = prognosen är ett punktvärde och räknas inte med osäkerhet. */
+  timmar_spann?: { lag: number; hog: number }
   /** timmar räknas på traktens egen takt (medFoljandePrognos): resten enligt prognosen rakt av, och uppmätt takt mot prognosens. */
   foljer?: { restPlanH: number | null; skillnad: number | null; utfortH: number }
   /** `volym` är uppmätt på trakten (medMattVolym): laserns volym × uttaget skördaren faktiskt gjort. `vida` = volymen som stod där förut. */
@@ -79,6 +82,8 @@ export type KlarMaskin = {
   namn: string
   roll: KlarRoll
   klarar_typ: string
+  /** dim_maskin.modell — läggs på av hamtaKlar; skotarens sort (skotarKlass) styr vilka trakter G15-förslaget räknas på. Saknas = snittet. */
+  modell?: string | null
   manuell: boolean
   g15_per_dag: number
   ej_matt: boolean
@@ -201,6 +206,11 @@ export function kanTa(m: KlarMaskin, t: Pick<KlarTrakt, 'typ'>): boolean {
   return klararTraktTyp(m, t.typ) && (!m.manuell || manuellTakt(m, t.typ) > 0)
 }
 
+/** Kan man VÄLJA maskinen åt trakten? Rätt typ räcker: 810E ska kunna läggas på en slutavverkning även innan den har en snittakt där — då saknas tid och datum (ingen gissad takt), men valet är fritt. Förslag (flyttförslag) använder fortfarande `kanTa`. */
+export function kanValjas(m: Pick<KlarMaskin, 'klarar_typ'>, t: Pick<KlarTrakt, 'typ'>): boolean {
+  return klararTraktTyp(m, t.typ)
+}
+
 /** Dagar en trakt tar på maskinen; null = det går inte att räkna (prognos, volym eller takt saknas). */
 /** Den manuella maskinens snittakt för en typ; GROT/energiklippning har ingen (0). */
 function manuellTakt(m: Pick<KlarMaskin, 'takt'>, t: KlarTyp): number {
@@ -289,12 +299,16 @@ export function senasteKlar(planer: Record<string, MaskinPlan>): string | null {
 export function medUppskattadPrognos(d: KlarData, utfall: UtfallRad[] | null, skog: Map<string, SkogKort> | null = null): KlarData {
   if (!utfall || utfall.length === 0) return d
   const manuella = new Set(d.maskiner.filter(m => m.manuell).map(m => m.maskin_id))
+  const klass = new Map(d.maskiner.map(m => [m.maskin_id, skotarKlass(m.modell)] as const))
   const trakter = d.trakter.map(t => {
     if (t.timmar != null || !arVirke(t.typ) || t.volym == null || t.volym <= 0 || (t.maskin_id != null && manuella.has(t.maskin_id))) return t
-    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam, laserDiaCm: skog?.get(t.objekt_id)?.diaCm ?? null }, utfall)[t.roll]
+    const f = beraknaG15Forslag({ typ: t.typ, volym: t.volym, medelstam: t.medelstam, laserDiaCm: skog?.get(t.objekt_id)?.diaCm ?? null,
+      skotareKlass: t.roll === 'skotare' && t.maskin_id != null ? klass.get(t.maskin_id) ?? null : null }, utfall)[t.roll]
     if (!f.ok) return t
     const andel = t.roll === 'skotare' && t.rest_volym != null ? Math.max(0, Math.min(1, t.rest_volym / t.volym)) : 1
-    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true }
+    const iv = f.forslag.intervall
+    const spann = iv && iv.lag > 0 && iv.hog >= iv.lag ? { timmar_spann: { lag: Math.round(iv.lag * andel * 100) / 100, hog: Math.round(iv.hog * andel * 100) / 100 } } : {}
+    return { ...t, timmar: Math.round(f.forslag.g15 * andel * 100) / 100, prognos_h: f.forslag.g15, saknar_prognos: false, uppskattad: true, ...spann }
   })
   return { ...d, trakter }
 }
@@ -532,7 +546,7 @@ export function valForTrakt(d: KlarData, objektId: string, r: KlarRoll): ValRad[
   const t = d.trakter.find(x => x.objekt_id === objektId && x.roll === r)
   if (!t) return []
   return d.maskiner
-    .filter(m => m.roll === r && kanTa(m, t))
+    .filter(m => m.roll === r && kanValjas(m, t))
     .map(m => {
       const p = raknaAlla(d, { objekt_id: objektId, roll: r, maskin_id: m.maskin_id })[m.maskin_id]
       return { maskin: m, nuvarande: t.maskin_id === m.maskin_id, klar: p.klar, saknar: p.saknar, efterManad: p.efterManad }

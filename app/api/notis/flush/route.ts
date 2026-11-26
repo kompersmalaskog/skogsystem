@@ -6,7 +6,7 @@ import { arDagAvslutad } from "@/lib/arbetsdagStall";
 import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
 import { skaFragaBrandrisk } from "@/lib/ob";
 import { SKARP_START, foreSkarpStart } from "@/lib/skarpStart";
-import { formateraVeckoNotis } from "@/app/helikopter/_lib/veckoNotis";
+import { formateraVeckoNotis, formateraVeckoNotisKort, veckoNotisTitel } from "@/app/helikopter/_lib/veckoNotis";
 import { formateraManadNotis, manadNotisLank } from "@/app/helikopter/_lib/manadsfacit";
 import { idagStockholm } from "@/lib/grotvy/format";
 import { PAMINNELSE_TYP, paminnelseMeddelande } from "@/lib/grotvy/paminnelse";
@@ -628,10 +628,12 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
   if (n.typ === "helikopter_vecka") {
     // Onsdagsnotisen (helikopter_notis_vecka, migration 20260912110200). payload = rådatan
     // ur helikopter_ny_*; texten byggs här av den rena, testade formateraren.
+    // payload.version = 'kort' (alla medarbetare: lagets läge, inga namn) eller 'full' (admin: maskiner, objekt, stopp). Saknas den (äldre köade rader) = full.
     const p = n.payload || {};
+    const kort = p.version === "kort";
     return {
-      title: "Veckoläge",
-      body: formateraVeckoNotis(p),
+      title: veckoNotisTitel(p, kort ? "kort" : "full"),
+      body: kort ? formateraVeckoNotisKort(p) : formateraVeckoNotis(p),
       url: p.idag ? `/helikopter/veckolage?datum=${encodeURIComponent(String(p.idag))}` : "/helikopter/veckolage",
       tag: `helikopter-vecka-${n.mottagare_id}-${n.datum || n.id || ""}`,
     };
