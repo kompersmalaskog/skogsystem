@@ -41,8 +41,8 @@ describe.skipIf(!CHROMIUM)('Produktion per dag — riktig Chromium', () => {
         const pg = await (await b.newContext({ viewport: { width: w, height: 600 }, hasTouch: true })).newPage();
         await pg.setContent(SIDA);
         await pg.addScriptTag({ content: lib });
-        await pg.evaluate(([n]) => (window as any).RITA(n, false), [n]);
-        await pg.waitForFunction((n) => document.querySelectorAll('[data-stapel]').length === n, n);
+        await pg.evaluate((antal: number) => (window as any).RITA(antal, false), n);
+        await pg.waitForFunction((antal: number) => document.querySelectorAll('[data-stapel]').length === antal, n);
         await pg.waitForTimeout(50);
         const r = await pg.evaluate(() => {
           const kort = (document.querySelector('[data-stapel]') as HTMLElement).closest('[style*="border-radius"]')!.getBoundingClientRect();
