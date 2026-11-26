@@ -215,7 +215,8 @@ describe("Kvällsvyn: sammanfattningen + EN knapp", () => {
     fixtur(klartPass());
     await montera();
     await klick("Något fel?"); await klick("Mer arbete");
-    expect(text()).toMatch(/Lägg till period/); expect(text()).not.toMatch(/Vad vill du ändra/);
+    // Periodformuläret börjar på frågan "Vad gjorde du?" (2026-11-25).
+    expect(text()).toMatch(/Vad gjorde du\?/); expect(text()).not.toMatch(/Vad vill du ändra/);
   });
   it("Hela dagen → Redigera för dagen", async () => {
     fixtur(klartPass());
@@ -228,7 +229,7 @@ describe("Kvällsvyn: sammanfattningen + EN knapp", () => {
   it("extra arbete efteråt visas som en rad; summan i dämpad rad är kort", async () => {
     fixtur(klartPass(), { extra_tid: [extra("e1", { start_tid: "16:30:00", slut_tid: "17:15:00", minuter: 45, aktivitet_typ: "reservdelar" })] });
     await montera();
-    expect(text()).toMatch(/Kväll/); expect(text()).toMatch(/Hämta reservdelar 16:30–17:15/);
+    expect(text()).toMatch(/Kväll/); expect(text()).toMatch(/Hämtade grejer 16:30–17:15/);
     expect(text()).toMatch(/\+ 45 min · totalt 9 tim 39 min/);
     expect(text()).not.toMatch(/extra arbete ·/);
   });

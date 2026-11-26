@@ -8,6 +8,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { ArbeteUtanTrakt, OversiktsRad } from './listaVy';
 import { byggFakturaLage, type FakturaLage } from './fakturaLage';
+import { segmentMinuter } from './lasManuellt';
 
 export type Lasning =
   | {
@@ -57,9 +58,18 @@ export async function lasOversikt(sb: Awaited<ReturnType<typeof serverKlient>>):
     .select('minuter')
     .eq('debiterbar', true)
     .is('objekt_id', null);
-  if (lost && lost.length > 0) {
-    const minuter = lost.reduce((s, r) => s + (Number(r.minuter) || 0), 0);
-    utanTrakt = { poster: lost.length, timmar: Math.round((minuter / 60) * 100) / 100 };
+  // Samma sak för debiterbar tid inom passet (dagsegment, se lasManuellt).
+  const { data: lostSeg } = await sb
+    .from('arbetsdag_segment')
+    .select('start_tid, slut_tid, kalla')
+    .eq('debiterbar', true)
+    .is('objekt_id', null);
+  const segUtan = (lostSeg ?? []).filter((r: any) => r.kalla !== 'flytt' && r.kalla !== 'flyttlogg');
+  const antalUtan = (lost?.length ?? 0) + segUtan.length;
+  if (antalUtan > 0) {
+    const minuter = (lost ?? []).reduce((s, r) => s + (Number(r.minuter) || 0), 0)
+      + segUtan.reduce((s: number, r: any) => s + segmentMinuter(r.start_tid, r.slut_tid), 0);
+    utanTrakt = { poster: antalUtan, timmar: Math.round((minuter / 60) * 100) / 100 };
   }
 
   // Var i faktureringen varje trakt ligger — läst ur VÅRA skickade fakturor och

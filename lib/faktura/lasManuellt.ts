@@ -44,6 +44,17 @@ const AKTIVITET: Record<string, string> = {
   markagare: 'Markägarkontakt',
 };
 
+/** Minuter i ett segment (klockslag, samma dag). Saknas något: 0. */
+export function segmentMinuter(start: string | null | undefined, slut: string | null | undefined): number {
+  const m = (t: string | null | undefined) => {
+    const [h, mm] = String(t || '').slice(0, 5).split(':').map(Number);
+    return Number.isFinite(h) && Number.isFinite(mm) ? h * 60 + mm : null;
+  };
+  const a = m(start), b = m(slut);
+  if (a == null || b == null || b <= a) return 0;
+  return b - a;
+}
+
 /** Alla nummer som pekar på samma trakt: traktens eget plus dess extranummer. */
 export async function traktensNummer(
   sb: Klient,
@@ -73,7 +84,24 @@ export async function lasDebiterbartArbete(
     .order('datum');
   if (error) return { status: 'fel', fel: error.message };
 
-  const poster: ManuellPost[] = (data ?? []).map((r: any) => {
+  // Debiterbar tid INOM passet är ett dagsegment (arbetsdag_segment), inte
+  // extra_tid — föraren som rättar sin tid och svarar "Vad gjorde du …?" får
+  // ett segment (Martin 2026-11-25). Segment och extra_tid överlappar aldrig
+  // (inne mot utanför passet), så de summeras utan dubbelräkning. Automatiska
+  // flyttrader är aldrig debiterbara här (lastbilen äger flyttfakturan).
+  const { data: seg, error: segFel } = await sb
+    .from('arbetsdag_segment')
+    .select('datum, start_tid, slut_tid, aktivitet_typ, kommentar, kalla, medarbetare:medarbetare_id(namn)')
+    .eq('debiterbar', true)
+    .in('objekt_id', nummer)
+    .order('datum');
+  if (segFel) return { status: 'fel', fel: segFel.message };
+  const segRader = (seg ?? [])
+    .filter((r: any) => r.kalla !== 'flytt' && r.kalla !== 'flyttlogg')
+    .map((r: any) => ({ ...r, minuter: segmentMinuter(r.start_tid, r.slut_tid) }));
+
+  const alla = [...(data ?? []), ...segRader].sort((a: any, b: any) => String(a.datum).localeCompare(String(b.datum)));
+  const poster: ManuellPost[] = alla.map((r: any) => {
     const m = r.medarbetare as unknown as { namn?: string } | { namn?: string }[] | null;
     const namn = Array.isArray(m) ? m[0]?.namn : m?.namn;
     const typ = r.aktivitet_typ == null ? null : String(r.aktivitet_typ);
