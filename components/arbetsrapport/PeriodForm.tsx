@@ -24,6 +24,7 @@
 //
 // Ingen timer, ingen banner, ingen window.confirm. Allt mot lib/design/tokens.
 
+import TidHjul from "./TidHjul";
 import { useState, type ReactNode } from "react";
 import { TYP, VIKT, IKON, AVSTAND, RADIE, FARG, KNAPP, TRAFFYTA, TNUM, INAKTIV } from "@/lib/design/tokens";
 import { AKTIVITETER, EXTRA_ARBETE_TYPER, HELA_DAGEN_TYPER, objektKravs, type AktivitetTyp } from "@/lib/aktiviteter";
@@ -150,7 +151,7 @@ export default function PeriodForm(p: Props) {
     : steg === 'trakt' ? 'Vilken trakt?'
     : p.rubrik;
   // Tiden står i rubriken när frågan själv bär den ("Vad gjorde du 05:30–06:30?") — inte två gånger.
-  const underRubrik = [tidText && !rubrik.includes(tidText) ? tidText : null, p.datumText].filter(Boolean).join(' · ');
+  const underRubrik = [tidText && steg !== 'tid' && !rubrik.includes(tidText) ? tidText : null, p.datumText].filter(Boolean).join(' · ');
 
   // Stor valknapp — vald = fyllning + fet + bock. Färgen bär aldrig ensam.
   const valKnapp = (nyckel: string, ikon: string | null, text: string, vald: boolean, onClick: () => void) => (
@@ -171,14 +172,6 @@ export default function PeriodForm(p: Props) {
       <span style={{ flex: 1, minWidth: 0, ...TYP.text, color: varna ? FARG.orange : FARG.text, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{varde}</span>
       <span className="material-symbols-outlined" style={{ fontSize: IKON.text, color: FARG.text3, flexShrink: 0 }}>chevron_right</span>
     </button>
-  );
-
-  const tidInput = (etikett: string, varde: string, satt: (t: string) => void) => (
-    <label style={{ flex: 1, minWidth: 0 }}>
-      <span style={{ display: "block", ...TYP.meta, color: FARG.text2, marginBottom: AVSTAND.xs }}>{etikett}</span>
-      <input type="time" step={300} value={varde} onChange={e => satt(e.target.value)} aria-label={etikett}
-        style={{ width: "100%", boxSizing: "border-box", minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.m}px`, background: FARG.upphojt, border: "none", borderRadius: RADIE.rad, color: FARG.text, ...TYP.text, ...TNUM, fontFamily: "inherit", colorScheme: "dark" }} />
-    </label>
   );
 
   const tidRad = !v.slut
@@ -214,9 +207,9 @@ export default function PeriodForm(p: Props) {
   } else if (steg === 'tid') {
     innehall = (
       <>
-        <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
-          {tidInput("Från", v.start, t => p.onAndra({ ...v, start: t }))}
-          {tidInput("Till", v.slut, t => p.onAndra({ ...v, slut: t }))}
+        <div style={{ marginTop: AVSTAND.l }}>
+          <TidHjul start={v.start} slut={v.slut} startForslag={(p.pass?.slut_tid || '').slice(0, 5) || undefined}
+            onAndra={(start, slut) => p.onAndra({ ...v, start, slut })} />
         </div>
         {v.start && v.slut && <p data-tidrad style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: tidRad.varna ? FARG.orange : FARG.text2 }}>{tidRad.text}</p>}
         {HELA_DAGEN_TYPER.includes(v.typ) && (
@@ -269,9 +262,9 @@ export default function PeriodForm(p: Props) {
         )}
 
         {/* Tiden: två klockslag, alltid synliga och redigerbara. */}
-        <div style={{ display: "flex", gap: AVSTAND.s, marginTop: AVSTAND.l }}>
-          {tidInput("Från", v.start, t => p.onAndra({ ...v, start: t }))}
-          {tidInput("Till", v.slut, t => p.onAndra({ ...v, slut: t }))}
+        <div style={{ marginTop: AVSTAND.l }}>
+          <TidHjul start={v.start} slut={v.slut} startForslag={(p.pass?.slut_tid || '').slice(0, 5) || undefined}
+            onAndra={(start, slut) => p.onAndra({ ...v, start, slut })} />
         </div>
         <p data-tidrad style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, ...TNUM, color: tidRad.varna ? FARG.orange : FARG.text2 }}>{tidRad.text}</p>
         {HELA_DAGEN_TYPER.includes(v.typ) && (

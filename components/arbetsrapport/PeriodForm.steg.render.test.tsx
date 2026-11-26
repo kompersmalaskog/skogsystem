@@ -128,3 +128,36 @@ describe("regler", () => {
     expect(periodKanSparas({ ...tom, typ: "service", deb: false })).toBe(true);
   });
 });
+
+describe("När? — hjulen som i Apples Kalender", () => {
+  const tryck = (sel: string) => klick(document.querySelector(sel) as HTMLElement);
+  const valIHjul = (hjul: string, v: number) => tryck(`[data-hjul="${hjul}"] [data-hjul-val="${v}"]`);
+
+  it("inget ifyllt; Från får ett värde när raden öppnas, Till börjar där Från står", () => {
+    render(<Rigg start={utanTid} />);
+    fireEvent.click(screen.getByText("Service"));
+    expect(document.querySelector('[data-tid-varde="start"]')!.textContent).toBe("--:--");
+    expect(document.querySelector("[data-hjul]")).toBeNull();
+    tryck('[data-tidrad-knapp="start"]');
+    expect(varden().start).toBe("15:00"); // passets slut
+    valIHjul("Från timme", 16);
+    valIHjul("Från minut", 30);
+    expect(varden().start).toBe("16:30");
+    tryck('[data-tidrad-knapp="slut"]');
+    expect(document.querySelector('[data-hjul="Från timme"]')).toBeNull(); // ett hjul åt gången
+    expect(varden().slut).toBe("16:30");
+    valIHjul("Till timme", 17);
+    expect(varden()).toMatchObject({ start: "16:30", slut: "17:30" });
+    fireEvent.click(document.querySelector("[data-nasta]") as HTMLElement);
+    expect(steg()).toBe("fakt");
+  });
+
+  it("ändras Från när Till finns flyttas Till med (längden behålls)", () => {
+    render(<Rigg start={tom} />);
+    fireEvent.click(screen.getByText("Annat"));
+    fireEvent.click(screen.getByText("Nej"));
+    tryck('[data-tidrad-knapp="start"]');
+    valIHjul("Från timme", 7);
+    expect(varden()).toMatchObject({ start: "07:00", slut: "08:00" });
+  });
+});
