@@ -6,7 +6,11 @@ import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
 import { supabase } from '@/lib/supabase'
 import { LivestatusRad } from './Livestatus'
 import DagensObjekt from './DagensObjekt'
-import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
+import { SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
+import {
+  RPC_LASS, RPC_LASS_SENASTE, tomLassSumma, laggTillLass, appMark, snittAvstandM, avstandNot, g15PerDag, kvotUnderlag, tidNot,
+  type LassSumma, type SkotarLassRad,
+} from '@/lib/maskinvy/skotarlass'
 import {
   fmtSv, VolymBadge, FLYTT_FARG, tint,
 } from './OversiktShared'
@@ -20,7 +24,8 @@ import {
 // Vi visar alltid explicit hur gammal datan är. Grön prick =
 // lossning gjord idag (Stockholm-tid). Dämpat = äldre datum.
 //
-// DATAKÄLLA: fakt_lass
+// DATAKÄLLA: skotarens lass ur Opti-filerna (fakt_lass) OCH appens egna (skotar_lass) via maskindata_lass_alla — dubbelräkningen
+//   är avgjord i SQL (per maskin + objekt + dag den källa med mest volym), se lib/maskinvy/skotarlass.ts
 //   lossnings_tid (TIMESTAMPTZ) → Stockholm-timme för stapeldiagram
 //   volym_m3sub  → utkört m³sub
 //   korstracka_m (tur och retur) → skotningsavstånd (enkel väg, lib/skotningsavstand)
@@ -108,18 +113,19 @@ type FreshnessInfo = {
   daysDiff:           number        // 0 = idag, 1 = igår, …
 }
 
-type HourBucket = {
-  lass:      number
-  volym:     number
-  totalDist: number   // SUM(korstracka_m)
-}
+// En timme: samma summor som hela dagen (lass, volym, körsträcka över lassen som har ett mått, appens lass).
+type HourBucket = LassSumma
 
 type SkotareIdagData = {
   freshness:   FreshnessInfo
   volym:       number
   lass:        number
-  snittSträcka: number | null    // null om lass = 0
+  /** Dagens summor — märket på volymen (uppskattad/skalad) och "N av M lass" för avståndet kommer ur dem. */
+  summa:       LassSumma
+  snittSträcka: number | null    // null om inget lass har ett mått (appens lass har det inte)
   g15h:        number            // SUM(processing_sek + terrain_sek) / 3600 från fakt_tid
+  /** Dagens volym på dagar med G15-tid — täljaren i m³/G15h. Idag är det en dag: hela volymen eller 0. */
+  kvotVolym:   number
   hourBuckets: Record<number, HourBucket>  // timme (0–23) → bucket
   momTider:    Record<number, MomTiderHour> | null  // null = fetch misslyckades
   /** Dagens lass (objekt + volym) — för listan över dagens objekt. */
@@ -130,9 +136,9 @@ type SkotareIdagData = {
 async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | null> {
   const ids = [maskinId]
 
-  // 1. Senaste rad i fakt_lass — bestämmer vilket datum vi visar
+  // 1. Senaste lass (Opti OCH appens egna) — bestämmer vilket datum vi visar
   //    och ger senasteLossningsTid för färskhetsetiketten.
-  const { data: latestRows } = await supabase.rpc('maskindata_lass_senaste', {
+  const { data: latestRows } = await supabase.rpc(RPC_LASS_SENASTE, {
     p_maskin_ids: ids,
   })
 
@@ -149,30 +155,26 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
   )
 
   // 2. Hämta alla lass för senasteDatum via RPC (kringgår RLS)
-  const { data: lassData } = await supabase.rpc('maskindata_lass', {
+  const { data: lassData } = await supabase.rpc(RPC_LASS, {
     p_maskin_ids: ids, p_datum_start: senasteDatum, p_datum_slut: senasteDatum,
   })
-  const allRows: any[] = lassData || []
+  const allRows: SkotarLassRad[] = lassData || []
 
   // 3. Aggregera totaler och bygg timme-buckets
-  let totalVolym = 0, totalDist = 0
+  const summa = tomLassSumma()
   const hourBuckets: Record<number, HourBucket> = {}
 
   for (const r of allRows) {
-    const volym = r.volym_m3sub  || 0
-    const dist  = r.korstracka_m || 0
-    totalVolym += volym
-    totalDist  += dist
+    laggTillLass(summa, r)
 
     // Extrahera Stockholm-timme ur lossnings_tid
     const h = r.lossnings_tid ? toStockholmHour(r.lossnings_tid as string) : -1
     if (h < 0 || h > 23) continue
-    if (!hourBuckets[h]) hourBuckets[h] = { lass: 0, volym: 0, totalDist: 0 }
-    hourBuckets[h].lass      += 1
-    hourBuckets[h].volym     += volym
-    hourBuckets[h].totalDist += dist
+    if (!hourBuckets[h]) hourBuckets[h] = tomLassSumma()
+    laggTillLass(hourBuckets[h], r)
   }
 
+  const totalVolym = summa.volym
   const totalLass = allRows.length
 
   // 4. G15h från fakt_tid + mom_tider — separata hämtningar, parallellt.
@@ -190,13 +192,17 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
   )
   const g15h    = g15sek / 3600
   const momTider = momTiderResult.status === 'fulfilled' ? momTiderResult.value : null
+  // m³/G15h: bara volym på dagar med G15-tid i täljaren (Elefant 26 och 810E har ingen maskintid efter att filerna slutade).
+  const kvotVolym = kvotUnderlag(allRows, g15PerDag(tidRows.map(r => ({ ...r, datum: senasteDatum })))).volym
 
   return {
     freshness: { senasteDatum, senasteLossningsTid, daysDiff },
     volym:       totalVolym,
     lass:        totalLass,
-    snittSträcka: snittSkotningsavstandM(totalDist, totalLass),
+    summa,
+    snittSträcka: snittAvstandM(summa),
     g15h,
+    kvotVolym,
     hourBuckets,
     momTider,
     objektRader: allRows.map(r => ({ objekt_id: r.objekt_id ?? null, volym_m3sub: r.volym_m3sub ?? null })),
@@ -208,7 +214,10 @@ async function fetchSkotareIdag(maskinId: string): Promise<SkotareIdagData | nul
 function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: boolean }) {
   const datumLabel = loading || !data ? '—' : fmtDatumSv(data.freshness.senasteDatum)
 
-  const m3g15h = data && data.g15h > 0 ? fmtSv(data.volym / data.g15h, 1) : '—'
+  // m³/G15h: bara när maskinen har G15-tid den här dagen. Annars ett streck med förklaring — aldrig en gissning.
+  const m3g15h = data && data.g15h > 0 && data.kvotVolym > 0 ? fmtSv(data.kvotVolym / data.g15h, 1) : '—'
+  const utanTid = !!data && data.lass > 0 && !(data.g15h > 0)
+  const avNot = data ? avstandNot(data.summa) : null
 
   const items = [
     {
@@ -224,12 +233,14 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
     {
       label: SKOTNINGSAVSTAND_ETIKETT,
       display: data && data.snittSträcka !== null ? fmtSv(data.snittSträcka, 0) : '—',
-      unit: `m · ${SKOTNINGSAVSTAND_UNDERTEXT}`,
+      // "3 av 5 lass" när bara en del av lassen har ett mått; "mäts inte för appens lass" när inget har det.
+      unit: data && data.snittSträcka === null && avNot ? avNot
+        : avNot ? `m · ${SKOTNINGSAVSTAND_UNDERTEXT} · ${avNot}` : `m · ${SKOTNINGSAVSTAND_UNDERTEXT}`,
     },
     {
       label: 'm³/G15h',
       display: loading ? '—' : m3g15h,
-      unit: 'm³/G15h',
+      unit: utanTid ? tidNot({ dagarMedTid: 0, dagarUtanTid: 1 }) as string : 'm³/G15h',
     },
   ]
 
@@ -258,7 +269,7 @@ function SiffraCard({ data, loading }: { data: SkotareIdagData | null; loading: 
             <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{item.unit}</div>
             {i === 0 && !loading && (
               <div style={{ marginTop: AVSTAND.xs }}>
-                <VolymBadge harManuell={false} />
+                <VolymBadge harManuell={false} appMark={data ? appMark(data.summa) : null} />
               </div>
             )}
           </div>
@@ -624,7 +635,8 @@ function HourPanel({
 }) {
   const endHour    = hour + 1
   const snittLass  = bucket.lass > 0 ? bucket.volym / bucket.lass : null
-  const snittDist  = snittSkotningsavstandM(bucket.totalDist, bucket.lass)
+  const snittDist  = snittAvstandM(bucket)
+  const avstandNotering = avstandNot(bucket)
 
   return (
     <div style={{
@@ -672,7 +684,10 @@ function HourPanel({
           <div style={{ fontSize: TYP.rubrik.fontSize, fontWeight: VIKT.halvfet, color: FARG.text, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.5 }}>
             {snittDist !== null ? fmtSv(snittDist, 0) : '—'}
           </div>
-          <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>m · {SKOTNINGSAVSTAND_UNDERTEXT}</div>
+          <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>
+            {snittDist === null && avstandNotering ? avstandNotering
+              : avstandNotering ? `m · ${SKOTNINGSAVSTAND_UNDERTEXT} · ${avstandNotering}` : `m · ${SKOTNINGSAVSTAND_UNDERTEXT}`}
+          </div>
         </div>
       </div>
 

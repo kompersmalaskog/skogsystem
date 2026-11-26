@@ -9,6 +9,7 @@ import {
   hämtaManuellRader, harManuellData, fetchAllTimeLassTid, byggVolymPerDag, sumPerDag,
 } from '@/lib/maskinvy/skotarvolym'
 import { skotningsavstandM } from '@/lib/skotningsavstand'
+import { appMark, tidNot, type SkotarLassRad } from '@/lib/maskinvy/skotarlass'
 import { g15Sek } from '@/lib/g15'
 import {
   KLASSER, NK, getKlassIdx, kvot, valjJamforelseMaskiner, JAMFORELSE_FARG,
@@ -55,20 +56,32 @@ const MATT: { id: MattId; label: string; unit: string; dec: number }[] = [
 ]
 
 // ── Typer ─────────────────────────────────────────────────────
-type KlassAgg = { lass: number; volym: number }
+// volymMedTid = volymen på dagar som har G15-tid — det som får stå i täljaren i m³/G15h (lib/maskinvy/skotarlass).
+type KlassAgg = { lass: number; volym: number; volymMedTid: number }
 
 type MaskinAgg = {
-  klasser:    KlassAgg[]  // ett index per KLASSER
+  klasser:    KlassAgg[]  // ett index per KLASSER — bara lass med mätt avstånd
+  /** Lass utan mätt avstånd (appens lass): räknas i totalen men tillhör ingen avståndsklass. */
+  utanKlass:  KlassAgg
   g15h:       number      // total G15h perioden = SUM((proc+terr)/3600)
   bransle:    number      // total L
   totalVolym: number      // SUM(volym_m3sub) alla klasser
+  totalVolymMedTid: number
   totalLass:  number      // COUNT(lass) alla klasser
+  /** Dagar med lass där G15-tid finns respektive saknas — förklaringen under m³/G15h. */
+  dagarMedTid:  number
+  dagarUtanTid: number
+  /** App-lass (förarens egen registrering) och hur många av dem som inte är skalade — märket på volymen. */
+  appLass:      number
+  appOskalade:  number
 }
 
 function emptyAgg(): MaskinAgg {
   return {
-    klasser:    KLASSER.map(() => ({ lass: 0, volym: 0 })),
-    g15h: 0, bransle: 0, totalVolym: 0, totalLass: 0,
+    klasser:    KLASSER.map(() => ({ lass: 0, volym: 0, volymMedTid: 0 })),
+    utanKlass:  { lass: 0, volym: 0, volymMedTid: 0 },
+    g15h: 0, bransle: 0, totalVolym: 0, totalVolymMedTid: 0, totalLass: 0,
+    dagarMedTid: 0, dagarUtanTid: 0, appLass: 0, appOskalade: 0,
   }
 }
 
@@ -88,23 +101,36 @@ async function fetchJamforelse(
     fetchAll('fakt_tid',  'maskin_id, processing_sek, terrain_sek, other_work_sek, bransle_liter', ids, start, end),
   ])
 
-  // Aggregera fakt_lass → klasser
-  for (const r of lassRows) {
-    const a = map[r.maskin_id]; if (!a) continue
-    const v  = r.volym_m3sub  || 0
-    const ki = getKlassIdx(skotningsavstandM(r.korstracka_m))
-    a.klasser[ki].lass++
-    a.klasser[ki].volym += v
-    a.totalVolym += v
-    a.totalLass++
-  }
-
   // Aggregera fakt_tid → G15h + bränsle (g15Sek: processing + terrain + other_work)
+  const g15Dag = new Map<string, number>()   // `maskin|datum` → G15-sekunder
   for (const r of tidRows) {
     const a = map[r.maskin_id]; if (!a) continue
     a.g15h    += g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek) / 3600
     a.bransle += parseFloat(r.bransle_liter) || 0
+    if (r.datum) g15Dag.set(`${r.maskin_id}|${r.datum}`, (g15Dag.get(`${r.maskin_id}|${r.datum}`) ?? 0) + g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek))
   }
+
+  // Aggregera lass (Opti + appen) → klasser. Lass utan mätt avstånd (appens) hamnar i `utanKlass`, inte i kortaste klassen.
+  const dagarMed = new Map<string, Set<string>>(), dagarUtan = new Map<string, Set<string>>()
+  for (const r of lassRows as SkotarLassRad[]) {
+    const a = map[r.maskin_id]; if (!a) continue
+    const v  = r.volym_m3sub  || 0
+    const medTid = !!r.datum && (g15Dag.get(`${r.maskin_id}|${r.datum}`) ?? 0) > 0
+    const mal = r.korstracka_m != null ? a.klasser[getKlassIdx(skotningsavstandM(r.korstracka_m))] : a.utanKlass
+    mal.lass++
+    mal.volym += v
+    if (medTid) mal.volymMedTid += v
+    a.totalVolym += v
+    if (medTid) a.totalVolymMedTid += v
+    a.totalLass++
+    if (r.kalla === 'app') { a.appLass++; if (!r.skalad) a.appOskalade++ }
+    if (r.datum) {
+      const m = medTid ? dagarMed : dagarUtan
+      if (!m.has(r.maskin_id)) m.set(r.maskin_id, new Set())
+      m.get(r.maskin_id)!.add(r.datum)
+    }
+  }
+  for (const id of ids) { map[id].dagarMedTid = dagarMed.get(id)?.size ?? 0; map[id].dagarUtanTid = dagarUtan.get(id)?.size ?? 0 }
 
   return map
 }
@@ -112,9 +138,12 @@ async function fetchJamforelse(
 function slaIhop(aggs: MaskinAgg[]): MaskinAgg {
   const ut = emptyAgg()
   for (const a of aggs) {
-    a.klasser.forEach((kl, i) => { ut.klasser[i].lass += kl.lass; ut.klasser[i].volym += kl.volym })
+    a.klasser.forEach((kl, i) => { ut.klasser[i].lass += kl.lass; ut.klasser[i].volym += kl.volym; ut.klasser[i].volymMedTid += kl.volymMedTid })
+    ut.utanKlass.lass += a.utanKlass.lass; ut.utanKlass.volym += a.utanKlass.volym; ut.utanKlass.volymMedTid += a.utanKlass.volymMedTid
     ut.g15h += a.g15h; ut.bransle += a.bransle
-    ut.totalVolym += a.totalVolym; ut.totalLass += a.totalLass
+    ut.totalVolym += a.totalVolym; ut.totalVolymMedTid += a.totalVolymMedTid; ut.totalLass += a.totalLass
+    ut.dagarMedTid += a.dagarMedTid; ut.dagarUtanTid += a.dagarUtanTid
+    ut.appLass += a.appLass; ut.appOskalade += a.appOskalade
   }
   return ut
 }
@@ -126,7 +155,7 @@ function mattKlass(agg: MaskinAgg, ki: number, matt: MattId): number | null {
   const kl = agg.klasser[ki]
   if (matt === 'lass')      return kl.lass > 0                             ? kl.lass                          : null
   if (matt === 'snittlass') return kl.lass > 0                             ? kl.volym / kl.lass               : null
-  if (matt === 'm3g15h')    return kvot(kl.volym, agg.g15h)
+  if (matt === 'm3g15h')    return kvot(kl.volymMedTid, agg.g15h)
   // lm3: maskinmått — kan ej delas per klass. Visar maskintotal för alla klasser.
   return (agg.totalVolym > 0 && agg.bransle > 0) ? agg.bransle / agg.totalVolym : null
 }
@@ -135,7 +164,7 @@ function mattKlass(agg: MaskinAgg, ki: number, matt: MattId): number | null {
 function mattTotal(agg: MaskinAgg, matt: MattId): number | null {
   if (matt === 'lass')      return agg.totalLass > 0                           ? agg.totalLass                           : null
   if (matt === 'snittlass') return agg.totalLass > 0                           ? agg.totalVolym / agg.totalLass          : null
-  if (matt === 'm3g15h')    return kvot(agg.totalVolym, agg.g15h)
+  if (matt === 'm3g15h')    return kvot(agg.totalVolymMedTid, agg.g15h)
   return (agg.totalVolym > 0 && agg.bransle > 0) ? agg.bransle / agg.totalVolym : null
 }
 
@@ -365,8 +394,13 @@ function FordelningsStaplar({
   ek:      MaskinAgg
   loading: boolean
 }) {
-  const shares = (agg: MaskinAgg): number[] =>
-    agg.klasser.map(kl => agg.totalLass > 0 ? (kl.lass / agg.totalLass) * 100 : 0)
+  // Profilen är andel av lassen som HAR ett mätt avstånd (appens lass har inget och ligger utanför klasserna).
+  const shares = (agg: MaskinAgg): number[] => {
+    const medAvstand = agg.totalLass - agg.utanKlass.lass
+    return agg.klasser.map(kl => medAvstand > 0 ? (kl.lass / medAvstand) * 100 : 0)
+  }
+  const utanAvstand = (agg: MaskinAgg, kort: string): string | null =>
+    agg.utanKlass.lass > 0 ? `${kort}: ${agg.utanKlass.lass} av ${agg.totalLass} lass saknar mätt avstånd och ingår inte i profilen` : null
 
   const wShares = shares(wisent)
   const eShares = shares(ek)
@@ -462,6 +496,9 @@ function FordelningsStaplar({
               </div>
             ))}
           </div>
+          {[utanAvstand(wisent, WISENT.kort), utanAvstand(ek, EK.kort)].filter((x): x is string => !!x).map(t => (
+            <div key={t} style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.s }}>{t}</div>
+          ))}
         </>
       )}
     </div>
@@ -475,6 +512,7 @@ function FordelningsStaplar({
 function orsakSaknas(agg: MaskinAgg, harMaskin: boolean, matt: MattId): string {
   if (!harMaskin) return ORSAK_INGEN_MASKIN
   if (matt === 'm3g15h' && !(agg.g15h > 0)) return ORSAK_INGEN_G15
+  if (matt === 'm3g15h' && !(agg.totalVolymMedTid > 0)) return 'Ingen maskintid för dagarna med lass'
   if (matt === 'lm3' && agg.totalLass > 0 && !(agg.bransle > 0)) return 'Inget bränsle registrerat i perioden'
   return 'Inga lass i perioden'
 }
@@ -522,12 +560,15 @@ function TotalRad({
                   {orsakSaknas(agg, harMaskin[maskin.kort] ?? false, matt)}
                 </div>
               )}
+              {!loading && val !== null && matt === 'm3g15h' && tidNot(agg) && (
+                <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.s }}>{tidNot(agg)}</div>
+              )}
               <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text3, marginTop: AVSTAND.s, fontVariantNumeric: 'tabular-nums' }}>
                 {agg.totalLass} lass · {fmtSv(agg.totalVolym, 0)} m³
               </div>
               {!loading && (harMaskin[maskin.kort] ?? false) && (
                 <div style={{ marginTop: AVSTAND.s }}>
-                  <VolymBadge harManuell={harManuell[maskin.kort] ?? false} />
+                  <VolymBadge harManuell={harManuell[maskin.kort] ?? false} appMark={appMark(agg)} />
                 </div>
               )}
             </div>
@@ -588,7 +629,9 @@ export default function SkotareJamforelseNy() {
         const { perDag, harManuell } = byggVolymPerDag(at.lassRows, at.rader, at.tidRows, id, start, end)
         if (!harManuell) return
         const scale = sumPerDag(perDag) / agg.totalVolym
-        for (const kl of agg.klasser) kl.volym *= scale
+        for (const kl of agg.klasser) { kl.volym *= scale; kl.volymMedTid *= scale }
+        agg.utanKlass.volym *= scale; agg.utanKlass.volymMedTid *= scale
+        agg.totalVolymMedTid *= scale
         agg.totalVolym = sumPerDag(perDag)
         harManuellId.add(id)
       })

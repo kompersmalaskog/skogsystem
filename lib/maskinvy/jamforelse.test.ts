@@ -118,6 +118,52 @@ describe('summeraPerMaskinObjekt', () => {
   })
 })
 
+describe('summeraPerMaskinObjekt — appens lass saknar körsträcka och (efter filstoppet) maskintid', () => {
+  const tid = (extra: object = {}) => ({
+    maskin_id: 'A130743', objekt_id: 'O1', datum: '2026-11-02',
+    processing_sek: 36000, terrain_sek: 0, other_work_sek: 0, bransle_liter: '100', ...extra,
+  })
+  const lass = [
+    { maskin_id: 'A130743', objekt_id: 'O1', datum: '2026-11-02', volym_m3sub: 20, korstracka_m: 640 },      // Opti, har tid och mått
+    { maskin_id: 'A130743', objekt_id: 'O1', datum: '2026-11-23', volym_m3sub: 20, korstracka_m: null },     // app, ingen tid, inget mått
+    { maskin_id: 'A130743', objekt_id: 'O1', datum: '2026-11-24', volym_m3sub: 20, korstracka_m: null },
+  ]
+
+  it('volymMedTid: bara volym på (maskin, objekt, dag) som har G15-tid — 20 av 60 m³', () => {
+    const [s] = summeraPerMaskinObjekt(lass, [tid()])
+    expect(s.volym).toBe(60)
+    expect(s.volymMedTid).toBe(20)
+    expect(s.lassMedTid).toBe(1)
+    expect(kvot(s.volymMedTid, s.g15h)).toBe(2)          // 20 m³ / 10 h — inte 60 / 10 = 6
+  })
+
+  it('volymMedKor: bara volym på lass med körsträcka (m³ per 100 m räknas inte på lass utan mått)', () => {
+    const [s] = summeraPerMaskinObjekt(lass, [tid()])
+    expect(s.volymMedKor).toBe(20)
+    expect(s.lassMedKor).toBe(1)
+    expect(objektSkotningsavstand(s)).toBe(320)
+  })
+
+  it('tid på en annan dag eller ett annat objekt ger inget täljarunderlag', () => {
+    const [s] = summeraPerMaskinObjekt(lass, [tid({ datum: '2026-11-10' })])
+    expect(s.volymMedTid).toBe(0)
+    const rad = summeraPerMaskinObjekt(lass, [tid({ objekt_id: 'O2' })]).find(x => x.objekt_id === 'O1')!
+    expect(rad.volymMedTid).toBe(0)
+  })
+
+  it('dagen har 0 sekunder G15 → ingen tid (en rad med bara avbrott räknas inte som maskintid)', () => {
+    const [s] = summeraPerMaskinObjekt(lass, [tid({ processing_sek: 0, terrain_sek: 0, other_work_sek: 0 })])
+    expect(s.volymMedTid).toBe(0)
+  })
+
+  it('rent Opti-data (alla lass har mått och tid): täljarna är lika med totalerna — facit orört', () => {
+    const rent = [{ maskin_id: 'A130743', objekt_id: 'O1', datum: '2026-11-02', volym_m3sub: 22, korstracka_m: 700 }]
+    const [s] = summeraPerMaskinObjekt(rent, [tid()])
+    expect(s.volymMedTid).toBe(s.volym)
+    expect(s.volymMedKor).toBe(s.volym)
+  })
+})
+
 describe('volymPerObjekt — delade skotarvolym', () => {
   it('objekt utan manuell volym: rå lass-volym i perioden', () => {
     const lass = [

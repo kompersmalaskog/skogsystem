@@ -4,7 +4,8 @@ import { useDjupvyHistorik } from '@/lib/hooks/useDjupvyHistorik'
 
 import { useEffect, useRef, useState } from 'react'
 import { useMaskinvyMaskiner, type MaskinvyMaskin } from './useMaskinvyMaskiner'
-import { snittSkotningsavstandM, SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
+import { SKOTNINGSAVSTAND_ETIKETT, SKOTNINGSAVSTAND_UNDERTEXT } from '@/lib/skotningsavstand'
+import { appMark, snittAvstandM, avstandNot, type SkotarLassRad } from '@/lib/maskinvy/skotarlass'
 import {
   getPeriodRange, fetchAll, fmtSv, VolymBadge, type Period,
 } from './OversiktShared'
@@ -63,7 +64,10 @@ type DagInfo = {
   datum:     string
   volym:     number
   lass:      number
-  totalDist: number   // SUM(korstracka_m) — dela med lass för snitt
+  totalDist: number   // SUM(korstracka_m) över lassen som HAR ett mått — dela med distN, inte lass
+  distN:     number   // antal lass med mått (appens lass har inget)
+  appLass:   number   // antal app-lass (förarens egen registrering)
+  appOskalade: number // av dem: förarens siffra rakt av (inte skalad mot skördat)
 }
 
 type SkotareProduktionData = {
@@ -89,6 +93,9 @@ type Bucket = {
   volym:       number
   lass:        number
   totalDist:   number
+  distN:       number
+  appLass:     number
+  appOskalade: number
   arbetsdagar: number
 }
 
@@ -98,14 +105,14 @@ async function fetchSkotareProduktion(
 ): Promise<SkotareProduktionData> {
   const ids = [maskinId]
 
-  const lassRows = await fetchAll(
+  const lassRows: SkotarLassRad[] = await fetchAll(
     'fakt_lass', 'datum, volym_m3sub, korstracka_m',
     ids, start, end,
   )
 
   const perDag: Record<string, DagInfo> = {}
   const ensure = (datum: string): DagInfo => {
-    if (!perDag[datum]) perDag[datum] = { datum, volym: 0, lass: 0, totalDist: 0 }
+    if (!perDag[datum]) perDag[datum] = { datum, volym: 0, lass: 0, totalDist: 0, distN: 0, appLass: 0, appOskalade: 0 }
     return perDag[datum]
   }
 
@@ -113,7 +120,9 @@ async function fetchSkotareProduktion(
     if (!r.datum) continue
     const d = ensure(r.datum)
     d.volym     += r.volym_m3sub    || 0
-    d.totalDist += r.korstracka_m   || 0
+    // Körsträckan räknas bara över lass som har ett mått; appens lass har inget (lib/maskinvy/skotarlass).
+    if (r.korstracka_m != null) { d.totalDist += Number(r.korstracka_m) || 0; d.distN += 1 }
+    if (r.kalla === 'app') { d.appLass += 1; if (!r.skalad) d.appOskalade += 1 }
     d.lass      += 1
   }
 
@@ -163,6 +172,9 @@ function buildDailyBuckets(
       volym:      dag?.volym     ?? 0,
       lass:       dag?.lass      ?? 0,
       totalDist:  dag?.totalDist ?? 0,
+      distN:      dag?.distN ?? 0,
+      appLass:    dag?.appLass ?? 0,
+      appOskalade: dag?.appOskalade ?? 0,
       arbetsdagar: (dag?.volym ?? 0) > 0 ? 1 : 0,
     })
   }
@@ -181,7 +193,7 @@ function buildWeeklyBuckets(
     const { week, year } = isoWeek(cur)
     const bStart = cur < sD ? sD : cur
     const bEnd   = weekEnd > eD ? eD : weekEnd
-    let volym = 0, lass = 0, totalDist = 0, arbetsdagar = 0
+    let volym = 0, lass = 0, totalDist = 0, distN = 0, appLass = 0, appOskalade = 0, arbetsdagar = 0
     for (let i = 0; i < 7; i++) {
       const d = new Date(cur); d.setDate(cur.getDate() + i)
       if (d < sD || d > eD) continue
@@ -190,6 +202,7 @@ function buildWeeklyBuckets(
       volym     += dag.volym
       lass      += dag.lass
       totalDist += dag.totalDist
+      distN += dag.distN; appLass += dag.appLass; appOskalade += dag.appOskalade
       if (dag.volym > 0) arbetsdagar++
     }
     const bsLow = `${bStart.getDate()} ${MAANAD_FULL[bStart.getMonth()].slice(0,3)}`
@@ -201,7 +214,7 @@ function buildWeeklyBuckets(
       end:        fmtISO(bEnd),
       label:      `v.${week}`,
       titleLabel: `Vecka ${week} · ${bsLow}–${beLow} ${year}`,
-      volym, lass, totalDist, arbetsdagar,
+      volym, lass, totalDist, distN, appLass, appOskalade, arbetsdagar,
     })
   }
   return out
@@ -221,7 +234,7 @@ function buildMonthlyBuckets(
     const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0)
     const bStart = cur < sD ? sD : cur
     const bEnd   = monthEnd > eD ? eD : monthEnd
-    let volym = 0, lass = 0, totalDist = 0, arbetsdagar = 0
+    let volym = 0, lass = 0, totalDist = 0, distN = 0, appLass = 0, appOskalade = 0, arbetsdagar = 0
     for (const [datum, dag] of Object.entries(perDag)) {
       const d = new Date(datum + 'T12:00:00')
       if (d.getFullYear() !== cur.getFullYear() || d.getMonth() !== cur.getMonth()) continue
@@ -229,6 +242,7 @@ function buildMonthlyBuckets(
       volym     += dag.volym
       lass      += dag.lass
       totalDist += dag.totalDist
+      distN += dag.distN; appLass += dag.appLass; appOskalade += dag.appOskalade
       if (dag.volym > 0) arbetsdagar++
     }
     out.push({
@@ -238,7 +252,7 @@ function buildMonthlyBuckets(
       end:        fmtISO(bEnd),
       label:      MAANAD_KORT[cur.getMonth()],
       titleLabel: `${MAANAD_FULL[cur.getMonth()].charAt(0).toUpperCase() + MAANAD_FULL[cur.getMonth()].slice(1)} ${cur.getFullYear()}`,
-      volym, lass, totalDist, arbetsdagar,
+      volym, lass, totalDist, distN, appLass, appOskalade, arbetsdagar,
     })
   }
   return out
@@ -442,8 +456,12 @@ function MetricKort({ label, value, unit, dec = 0, loading }: {
 }
 
 // ── KpiRow ────────────────────────────────────────────────────
-function KpiRow({ label, value, unit, first }: {
+function KpiRow({ label, value, unit, first, not, badge }: {
   label: string; value: string; unit: string; first?: boolean
+  /** Förklaring under etiketten ("3 av 5 lass"). */
+  not?: string
+  /** Märke bredvid etiketten (uppskattad/skalad). */
+  badge?: React.ReactNode
 }) {
   return (
     <div style={{
@@ -452,7 +470,11 @@ function KpiRow({ label, value, unit, first }: {
       padding: `${AVSTAND.l}px ${AVSTAND.l}px`,
       borderTop: first ? 'none' : `0.5px solid ${FARG.linje}`,
     }}>
-      <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>{label}</div>
+      <div style={{ fontSize: TYP.text.fontSize, color: FARG.text }}>
+        {label}
+        {badge && <span style={{ marginLeft: AVSTAND.s }}>{badge}</span>}
+        {not && <div style={{ fontSize: TYP.micro.fontSize, color: FARG.text2, marginTop: AVSTAND.xs }}>{not}</div>}
+      </div>
       <div style={{
         fontSize: TYP.text.fontSize, fontWeight: VIKT.halvfet, color: FARG.text,
         fontVariantNumeric: 'tabular-nums', textAlign: 'right',
@@ -492,7 +514,9 @@ function BucketDetalj({ bucket, onClose }: {
 
   const hasProd      = bucket.volym > 0
   const isMulti      = bucket.kind !== 'day'
-  const snittSträcka = snittSkotningsavstandM(bucket.totalDist, bucket.lass)
+  const avstandSumma = { distSum: bucket.totalDist, distN: bucket.distN, lass: bucket.lass }
+  const snittSträcka = snittAvstandM(avstandSumma)
+  const avNot        = avstandNot(avstandSumma)
   const snittPerDag  = bucket.arbetsdagar > 0 ? bucket.volym / bucket.arbetsdagar : null
   const lassPerDag   = bucket.arbetsdagar > 0 ? bucket.lass  / bucket.arbetsdagar : null
 
@@ -548,12 +572,16 @@ function BucketDetalj({ bucket, onClose }: {
 
         {/* KPI-rader */}
         <div style={{ background: FARG.kort, borderRadius: RADIE.kort, overflow: 'hidden', marginBottom: AVSTAND.l }}>
-          <KpiRow label="Volym"  value={fmtSv(bucket.volym, 0)} unit="m³sub"  first />
+          <KpiRow
+            label="Volym" value={fmtSv(bucket.volym, 0)} unit="m³sub" first
+            badge={appMark(bucket) ? <VolymBadge harManuell={false} appMark={appMark(bucket)} /> : undefined}
+          />
           <KpiRow label="Lass"   value={String(bucket.lass)}    unit="st" />
           <KpiRow
             label={SKOTNINGSAVSTAND_ETIKETT}
             value={snittSträcka !== null ? fmtSv(snittSträcka, 0) : '—'}
             unit={`m · ${SKOTNINGSAVSTAND_UNDERTEXT}`}
+            not={avNot ?? undefined}
           />
           {isMulti && hasProd && (
             <>
@@ -612,7 +640,7 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
           // Ersätt per-dag-volym med manuell-korrigerat värde
           for (const [datum, vol] of Array.from(mPerDag.entries())) {
             if (d.perDag[datum]) d.perDag[datum].volym = vol
-            else d.perDag[datum] = { datum, volym: vol, lass: 0, totalDist: 0 }
+            else d.perDag[datum] = { datum, volym: vol, lass: 0, totalDist: 0, distN: 0, appLass: 0, appOskalade: 0 }
           }
           // Nollställ dagar utanför mPerDag som annars har raw-volym
           for (const datum of Object.keys(d.perDag)) {
@@ -648,6 +676,13 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
     el.textContent = `${maskin.namn} — ${label}`
     return () => { el.textContent = 'Maskinvy' }
   }, [maskin.namn, label])
+
+  // Märket på volymen: bygger något av dagarna på appens lass (förarens egen siffra)?
+  const periodMark = (() => {
+    let appLass = 0, appOskalade = 0
+    for (const dag of Object.values(data?.perDag ?? {})) { appLass += dag.appLass; appOskalade += dag.appOskalade }
+    return appMark({ appLass, appOskalade })
+  })()
 
   // Bygg buckets beroende på period
   const perDag       = data?.perDag ?? {}
@@ -793,7 +828,7 @@ export default function SkotareProduktionNy({ maskin, onMaskinChange }: {
         {!loading && (
           <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: TYP.micro.fontSize, color: FARG.text2 }}>Volym:</span>
-            <VolymBadge harManuell={harManuell} />
+            <VolymBadge harManuell={harManuell} appMark={periodMark} />
           </div>
         )}
         {/* Sifferkort: totalt · dagar · snitt */}

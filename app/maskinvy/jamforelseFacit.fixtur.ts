@@ -48,7 +48,7 @@ export function byggSupabaseMock() {
     return q
   }
   const rpc = (namn: string, p: any) => {
-    const kalla = namn === 'maskindata_lass' ? lassRader : tidRader
+    const kalla = namn === 'maskindata_lass_alla' ? lassRader : tidRader
     const rader = kalla.filter(r =>
       p.p_maskin_ids.includes(r.maskin_id)
       && (!p.p_datum_start || r.datum >= p.p_datum_start)

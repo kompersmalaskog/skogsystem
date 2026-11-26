@@ -12,7 +12,7 @@ vi.mock('@/lib/supabase', () => ({
       range: (fran: number, till: number) => {
         db.anrop.push({ namn, fran, till })
         if (db.felVidSida >= 0 && fran / 1000 === db.felVidSida) return Promise.resolve({ data: null, error: { message: 'timeout' } })
-        const kalla = namn === 'maskindata_lass' ? db.lass : db.tid
+        const kalla = namn === 'maskindata_lass_alla' ? db.lass : db.tid
         return Promise.resolve({ data: kalla.slice(fran, Math.min(till, fran + 999) + 1), error: null })
       },
     }),

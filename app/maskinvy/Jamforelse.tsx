@@ -48,25 +48,30 @@ interface ClassData {
   bransle: number;
   skift: number;
   lass: number;
+  // Täljarna i kvoterna: bara det som har sin nämnare. Appens lass saknar körsträcka och (efter att Opti-filerna slutat) maskintid.
+  volymMedTid: number;   // m³/G15h och L/m³: volym på dagar med G15-tid
+  lassMedTid: number;    // lass/G15h
+  volymMedKor: number;   // m³ per 100 m: volym på lass med körsträcka
 }
 
 function emptyClass(): ClassData {
-  return { volym: 0, g15h: 0, distM: 0, bransle: 0, skift: 0, lass: 0 };
+  return { volym: 0, g15h: 0, distM: 0, bransle: 0, skift: 0, lass: 0, volymMedTid: 0, lassMedTid: 0, volymMedKor: 0 };
 }
 
 function addClass(a: ClassData, b: ClassData) {
   a.volym += b.volym; a.g15h += b.g15h; a.distM += b.distM;
   a.bransle += b.bransle; a.skift += b.skift; a.lass += b.lass;
+  a.volymMedTid += b.volymMedTid; a.lassMedTid += b.lassMedTid; a.volymMedKor += b.volymMedKor;
 }
 
 /** Måttet för en uppsättning data — null när nämnaren saknas (aldrig division ändå). */
 function computeMetric(d: ClassData | undefined, metric: MetricId): number | null {
   if (!d) return null;
   switch (metric) {
-    case 'm3fub_g15h': return kvot(d.volym, d.g15h);
-    case 'm3fub_100m': return kvot(d.volym, d.distM / 100);
-    case 'lass_g15h':  return kvot(d.lass, d.g15h);
-    case 'bransle_m3': return kvot(d.bransle, d.volym);
+    case 'm3fub_g15h': return kvot(d.volymMedTid, d.g15h);
+    case 'm3fub_100m': return kvot(d.volymMedKor, d.distM / 100);
+    case 'lass_g15h':  return kvot(d.lassMedTid, d.g15h);
+    case 'bransle_m3': return kvot(d.bransle, d.volymMedTid);
     default: return null;
   }
 }
@@ -224,9 +229,12 @@ export default function Jamforelse() {
       const avst = objektSkotningsavstand(sum);
       const ci = avst === null ? UTAN_KLASS : getKlassIdx(avst);
       const rattad = volymId[sum.maskin_id]?.get(sum.objekt_id);
+      // Manuellt rättad volym skalar täljarna lika mycket som totalen.
+      const skala = rattad !== undefined && sum.volym > 0 ? rattad / sum.volym : 1;
       const d: ClassData = {
         volym: rattad ?? sum.volym, g15h: sum.g15h, distM: sum.korM,
         bransle: sum.bransle, skift: sum.dagar.size, lass: sum.lass,
+        volymMedTid: sum.volymMedTid * skala, lassMedTid: sum.lassMedTid, volymMedKor: sum.volymMedKor * skala,
       };
       if (ekSet.has(sum.maskin_id)) {
         const mal = (objIdToKonfig[sum.objekt_id] || 'bred') === 'smal' ? newEkSmal : newEkBred;

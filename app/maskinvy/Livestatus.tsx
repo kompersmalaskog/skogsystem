@@ -4,6 +4,7 @@ import { TYP, RADIE, AVSTAND, FARG } from '@/lib/design/tokens'
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { livestatus, importhalsa, arSammaSignal, dagarMellan, stockholmDag, type SenasteSignal } from '@/lib/maskinvy/livestatus'
+import { RPC_LASS_SENASTE } from '@/lib/maskinvy/skotarlass'
 import { COMBO_IDS, tint, type Maskin } from './OversiktShared'
 import { useMinutklocka } from './useMinutklocka'
 
@@ -79,7 +80,7 @@ export function useSenasteSignal(maskinId: string, roll: Roll): Hamtat<SenasteSi
     let avbruten = false
     setS({ data: null, loading: true, fel: false })
     const ids = COMBO_IDS[maskinId] || [maskinId]
-    const rpc = roll === 'skordare' ? 'maskindata_produktion_senaste' : 'maskindata_lass_senaste'
+    const rpc = roll === 'skordare' ? 'maskindata_produktion_senaste' : RPC_LASS_SENASTE
     Promise.resolve(supabase.rpc(rpc, { p_maskin_ids: ids })).then(({ data, error }) => {
       if (avbruten) return
       if (error) { setS({ data: null, loading: false, fel: true }); return }

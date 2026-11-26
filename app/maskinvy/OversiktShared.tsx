@@ -12,6 +12,7 @@ import { VIKT, TYP, RADIE, AVSTAND, FARG, FONT, DELFARG } from '@/lib/design/tok
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { slaIhopOperatorer, type OperatorKoppling } from '@/lib/maskinvy/operatorer'
+import { RPC_LASS, type AppMark } from '@/lib/maskinvy/skotarlass'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import { G15_GRANS_SEK, tuProcent, TU_BRANSCHSNITT, arOklassatAvbrott } from '@/lib/g15'
 
@@ -208,7 +209,9 @@ export type Operator = {
   /** Alla operator_id som hör till personen — kortet är en rad per person (lib/maskinvy/operatorer). */
   ids?: string[]
   /** Distinkta produktionsdatum, så ihopslagna id:n inte dubbelräknar en dag. */
-  datum?: string[]
+  datum?: string[]  /** Skotare: volym och G15-sekunder per dag (m³/G15h räknas bara på dagar med G15-tid — lib/maskinvy/operatorer). */
+  volymPerDag?: Record<string, number>
+  g15SekPerDag?: Record<string, number>
 }
 
 /**
@@ -271,7 +274,8 @@ const MASKINVY_RPC: Record<string, string> = {
   fakt_produktion: 'maskindata_produktion',
   fakt_tid:        'maskindata_tid',
   fakt_avbrott:    'maskindata_avbrott',
-  fakt_lass:       'maskindata_lass',
+  // Skotarens lass ur BÅDA källorna (Opti + appen), dubbelräkningen avgjord i SQL — se lib/maskinvy/skotarlass.ts.
+  fakt_lass:       RPC_LASS,
 }
 
 export async function fetchAll(
@@ -1070,25 +1074,35 @@ export function initials(namn: string): string {
 
 // ── VolymBadge (DEL C) ────────────────────────────────────────
 // Signalerar varifrån volymsiffran kommer.
-//   harManuell=true  → 'manuell'   (blå)   — värdet är från skotare_objekt_manuell
-//   harManuell=false → 'preliminär' (dämpad) — värdet är raw FPR-data
-export function VolymBadge({ harManuell }: { harManuell: boolean }) {
-  if (harManuell) {
-    return (
-      <span style={{
-        fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
-        background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
-        padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-      }}>manuell</span>
-    )
-  }
-  return (
-    <span style={{
-      fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
-      background: FARG.linje, borderRadius: RADIE.stapel,
-      padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-    }}>preliminär</span>
-  )
+//   harManuell=true       → 'manuell'    (blå)     — värdet är från skotare_objekt_manuell
+//   appMark='uppskattad'  → 'uppskattad' (dämpad)  — förarens egen siffra ur appens lass (skotar_lass), ej skalad
+//   appMark='skalad'      → 'skalad'     (blå)     — förarens siffra skalad mot skördat (Färdigskotad)
+//   annars                → 'preliminär' (dämpad)  — värdet är raw FPR-data
+// Blandade perioder visar BÅDA märkena (Martin 2026-11-26): ett objekt med manuell totalvolym och ett annat vars volym är förarens
+// uppskattning i appen (Elefant november: manuell på fyra objekt, uppskattad på Lidhem) — ett enda märke vore en förenkling som
+// får 16 % av siffran att se mer säker ut än den är. Opti-lass har inget eget märke utöver 'preliminär' som förut.
+// `appMark` kommer ur lib/maskinvy/skotarlass.appMark över lassen som ingår i siffran.
+const MARKE_BLA = {
+  fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
+  background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
+  padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
+} as const
+const MARKE_DAMPAD = {
+  fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
+  background: FARG.linje, borderRadius: RADIE.stapel,
+  padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
+} as const
+export function VolymBadge({ harManuell, appMark = null }: { harManuell: boolean; appMark?: AppMark }) {
+  const manuell = harManuell ? <span data-volym-mark="manuell" style={MARKE_BLA}>manuell</span> : null
+  const app = appMark === 'skalad'
+    ? <span data-volym-mark="skalad" style={MARKE_BLA}>skalad</span>
+    : appMark === 'uppskattad'
+      ? <span data-volym-mark="uppskattad" style={MARKE_DAMPAD}>uppskattad</span>
+      : null
+  if (manuell && app) return <span style={{ display: 'inline-flex', gap: AVSTAND.xs }}>{manuell}{app}</span>
+  if (manuell) return manuell
+  if (app) return app
+  return <span style={MARKE_DAMPAD}>preliminär</span>
 }
 
 export function OperatorList({ operatorer, loading, onSelect }: {
