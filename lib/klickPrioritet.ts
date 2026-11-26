@@ -22,7 +22,7 @@
 // VARFÖR 'traktyta' är en egen kategori: Vidas traktdel och hänsyn bär ingen areal i datan (AREA_HA/SHAPE.STAr saknas), så "minsta ytan" kan inte avgöras på storlek —
 // då vinner översta lagret. Sedan lagerordningen (#1008, 2026-10-26) ligger traktgräns-lagren (trakt-gr-*, grans-*) över ytorna, och traktdelen slog hänsynen.
 // Ordningen mellan ytorna avgörs därför av KATEGORIN, aldrig av hur lagren råkar ligga.
-// Väg-⚠/✓ (lib/vagRisk) är markörer på vägen och tar emot sitt eget tryck (en DOM-knapp över kartan) — de deltar inte i den här prioriteringen. Förut låg en 30 px bred osynlig träfflinje på traktgränsen
+// Väg-⚠ (lib/vagRisk) är markörer på vägen och tar emot sitt eget tryck (en DOM-knapp över kartan) — de deltar inte i den här prioriteringen. Förut låg en 30 px bred osynlig träfflinje på traktgränsen
 // (kategorin 'tma'); den är borta tillsammans med den pulserande gränsmarkeringen.
 
 export type KlickKategori = 'larm' | 'symbol' | 'yta-nr' | 'punkt' | 'linje' | 'fastighet' | 'yta' | 'traktyta';

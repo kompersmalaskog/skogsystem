@@ -18,6 +18,7 @@ import { AVSTAND, FARG, IKON, KNAPP, RADIE, TNUM, TRAFFYTA, TYP } from '@/lib/de
 import { type KortKnapp, type KortKnappId, type TillForarenPost } from '@/lib/objektKort';
 import type { YtaRad } from '@/lib/ytaRader';
 import BrandriskRad from './BrandriskRad';
+import VagRiskRader, { type VagRiskProps } from './VagRiskRader';
 import { Gruppkort, Huvud, Pil, RadKnapp } from './infoDelar';
 import { SettKnapp } from './InstruktionKort';
 import { KommentarVisning } from './KommentarRuta';
@@ -58,6 +59,8 @@ export interface ObjektKortEnkelProps {
   vader?: React.ReactNode;
   /** Riskbedömningen: raden "Risker på trakten" (lib/riskbedomning, components/planering/Risker riskRadUnder). onOppna null = inte gjord än (raden går inte att trycka). */
   risker?: { text: string; ton: 'orange' | 'gron' | 'dampad'; onOppna: (() => void) | null } | null;
+  /** En rad per väg nära traktgränsen: "Väg 538 · låg risk ✓" — tryck öppnar riskbedömningen. null/saknas = ingen rad. */
+  vagar?: VagRiskProps | null;
   /** "Visa hela trakten": överblicken (lib/traktOversikt) — allt på trakten på en sida. Saknas = ingen rad. */
   onOversikt?: () => void;
   /** Vidas egenkontroll: "Egenkontroll · 2 av 6 frågor". Saknas = ingen rad. */
@@ -168,6 +171,8 @@ export default function ObjektKortEnkel(p: ObjektKortEnkelProps) {
         )}
 
         {p.brand && <BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} luftUnder={AVSTAND.m} />}
+
+        <VagRiskRader vagar={p.vagar} />
 
         {p.grot && (
           <Ruta testid="kort-grot">
