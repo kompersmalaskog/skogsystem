@@ -140,7 +140,9 @@ describe('byggTidslinje — vem gör vad, dag för dag', () => {
     const d2 = indata({ klar: klar(maskiner, med), senaste: [{ maskin_id: 'EK26', pa: [], annat_oppet: false }] })
     const t2 = byggTidslinje(d2, byggTavla(d2))!
     const barer = t2.rader.find(r => r.maskin_id === 'EK26')!.barer
-    expect(barer[0].namn.startsWith('Först')).toBe(true)
+    // Ingen trakt är "på nu": då gäller körordningen — påbörjade trakter först (Bondeskog, 215 av 610 skotat), sedan planerarens ordning ("Först" sortn 0,5 är före Brokamåla).
+    expect(barer[0].namn.startsWith('Bondeskog')).toBe(true)
+    expect(barer[1].namn.startsWith('Först')).toBe(true)
     expect(barer[0].stil).toBe('nasta')
     expect(barSvar(barer[0], t2).klar).toBe('nästa')
     const okant = byggTidslinje(indata({ senaste: undefined }), byggTavla(indata({ senaste: undefined })))!

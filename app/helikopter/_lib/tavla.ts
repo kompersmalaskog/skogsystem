@@ -75,10 +75,12 @@ export const MIN_SKOTBART_M3 = 20
 const klar6 = (x: number) => Math.round(x * 1e6) / 1e6
 
 /** Maskinens kö i körordning, med hur mycket av varje trakt som hinns i månaden. Tolerant: en trakt utan prognos tar noll dagar. */
-export function ko(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string, egna: ReadonlySet<string>): KoRad[] {
+export function ko(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string, egna: ReadonlySet<string>, pagarNu?: (t: KlarTrakt) => boolean): KoRad[] {
+  // Trakten maskinen arbetar på just nu går först (den körs färdigt), sedan påbörjade trakter (korOrdning), sedan planerarens ordning.
+  const nu = (t: KlarTrakt) => Number(pagarNu?.(t) ?? false)
   const ordnade = trakter
     .filter(t => (m.manuell ? t.rest_volym == null || t.rest_volym > 0 : t.timmar == null || t.timmar > 0))
-    .sort(korOrdning)
+    .sort((a, b) => nu(b) - nu(a) || korOrdning(a, b))
   const dagarIManaden = m.dagar.filter(d => d <= sistaArbetsdag).length
   let summa = 0
   return ordnade.map(t => {
@@ -361,11 +363,10 @@ export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<strin
   // Trakten maskinen arbetar på just nu står alltid först i dess kö (den körs färdigt), oavsett ordningen i övrigt — annars står "Kör nu" som "därefter".
   const arbetar = new Set((d.senaste ?? []).flatMap(x => x.pa.map(id => `${x.maskin_id}|${id}`)))
   const pagarNu = (t: KlarTrakt) => t.maskin_id != null && arbetar.has(`${t.maskin_id}|${t.objekt_id}`)
-  const forst = (t: KlarTrakt): KlarTrakt => (pagarNu(t) ? { ...t, sortn: t.sortn - 1_000_000 } : t)
   for (const m of klar?.maskiner ?? []) {
     if (m.roll !== 'skordare') continue
     const egna = trakter.filter(t => t.maskin_id === m.maskin_id)
-    koer.set(m.maskin_id, ko(m, egna.map(forst), sista, d.egna).map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
+    koer.set(m.maskin_id, ko(m, egna, sista, d.egna, pagarNu).map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
   }
   const skordNu = new Map<string, number>()
   const skordTill = new Map<string, number>()
@@ -385,7 +386,7 @@ export function koerFor(d: TavlaIndata): { trakter: KlarTrakt[]; koer: Map<strin
     if (m.roll === 'skordare') continue
     const egna = skotbar.filter(t => t.maskin_id === m.maskin_id)
     // En trakt där inget är fällt än väntar: maskinen tar de andra först (sortn rörs inte, bara körordningen).
-    const rader = ko(m, egna.map(t => (pagarNu(t) ? forst(t) : vantar.has(t.objekt_id) ? { ...t, sortn: t.sortn + 1_000_000 } : t)), sista, d.egna)
+    const rader = ko(m, egna.map(t => (!pagarNu(t) && vantar.has(t.objekt_id) ? { ...t, sortn: t.sortn + 1_000_000 } : t)), sista, d.egna, pagarNu)
     koer.set(m.maskin_id, rader.map(r => ({ ...r, trakt: egna.find(t => t.objekt_id === r.trakt.objekt_id && t.roll === r.trakt.roll) ?? r.trakt })))
   }
   return { trakter: skotbar, koer, sista }
