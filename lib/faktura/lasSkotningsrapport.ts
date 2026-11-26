@@ -33,25 +33,18 @@ import { klassaTraktFeature } from '@/lib/traktGeometri';
 import { narTrakten, traktModell, type TraktModell } from '@/lib/traktNara';
 import type { KartMarkering } from '@/lib/egenkontrollRapportKarta';
 import { klippSparMotTrakt, type MarkSlag, type RapportKarta } from './skotningsrapportPdf';
-import { rapportHogar } from './rapportHogar';
 import { rapportMark, type SparatMarkRutnat } from './rapportMark';
 import type { Stam } from './virkesfordelning';
 
 export type RapportUnderlag = {
   /**
-   * Kartan. `hogar` och `mark` är valfria i `RapportKarta` (egenkontrollens
-   * rapport har dem inte), men läsningen sätter dem ALLTID — tom lista när
-   * det inte finns något. Därför är de inte valfria här: annars skulle varje
-   * läsare behöva `?? []` för något som alltid finns.
+   * Kartan. `mark` är valfri i `RapportKarta` (egenkontrollens rapport har den
+   * inte), men läsningen sätter den ALLTID — tom lista när det inte finns
+   * något. Därför är den inte valfri här: annars skulle varje läsare behöva
+   * `?? []` för något som alltid finns.
    */
-  karta: RapportKarta & {
-    hogar: NonNullable<RapportKarta['hogar']>;
-    mark: NonNullable<RapportKarta['mark']>;
-  };
-  /**
-   * Skördarens stammar med volym — underlaget för "Var låg virket?".
-   * Samma läsning som kartans högar, bara utan trädslaget.
-   */
+  karta: RapportKarta & { mark: NonNullable<RapportKarta['mark']> };
+  /** Skördarens stammar med volym — underlaget för "Var låg virket?". */
   virke: Stam[];
   /** Första och sista lossningsdagen ur lassen. null = inga lass. */
   period: { fran: string; till: string } | null;
@@ -167,19 +160,19 @@ export async function lasSkotningsrapport(
   const fel: string[] = [];
   const ids = a.nummer.length > 0 ? a.nummer : ['__inget__'];
 
-  const [gransSvar, stamSvar, tsSvar, sparSvar, lassSvar, markSvar, objektSvar, skogSvar] = await Promise.all([
+  const [gransSvar, stamSvar, sparSvar, lassSvar, markSvar, objektSvar, skogSvar] = await Promise.all([
     lasVidaGrans(sb, a.objektUuid).catch((e: unknown) => ({ typ: 'fel' as const, meddelande: String(e) })),
     // Kolumnerna heter `latitude`/`longitude` i detalj_stam (inte lat/lng).
     // `total_volym` bär m³fub per stam och summerar till traktens skördade
-    // volym — det är underlaget för "Var låg virket?". `tradslag_id` ger
-    // högarnas färg (appens palett).
+    // volym — det är underlaget för "Var låg virket?".
+    // Trädslaget läses inte: virket ritas inte på kartan längre, och tabellen
+    // delar på avstånd, inte på trädslag.
     // Pagineras: PostgREST kapar tyst vid 1 000, och Skälviken har 2 842.
-    hamtaAlla<{ latitude: number | null; longitude: number | null; total_volym: number | null; tradslag_id: string | null }>(
-      () => sb.from('detalj_stam').select('id, latitude, longitude, total_volym, tradslag_id')
+    hamtaAlla<{ latitude: number | null; longitude: number | null; total_volym: number | null }>(
+      () => sb.from('detalj_stam').select('id, latitude, longitude, total_volym')
         .in('objekt_id', ids).not('latitude', 'is', null),
       'id',
     ),
-    sb.from('dim_tradslag').select('tradslag_id, namn'),
     sb.from('hyttspar').select('points').eq('objekt_id', a.objektUuid).eq('roll', 'skotare'),
     sb.from('skotar_lass')
       .select('datum, maskin_id, status, bekraftad_av')
@@ -216,29 +209,22 @@ export async function lasSkotningsrapport(
     fel.push('Traktgränsen kunde inte läsas.');
   }
 
-  // Trädslagens namn — högarnas färg kommer ur dem (appens `hogTradslagFarger`).
-  // Går de inte att läsa ritas högarna i blandfärgen; de försvinner aldrig.
-  const tsNamn = new Map<string, string>();
-  if (tsSvar.error) fel.push('Trädslagens namn kunde inte läsas, så högarna saknar färg.');
-  else for (const r of (tsSvar.data ?? []) as { tradslag_id: string; namn: string | null }[]) {
-    if (r.namn) tsNamn.set(String(r.tradslag_id), r.namn);
-  }
-
-  // Stammarna — var virket stod. Samma rader bär kartans högar och
-  // fördelningens volym; en stam utan volym räknas inte som en hög.
-  let hogar: RapportKarta['hogar'] = [];
+  // Stammarna — var virket stod.
+  //
+  // `virke` bär volymerna och blir tabellen "Var låg virket?". `stammar` är
+  // bara lägena: de RITAS INTE på kartan (Martin 2026-11-26) men bestämmer
+  // kartans ram och var körspåret klipps, se `RapportKarta.stammar`.
+  const stammar: LatLng[] = [];
   const virke: Stam[] = [];
   if (stamSvar.error) fel.push('Stammarnas lägen kunde inte läsas.');
   else {
-    const forHog: { lat: number; lng: number; total_volym: number | null; tradslag: string }[] = [];
     for (const s of stamSvar.data ?? []) {
       const p = punkt(s.latitude, s.longitude);
       if (!p) continue;
-      forHog.push({ ...p, total_volym: s.total_volym, tradslag: tsNamn.get(String(s.tradslag_id)) ?? '' });
+      stammar.push(p);
       const v = Number(s.total_volym);
       if (Number.isFinite(v) && v > 0) virke.push({ ...p, volym: v });
     }
-    hogar = rapportHogar(forHog);
   }
 
   // Skotarens körspår. RITNINGEN går genom `korsparLinjer` — samma rensning
@@ -340,8 +326,8 @@ export async function lasSkotningsrapport(
     }
   }
 
-  // Spåret klipps mot trakten SIST, när gränsen, högarna och avläggen är
+  // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
   // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
-  const karta = klippSparMotTrakt({ granser, stammar: [], hogar, korspar, avlagg, markeringar, mark });
+  const karta = klippSparMotTrakt({ granser, stammar, korspar, avlagg, markeringar, mark });
   return { karta, virke, period, dagar, skotare, fel };
 }

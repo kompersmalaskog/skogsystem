@@ -19,7 +19,6 @@ import {
   type KartMarkering, type MarkSlag,
 } from './egenkontrollRapportKarta';
 import { DIKE } from './kartstil';
-import { hogRadiePt, storstaHog } from './faktura/rapportHogar';
 
 type PdfLib = typeof import('pdf-lib');
 
@@ -31,13 +30,6 @@ export type KartLager = {
   /** Noteringarna (PR 9a): ord pa kartan. Linjer/punkter over planens vagar och hyttsparet, etiketterna overst. */
   noteringar?: KartNotering[];
   pinnar: { nr: number; rubrik: string; plats: LatLng }[];
-  /**
-   * PRODUKTIONSHÖGARNA i stället för stammolnet (skotningsrapporten, Martin
-   * 2026-11-25: "inga röda högar dom ska vara som appen"). Finns de ritas de
-   * i appens tradslagsfarger med storlek efter volym, och `stammar` ritas
-   * inte. Egenkontrollen skickar dem aldrig och far sitt stammoln som forut.
-   */
-  hogar?: { lat: number; lng: number; volym: number; farg: string; farg2: string | null }[];
   /**
    * MARKEN ur SLU:s markfuktighet och Skogsstyrelsens lutning — varfor
    * korningen blev som den blev. Rutor i lat/lng, ritade underst (under
@@ -67,8 +59,7 @@ export function kartExtent(l: KartLager, opts: { allt?: boolean } = {}): LatLng[
     ...(l.noteringar ?? []).filter(arMedIRapport).flatMap((n) => n.punkter),
     ...(l.markeringar ?? []).flatMap((m) => (m.slag === 'symbol' ? [m.plats] : m.punkter)),
   ];
-  // Högarna är stammolnet i annan form — samma kärna, aldrig båda.
-  const karna = [...l.granser.flat(), ...l.stammar, ...(l.hogar ?? [])];
+  const karna = [...l.granser.flat(), ...l.stammar];
   if (karna.length === 0) return ovrigt;
   return opts.allt ? [...karna, ...ovrigt] : karna;
 }
@@ -195,34 +186,22 @@ export function ritaKarta(
     sida.drawSvgPath(bana(ring, true), { ...SVG, borderColor: hex(lib, TRAKTGRANS_FARG), borderWidth: 1.2, borderDashArray: [5, 3] });
   }
 
-  // 2. VIRKET. Antingen hogarna (skotningsrapporten) eller stammolnet
-  //    (egenkontrollen) — aldrig båda: det är samma virke i två former.
+  // 2. STAMMOLNET: en fylld cirkel per stam. Aldrig utglesat — mönstret är
+  //    poängen: det ritar stickvägarna och hålen där hänsynen står.
+  //
+  //    Skotningsrapporten skickar en TOM lista hit (Martin 2026-11-26): dess
+  //    karta svarar på varför vägen blev som den blev, och virket står i tal i
+  //    tabellen bredvid. Egenkontrollens rapport ritar molnet som förut.
   const cirkel = (a: { x: number; y: number }, r: number) =>
     `M ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x - r).toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 1 0 ${(a.x + r).toFixed(2)} ${a.y.toFixed(2)} Z`;
-  if (l.hogar && l.hogar.length > 0) {
-    // Appens högar: trädslagets hela färg, storlek efter volym, en halv skiva
-    // i det andra trädslagets färg när högen är blandad (lib/tradslag).
-    const storsta = storstaHog(l.hogar);
-    for (const h of l.hogar) {
-      const a = ap(h), r2 = hogRadiePt(h.volym, storsta);
-      sida.drawSvgPath(cirkel(a, r2), { ...SVG, color: hex(lib, h.farg), borderColor: grå(40), borderWidth: 0.25 });
-      if (h.farg2) {
-        // Högra halvan i det andra trädslagets färg — samma halv–halv som på kartan i hytten.
-        sida.drawSvgPath(
-          `M ${a.x.toFixed(2)} ${(a.y - r2).toFixed(2)} A ${r2} ${r2} 0 0 1 ${a.x.toFixed(2)} ${(a.y + r2).toFixed(2)} Z`,
-          { ...SVG, color: hex(lib, h.farg2) },
-        );
-      }
-    }
-  } else {
-    // STAMMOLNET: en fylld cirkel per stam. Aldrig utglesat.
+  {
     const r = opts.stammarBlek ? 0.7 : 0.85;
     const stamFarg = opts.stammarBlek ? grå(205) : hex(lib, STAMMOLN_FARG);
     for (const s of l.stammar) sida.drawSvgPath(cirkel(ap(s), r), { ...SVG, color: stamFarg });
   }
 
-  // 4b. ZONKANTEN överst bland ytorna: hänsynen ska synas även när högarna
-  //     ligger tatt intill (se steg 1).
+  // 4b. ZONKANTEN överst bland ytorna: hänsynen ska synas även när stammolnet
+  //     ligger tätt intill (se steg 1).
   for (const m of zoner) {
     const st = markeringsStil('zon', m.typ); if (!st) continue;
     sida.drawSvgPath(bana(m.punkter, true), { ...SVG, borderColor: hex(lib, st.farg), borderWidth: st.bredd, borderOpacity: 1, ...(st.streck ? { borderDashArray: st.streck } : {}) });

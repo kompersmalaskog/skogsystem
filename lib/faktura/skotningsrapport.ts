@@ -408,8 +408,8 @@ export function periodText(p: { fran: string; till: string } | null): string | n
  * Grundraden: det som alltid finns på kartan.
  */
 export const KARTA_FORKLARING =
-  'Traktgränsen streckad, virket som högar färgade efter trädslag, skotarens '
-  + 'körspår som linje och avläggen som ringar. Norr är uppåt.';
+  'Traktgränsen streckad, skotarens körspår som linje och avläggen som ringar. '
+  + 'Norr är uppåt.';
 
 /**
  * Teckenförklaringen för DEN HÄR kartan: grundraden plus en mening om hänsynen

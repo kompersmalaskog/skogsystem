@@ -32,14 +32,22 @@ import { sanera } from '@/lib/markagarrapport/pdf';
 import { breddUtanKerning, delaUpphojt, UPP_LYFT, UPP_SKALA } from '@/lib/upphojtPdf';
 import { ritaKarta, type KartLager } from '@/lib/egenkontrollRapportKartaPdf';
 import type { KartMarkering, MarkSlag } from '@/lib/egenkontrollRapportKarta';
-import type { RapportHog } from './rapportHogar';
 import type { SkotningsrapportSida, Rad, VirkeRad } from './skotningsrapport';
 
 /** Allt kartan behöver, i lat/lng. Tomma listor ger ingen karta. */
 export type RapportKarta = {
   /** Vidas traktdelar (L_TRAKTDEL). */
   granser: { lat: number; lng: number }[][];
-  /** Var virket stod: skördarens stammar. */
+  /**
+   * Var virket stod: skördarens stammar.
+   *
+   * RITAS INTE på skotningsrapportens karta (Martin 2026-11-26: "bara visar hur
+   * vi kört och hänsyner och blött och brant"). Kartan svarar på EN fråga —
+   * varför vägen blev som den blev — och hur långt virket låg står exakt i
+   * tabellen "Var låg virket?" bredvid. Lägena är kvar här för att de bestämmer
+   * kartans RAM och var körspåret klipps: utan dem skulle en trakt utan Vidas
+   * traktgräns få en ram bara av avläggen, och spåret klippas bort.
+   */
   stammar: { lat: number; lng: number }[];
   /**
    * Skotarens körspår (ritning). Heter `korspar` och inte `spar`: `skotar_lass.spar`
@@ -50,11 +58,6 @@ export type RapportKarta = {
   korspar: { lat: number; lng: number }[][];
   /** Avläggen, numrerade som på kartan i appen. */
   avlagg: { nr: number; namn: string; plats: { lat: number; lng: number } }[];
-  /**
-   * Produktionshögarna (lib/faktura/rapportHogar) — ritas i stället för
-   * stammolnet. Martin 2026-11-25: "inga röda högar dom ska vara som appen".
-   */
-  hogar?: RapportHog[];
   /**
    * Hänsynen och det som styrde körningen: Vidas hänsynsytor, nyckelbiotoper
    * och fornlämningar, planerarens egna ytor (hänsyn, blött, brant) och
@@ -91,15 +94,16 @@ export const SPAR_MARGINAL_M = 200;
  * Saknas allt att klippa mot lämnas spåret som det är — hellre ett stort spår
  * än ett bortklippt.
  */
-// Generisk i kartans typ: läsaren vet att den ALLTID sätter `hogar` och
-// `mark` (de är valfria i `RapportKarta` för egenkontrollens skull), och den
-// kunskapen ska inte tappas här. En returtyp `RapportKarta` hade gjort dem
-// "möjligen undefined" hos varje läsare och spridit `?? []` genom koden.
+// Generisk i kartans typ: läsaren vet att den ALLTID sätter `mark` (den är
+// valfri i `RapportKarta` för egenkontrollens skull), och den kunskapen ska
+// inte tappas här. En returtyp `RapportKarta` hade gjort den "möjligen
+// undefined" hos varje läsare och spridit `?? []` genom koden.
 export function klippSparMotTrakt<T extends RapportKarta>(k: T): T {
-  // Högarna räknas med: de ritas i stammolnets ställe, så en trakt utan
-  // Vida-gräns skulle annars få en ram bara av avläggen.
+  // Stammarna räknas med fast de inte ritas: på en trakt utan Vidas traktgräns
+  // är de det enda som säger var trakten ligger, och utan dem skulle spåret
+  // klippas mot en ruta runt avläggen — alltså bort.
   const inom: { lat: number; lng: number }[] = [
-    ...k.granser.flat(), ...k.stammar, ...(k.hogar ?? []), ...k.avlagg.map(a => a.plats),
+    ...k.granser.flat(), ...k.stammar, ...k.avlagg.map(a => a.plats),
   ];
   if (inom.length === 0 || k.korspar.length === 0) return k;
 
@@ -128,17 +132,21 @@ export function klippSparMotTrakt<T extends RapportKarta>(k: T): T {
 
 /** true när det finns något att rita. En tom karta ritas aldrig. */
 export function harKarta(k: RapportKarta): boolean {
-  return k.granser.some(r => r.length > 0) || k.stammar.length > 0
+  // Stammarna räknas INTE: de ritas inte längre, så en trakt som bara har dem
+  // skulle ge en tom ruta med en teckenförklaring under.
+  return k.granser.some(r => r.length > 0)
     || k.korspar.some(l => l.length > 0) || k.avlagg.length > 0;
 }
 
 function tillLager(k: RapportKarta): KartLager {
   return {
     granser: k.granser.filter(r => r.length > 1),
-    // Högarna ERSÄTTER stammolnet när de finns: samma virke i två former, och
-    // bägge ritade blir ett rött moln under färgade prickar.
-    stammar: k.hogar && k.hogar.length > 0 ? [] : k.stammar,
-    hogar: k.hogar,
+    // VIRKET RITAS INTE. Kartan svarar på varför vägen blev som den blev —
+    // körspåret, hänsynen, det blöta och det branta — och allt virke på samma
+    // bild tar den platsen: tvåhundra högar ligger över både marken och
+    // spåret. Hur långt virket låg står i tabellen bredvid, i m³fub per
+    // avståndsklass, och ett tal är mer sant än en bild av samma sak.
+    stammar: [],
     hyttspar: k.korspar.length > 0 ? [{ roll: 'skotare', linjer: k.korspar.filter(l => l.length > 1) }] : undefined,
     markeringar: k.markeringar ?? [],
     mark: k.mark,

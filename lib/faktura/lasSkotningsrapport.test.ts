@@ -7,7 +7,6 @@
 // att kartan är halv är värre än båda.
 import { describe, it, expect, vi } from 'vitest';
 import { lasSkotningsrapport } from './lasSkotningsrapport';
-import { HOG_TRADSLAG_FARG, KARTA_BLANDAT } from '@/lib/tradslag';
 import { BRANT_GRANS, FUKT } from '@/lib/ritadKarta/mark';
 
 /** Vidas tilläggspunkter för Skälviken, som de står i prod 2026-11-25. */
@@ -113,18 +112,17 @@ const LASS = [
 
 /**
  * Skördarens stammar: fyra granar tätt ihop (= en hög) och en rad utan
- * position. Volymen och trädslaget bär högens storlek och färg.
+ * position. Volymen bär "Var låg virket?"; lägena bär kartans ram.
  */
 const STAMMAR = [
   ...Array.from({ length: 4 }, (_, i) => ({
-    id: i + 1, latitude: 56.28580 + i * 0.00001, longitude: 15.37500, total_volym: 0.6, tradslag_id: '1',
+    id: i + 1, latitude: 56.28580 + i * 0.00001, longitude: 15.37500, total_volym: 0.6,
   })),
-  { id: 9, latitude: null, longitude: null, total_volym: 0.5, tradslag_id: '1' },
+  { id: 9, latitude: null, longitude: null, total_volym: 0.5 },
 ];
 
 const allt = (extra: Record<string, { data?: unknown; error?: unknown }> = {}) => fake({
   detalj_stam: { data: STAMMAR, error: null },
-  dim_tradslag: { data: [{ tradslag_id: '1', namn: 'GRAN' }], error: null },
   hyttspar: { data: HYTTSPAR, error: null },
   skotar_lass: { data: LASS, error: null },
   dim_maskin: { data: [{ maskin_id: 'A130743', visningsnamn: 'Elefant 26' }], error: null },
@@ -180,35 +178,26 @@ describe('vad som kommer ut', () => {
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
     // Fyra granar med position, en rad utan: bara de fyra räknas.
     expect(r.virke).toHaveLength(4);
-    expect(r.karta.hogar.length).toBeGreaterThan(0);
-    for (const h of r.karta.hogar) {
-      expect(Math.abs(h.lat)).toBeGreaterThan(1);
-      expect(Math.abs(h.lng)).toBeGreaterThan(1);
+    expect(r.karta.stammar.length).toBeGreaterThan(0);
+    for (const s of r.karta.stammar) {
+      expect(Math.abs(s.lat)).toBeGreaterThan(1);
+      expect(Math.abs(s.lng)).toBeGreaterThan(1);
     }
   });
 
-  // Martin 2026-11-25: "inga röda högar dom ska vara som appen titta dom".
-  // Egenkontrollens stammoln (en liten röd prick per stam) är kvar i
-  // egenkontrollens rapport; här ritas APPENS högar, och det här testet håller
-  // dem åtskilda: `karta.stammar` ska vara tom, `karta.hogar` ska bära virket.
-  it('virket blir HÖGAR, inte ett rött stammoln', async () => {
+  // Martin 2026-11-26: "bara visar hur vi kört och hänsyner och blött och
+  // brant". Virket RITAS inte på kartan — men lägena måste vara kvar i
+  // modellen, för de bestämmer kartans ram och var körspåret klipps. En trakt
+  // utan Vidas traktgräns skulle annars få en ram bara av avläggen, och
+  // spåret klippas bort. Volymen bor i `virke` (tabellen "Var låg virket?").
+  it('stammarnas LÄGEN finns kvar i modellen — de ritas inte, de bär ramen', async () => {
     gransMock.mockResolvedValue(gransOk);
     const { sb } = allt();
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
-    expect(r.karta.stammar).toEqual([]);
-    expect(r.karta.hogar).toHaveLength(1);
-    // Appens granfärg, ur `hogTradslagFarger` — aldrig egenkontrollens röda.
-    expect(r.karta.hogar[0].farg).toBe(HOG_TRADSLAG_FARG.GRAN);
-    expect(r.karta.hogar[0].volym).toBeCloseTo(2.4, 5);
-  });
-
-  it('trädslagens namn kan falla — högarna ritas ändå, i blandfärgen', async () => {
-    gransMock.mockResolvedValue(gransOk);
-    const { sb } = allt({ dim_tradslag: { data: null, error: { message: 'x' } } });
-    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
-    expect(r.karta.hogar).toHaveLength(1);
-    expect(r.karta.hogar[0].farg).toBe(KARTA_BLANDAT);
-    expect(r.fel.join(' ')).toContain('Trädslagens namn');
+    expect(r.karta.stammar).toHaveLength(4);
+    expect(r.virke).toHaveLength(4);
+    // Lägena är rena punkter: ingen volym, ingen färg, inget trädslag.
+    expect(Object.keys(r.karta.stammar[0]).sort()).toEqual(['lat', 'lng']);
   });
 
   // HITTAT I PROD 2026-11-25, inte av ett test: `hyttspar` för Skälviken
@@ -401,7 +390,7 @@ describe('varför vägen blev så lång', () => {
     const { sb } = allt({ objekt_skogsdata: { data: null, error: { message: 'x' } } });
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
     expect(r.fel.join(' ')).toContain('Blöt och brant mark');
-    expect(r.karta.hogar).toHaveLength(1);
+    expect(r.karta.stammar).toHaveLength(4);
   });
 });
 
@@ -413,7 +402,7 @@ describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
     expect(r.karta.granser).toEqual([]);
     expect(r.fel.join(' ')).toContain('Traktgränsen kunde inte läsas');
     // Resten kom ändå.
-    expect(r.karta.hogar).toHaveLength(1);
+    expect(r.karta.stammar).toHaveLength(4);
   });
 
   it('Vida har ingen traktgräns — det är något annat än ett läsfel', async () => {
@@ -456,7 +445,7 @@ describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
     const { sb } = allt();
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
     expect(r.fel.join(' ')).toContain('Traktgränsen kunde inte läsas');
-    expect(r.karta.hogar).toHaveLength(1);
+    expect(r.karta.stammar).toHaveLength(4);
   });
 
   it('allt gick: ingen felrad alls', async () => {
