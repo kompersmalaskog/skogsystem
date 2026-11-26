@@ -28,6 +28,7 @@ import { faroMarkeringar } from '@/lib/faroNummer';
 import { GRUPPER, gruppForLinje, gruppForSymbol, ytaDef, type FargGrupp } from '@/lib/larm/grupper';
 import type { Maskinroll } from '@/lib/malbilder';
 import BrandriskRad from './BrandriskRad';
+import VagRiskRader, { type VagRiskProps } from './VagRiskRader';
 import LarmVy from './LarmVy';
 import type { LarmVisning } from '@/lib/larmpunkter';
 import { Gruppkort, Huvud, Pil, RadKnapp, Rubrik } from './infoDelar';
@@ -52,6 +53,8 @@ export interface TraktOversiktProps {
   skydd: { lage: 'inte' | 'inga' | 'finns'; rader: SkyddRad[] };
   brand: { lat: number; lng: number } | null;
   onBrand: () => void;
+  /** En rad per väg nära traktgränsen ("Väg 538 · låg risk ✓"): tryck öppnar riskbedömningen. null/saknas = ingen rad. */
+  vagar?: VagRiskProps | null;
   /** "PEFC: alla 26 evighetsträd och 8 högstubbar är utsatta – spara dem." (lib/traktOversikt.certRad). */
   cert: { text: string; klar: boolean } | null;
   /** Är trakten certifierad? Står ALLTID i "Vad ska sparas?" (Martin 2026-11-12: "det står ju inget om cert"). Saknas = som certifierad med `cert`. */
@@ -329,6 +332,9 @@ export default function TraktOversikt(p: TraktOversiktProps) {
             {p.brand && <div style={{ marginTop: harFaror ? AVSTAND.s : 0 }}><BrandriskRad lat={p.brand.lat} lng={p.brand.lng} onOppna={p.onBrand} /></div>}
           </section>
         )}
+
+        {/* 2a. VÄGAR NÄRA GRÄNSEN — en rad per väg med riskbedömningens läge */}
+        <VagRiskRader vagar={p.vagar} luftUnder={AVSTAND.l} />
 
         {/* 2b. VIKTIGT — gult, en nivå under fara: det någon skrivit som "Viktigt" på en yta, symbol eller linje, och på själva trakten. Aldrig nedtonat; tryck öppnar kortet. */}
         {(viktigaMark.length > 0 || viktigaHela.length > 0) && (

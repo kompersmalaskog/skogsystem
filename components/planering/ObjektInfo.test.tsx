@@ -882,3 +882,18 @@ describe('planerarens rad "Risker på trakten" (Martin 2026-11-01: satte en ledn
     expect(q('kort-planerare-risker-rad')).toBeNull();
   });
 });
+
+describe('kortet (ⓘ) — vägarna nära gränsen', () => {
+  it('planerarens och förarens kort har en rad per väg; ett tryck öppnar riskbedömningen för vägens ägare', async () => {
+    const oppnade: string[] = [];
+    const vagar = { rader: [{ nyckel: 'ref:538', agare: 'a', rubrik: 'Väg 538', risk: 'lag' as const, status: 'låg risk ✓', farg: '#30d158' }], onOppna: (a: string) => { oppnade.push(a); } };
+    await montera({ ...props(), kort: { ...props().kort, vagar } });
+    expect(q('vag-risk-rad')!.textContent).toContain('Väg 538 · låg risk ✓');
+    act(() => { q('vag-risk-rad')!.click(); });
+    expect(oppnade).toEqual(['a']);
+  });
+  it('ingen väg = ingen rad', async () => {
+    await montera(props());
+    expect(q('vag-risk-rad')).toBeNull();
+  });
+});

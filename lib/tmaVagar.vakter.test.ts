@@ -9,7 +9,7 @@ describe('vägvarning och återställning i planeringsvyn', () => {
   it('bandet och symbolen byggs ur samlaVagvarningar → byggVagVy — aldrig ur varje delens egna resultat', () => {
     expect(sida).toContain("from '../../lib/tmaVagar'");
     expect(sida).toMatch(/const tmaVagar = useMemo\(\(\) => samlaVagvarningar\(tmaWithRoads,/);
-    expect(sida).toMatch(/const vagVy = useMemo\(\(\) => byggVagVy\(tmaVagar\.vagar, tmaRisk,/);   // ETT band och EN symbol per väg, färg ur ägarens riskbedömning
+    expect(sida).toMatch(/const vagVy = useMemo\(\(\) => \{[\s\S]{0,1400}return byggVagVy\(tmaVagar\.vagar, tmaRisk, ringar, hinder\);/);   // ETT band och EN symbol per väg, färg ur ägarens riskbedömning; ⚠ utanför ALLA traktytor och fri från andra symboler
     expect(sida).toMatch(/features: vagVy\.band/);
     expect(sida).toMatch(/vagVy\.symboler\.forEach\(/);
     // gamla mönstret (en ⚠ och en linje per del, pulserande gräns) får inte komma tillbaka
@@ -29,6 +29,19 @@ describe('vägvarning och återställning i planeringsvyn', () => {
     expect(sida).toMatch(/const el = byggVagSymbolElement\(sym,/);
     expect(sida).toMatch(/setLngLat\(\[sym\.pos\.lon, sym\.pos\.lat\]\)/);   // symbolen ligger på vägen (byggVagVy), inte på gränsen
     expect(VAG_BAND_KALLA).toBe('tma-roads-source');
+  });
+  it('⚠ placeras mot ALLA traktytor (egna gränser och Vidas ojusterade delar) och väjer för andra symboler (våra, Vidas avlägg, larmplatser)', () => {
+    const i = sida.indexOf('const vagVy = useMemo(() => {');
+    const kropp = sida.slice(i, i + 1500);
+    expect(kropp).toMatch(/m\.lineType === 'boundary'/);                                 // egna traktgränser
+    expect(kropp).toContain('traktdelDelar.filter((d) => !justeradeTraktdelar.has(d.partKey)).map((d) => d.ringLatLon)');   // Vidas delar som inte ersatts av en justerad kopia
+    expect(kropp).toContain('m.isMarker && !arAlltidPrick(m.type)');                        // våra symboler
+    expect(kropp).toContain('klarVidaPunkter');                                              // Vidas avlägg
+    expect(kropp).toContain('larmPunkterAlla');                                              // larmplatser
+  });
+  it('objektinfon får en rad per väg (kort, förarens kort och Hela trakten) — och ⓘ stängs när riskbedömningen öppnas', () => {
+    expect(sida).toMatch(/const vagarInfo = vagVy\.rader\.length \? \{ rader: vagVy\.rader, onOppna: \(agare: string\) => \{ stang\(\); setTmaOpen\(agare\); \} \} : null;/);
+    expect((sida.match(/vagar: vagarInfo,/g) || []).length).toBe(3);   // kort, enkel (maskinens kort) och oversikt (Hela trakten)
   });
   it('traktgränsen har ingen varning kvar: inget pulserande lager, ingen träfflinje, ingen requestAnimationFrame för TMA', () => {
     expect(sida).not.toMatch(/tma-warning/);

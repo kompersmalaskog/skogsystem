@@ -1,4 +1,4 @@
-// Vägvarningen (traktgräns nära väg: band över vägen + ⚠/✓) räknas EN gång per väg och objekt — inte en gång per traktdel och inte en gång per vägsträcka (Martin 2026-11-25, Brokamåla: två gränser längs väg 538 gav
+// Vägvarningen (traktgräns nära väg: band över vägen + ⚠; låg risk är bara en rad i objektinfon) räknas EN gång per väg och objekt — inte en gång per traktdel och inte en gång per vägsträcka (Martin 2026-11-25, Brokamåla: två gränser längs väg 538 gav
 // två röda linjer och två ⚠). Varje traktdel kontrolleras fortfarande för sig (checkBoundaryTma, panelen och traktkortet läser sitt eget resultat), men det som RITAS och räknas är den här sammanställningen:
 // en väg får EN ägare (delen som ligger närmast vägen, helst en del som kan visa ⚠, annars lägsta id) och EN linje per vägsträcka (alla delars träffar på samma vägsträcka sammanslagna).
 // Färgen (orange/grön/röd) kommer av ägarens riskbedömning och ritas av lib/vagRisk.
@@ -26,7 +26,7 @@ export interface Vagvarning {
   ref?: string;
   /** Kortaste avståndet från någon del. */
   avstand: number;
-  /** Delen som äger varningen (det är den vars riskbedömning bestämmer färgen och som får ⚠/✓). */
+  /** Delen som äger varningen (det är den vars riskbedömning bestämmer färgen och som får ⚠). */
   agare: string;
   /** Alla delar som ser vägen. */
   delar: string[];

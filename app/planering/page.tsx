@@ -1941,7 +1941,7 @@ export default function PlannerPage() {
     } catch { /* layers not ready */ }
 
     // === Vägvarning: ETT brett, halvgenomskinligt band över vägen i riskbedömningens färg (lib/vagRisk) — orange = ej riskbedömd, rött = hög risk, inget band vid låg risk.
-    // Bredden är i meter (inte en tunn linje, så det inte förväxlas med traktgränsen). ⚠/✓ ritas som markörer PÅ vägen; traktgränsen har ingen egen varning längre.
+    // Bredden är i meter (inte en tunn linje, så det inte förväxlas med traktgränsen). ⚠ (ej bedömd/hög risk) ritas som markör PÅ vägen; traktgränsen har ingen egen varning längre.
     map.addLayer({ id: VAG_BAND_LAGER, type: 'line', source: VAG_BAND_KALLA, paint: vagBandPaint() as any, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === Drawing preview layers ===
@@ -10968,13 +10968,21 @@ export default function PlannerPage() {
   // Objektinfon stängd → nästa öppning börjar på kortet igen.
   useEffect(() => { if (!traktOversiktOpen) setInfoStartVy('kort'); }, [traktOversiktOpen]);
 
-  // 3) Vägvarningen (lib/vagRisk): ett brett band över vägen i riskbedömningens färg + EN symbol PÅ vägen (⚠ orange/röd, ✓ grön) i punkten närmast traktgränsen.
-  // Ägarens riskbedömning (tmaRisk) avgör färgen och räknas om direkt när en fråga besvaras — inte först när den sparats i databasen. Ingenting ritas på traktgränsen.
-  const vagVy = useMemo(() => byggVagVy(tmaVagar.vagar, tmaRisk, (id) => {
-    const bm = (markers as any[]).find((m: any) => String(m.id) === id);
-    if (!bm || !bm.path || bm.path.length < 2) return null;
-    return bm.path.map((p: any) => svgToLatLon(p.x, p.y));
-  }), [tmaVagar, tmaRisk, markers, mapCenter, scale]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 3) Vägvarningen (lib/vagRisk): ett brett band över vägen i riskbedömningens färg + EN ⚠ PÅ vägen, UTANFÖR traktgränsen och fri från andra symboler (orange = ej bedömd, röd = hög risk).
+  // Låg risk är tyst på kartan: bara raden "Väg 538 · låg risk ✓" i objektinfon (vagVy.rader). Ägarens riskbedömning (tmaRisk) avgör färgen och räknas om direkt när en fråga besvaras.
+  // Ringar = ALLA traktens ytor (egna gränser + Vidas ojusterade delar); hinder = andra symboler (våra, Vidas avlägg, larmplatser). Ingenting ritas på traktgränsen.
+  const vagVy = useMemo(() => {
+    const ringar = [
+      ...(markers as any[]).filter((m: any) => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2).map((m: any) => m.path.map((p: any) => svgToLatLon(p.x, p.y))),
+      ...traktdelDelar.filter((d) => !justeradeTraktdelar.has(d.partKey)).map((d) => d.ringLatLon),
+    ];
+    const hinder = [
+      ...(markers as any[]).filter((m: any) => harXY(m) && m.isMarker && !arAlltidPrick(m.type)).map((m: any) => svgToLatLon(m.x, m.y)),
+      ...klarVidaPunkter.filter((a) => a.lat != null && a.lng != null).map((a) => ({ lat: a.lat as number, lon: a.lng as number })),
+      ...larmPunkterAlla.map((l) => ({ lat: l.lat, lon: l.lng })),
+    ];
+    return byggVagVy(tmaVagar.vagar, tmaRisk, ringar, hinder);
+  }, [tmaVagar, tmaRisk, markers, traktdelDelar, justeradeTraktdelar, klarVidaPunkter, larmPunkterAlla, mapCenter, scale]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -10985,7 +10993,7 @@ export default function PlannerPage() {
     } catch (e) { /* source not ready */ }
   }, [vagVy, mapLibreReady]);
 
-  // 3b) ⚠/✓ som MapLibre-markörer PÅ vägen (förankrade till lngLat). Tryck öppnar riskbedömningen för vägens ägare — som förut.
+  // 3b) ⚠ som MapLibre-markörer PÅ vägen (förankrade till lngLat; låg risk har ingen). Tryck öppnar riskbedömningen för vägens ägare — som förut.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -14731,6 +14739,8 @@ export default function PlannerPage() {
         // ⓘ-panelen är bredare i maskinläget (som korten); på telefon är det ett ark i full bredd.
         // Maskinläget: EN bredd för alla vyer i ⓘ (Martin 2026-11-12: "menyn ska vara stor hela tiden") — samma som Hela trakten.
         const infoPanelBredd = (maskinlage || !!maskinSomParam) ? (typeof window !== 'undefined' ? oversiktPanelBredd(window.innerWidth) : INFO_PANEL_MASKIN_BREDD_PX) : PANEL_BREDD_PX;
+        // Vägarna nära traktgränsen: en rad per väg i objektinfon ("Väg 538 · låg risk ✓"). Tryck stänger infon och öppnar riskbedömningen för vägens ägare (panelen på kartan).
+        const vagarInfo = vagVy.rader.length ? { rader: vagVy.rader, onOppna: (agare: string) => { stang(); setTmaOpen(agare); } } : null;
         objektInfoSenasteRef.current = {
           bredd: infoPanelBredd,
           objektNamn: valtObjekt.namn,
@@ -14742,6 +14752,7 @@ export default function PlannerPage() {
             else if (id === 'utkort') { startaMarkeraUtkort(); stang(); }
           },
           kort: {
+            vagar: vagarInfo,
             vader: skotarKorvy ? <VaderLista dagar={skotarVader.dagar} laddar={skotarVader.laddar} idag={lokaltDatumStockholm(serverNu())} /> : undefined,
             rad: objektRad({ typ: typTxt, avtalsform: valtObjekt.avtalsform, cert: certTxt, arSlutavverkning: objektHuvudtyp(valtObjekt) === 'slutavverkning' }),
             knappar: kortKnappar({ roll: kortRoll, harKoordinat: objektListaVal && harKoordinat(valtObjekt), korvyAktiv: korvyActive, maskinSlag, utanSkotning: skotarLassAktiv }),
@@ -14892,6 +14903,7 @@ export default function PlannerPage() {
             const nyaK = nyaKommentarer(oversiktSett, kk.rader.map((r) => ({ id: r.id, text: kommentarSigText(r) })));
             return {
               under: oversiktUnder(typTxt, certTyper(valtObjekt.cert), arealHaKort),
+              vagar: vagarInfo,
               larm: { satt: larmVis.satt, koordinat: larmVis.koordinat, beskrivning: larmBeskr, onVisa: () => { stang(); larmVisaPunkt(larmVal.vald, true); }, visning: larmVis, onVisaPlats: (i: number) => { stang(); larmVisaPunkt(larmVal.alla[i], true); } },
               faror: faroLinjer,
               risker: forarRiskNu.risker,
@@ -14949,6 +14961,7 @@ export default function PlannerPage() {
             const rader = ytaRader(traktGeo?.features, inst.paTrakten);
             const framsteg = framstegRad({ typ: typTxt, arealHa: arealHaKort, klartHa: maskinSlag === 'skordare' && avverkat?.harSpar ? avverkat.ha : null });
             return {
+              vagar: vagarInfo,
               namn: valtObjekt.namn,
               under: framsteg.text,
               andel: framsteg.andel,

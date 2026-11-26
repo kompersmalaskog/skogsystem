@@ -48,7 +48,7 @@ describe('hänsyn före traktyta, oavsett vilket lager som ligger överst', () =
   });
 });
 
-describe('väg-⚠/✓ är markörer på vägen, inte ett kartlager: ingen träfflinje på traktgränsen och ingen egen klickkategori', () => {
+describe('väg-⚠ är markörer på vägen, inte ett kartlager: ingen träfflinje på traktgränsen och ingen egen klickkategori', () => {
   it('inget lager med tma i namnet deltar i prioriteringen', () => {
     for (const l of ALLA_KLICK_LAGER) expect(l, l).not.toMatch(/^tma-/);
     expect(kategoriForLager('tma-warning-hitbox')).toBeNull();

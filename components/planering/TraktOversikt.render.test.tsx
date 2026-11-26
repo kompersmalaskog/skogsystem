@@ -292,3 +292,19 @@ describe('Hela trakten — Viktigt', () => {
     expect(qa('oversikt-trakten-text')).toHaveLength(1);
   });
 });
+
+describe('Hela trakten — vägarna nära gränsen', () => {
+  it('en rad "Väg 538 · låg risk ✓" och ett tryck öppnar riskbedömningen för vägens ägare', async () => {
+    const oppnade: string[] = [];
+    await montera(<TraktOversikt {...props({ vagar: { rader: [{ nyckel: 'ref:538', agare: 'a', rubrik: 'Väg 538', risk: 'lag' as const, status: 'låg risk ✓', farg: '#30d158' }], onOppna: (a: string) => { oppnade.push(a); } } })} />);
+    const rad = qa('vag-risk-rad');
+    expect(rad).toHaveLength(1);
+    expect(rad[0].textContent).toContain('Väg 538 · låg risk ✓');
+    act(() => { rad[0].click(); });
+    expect(oppnade).toEqual(['a']);
+  });
+  it('ingen väg = ingen rad', async () => {
+    await montera(<TraktOversikt {...props()} />);
+    expect(qa('vag-risk-rad')).toHaveLength(0);
+  });
+});
