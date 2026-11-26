@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react'
 import type * as PdfjsTypes from 'pdfjs-dist'
 import { AVSTAND, FARG, IKON, INAKTIV, KNAPP, TRAFFYTA, TYP, designCss, underTopbar } from '@/lib/design/tokens'
 import Tillstand from '@/components/design/Tillstand'
-import { delaFil } from '../_lib/veckolageDela'
+import { delaFil, kanSparaFil, laddaNerFil } from '../_lib/veckolageDela'
 import Ikon from '@/components/design/Ikon'
 
 type Status = 'skapar' | 'klar' | 'kan_inte_visa' | 'fel'
@@ -41,9 +41,15 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
   const [status, setStatus] = useState<Status>('skapar')
   const [version, setVersion] = useState(0)
   const [delar, setDelar] = useState(false)
+  // "Spara" visas bara där en nedladdning verkligen ger en fil (kanSparaFil).
+  // Avgörs efter montering: webbläsaren finns inte vid serverrendering, och en
+  // knapp som flimrar in medan PDF:en ändå skapas stör ingen.
+  const [kanSpara, setKanSpara] = useState(false)
   const bytesRef = useRef<Uint8Array | null>(null)
   const ytaRef = useRef<HTMLDivElement>(null)
   const sidorRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setKanSpara(kanSparaFil()) }, [])
 
   // Esc stänger.
   useEffect(() => {
@@ -115,17 +121,29 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
   }, [version])
 
   const kanDela = (status === 'klar' || status === 'kan_inte_visa') && !delar
+  // pdf.js tömmer bufferten den får — dela och spara tar en egen kopia av den riktiga filen.
+  const fil = () => new Blob([bytesRef.current!.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
+
   async function dela() {
     const bytes = bytesRef.current
     if (!bytes || delar) return
     setDelar(true)
     try {
-      const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
-      await delaFil(blob, `${filnamn}.pdf`, titel)
+      await delaFil(fil(), `${filnamn}.pdf`, titel)
     } catch (e) {
       console.error('[PdfForhandsvisning] dela misslyckades', e)
     } finally {
       setDelar(false)
+    }
+  }
+
+  /** Spara filen på enheten. Egen knapp, för delningens ark (Windows, iOS) sparar ingen fil. */
+  function spara() {
+    if (!bytesRef.current || delar) return
+    try {
+      laddaNerFil(fil(), `${filnamn}.pdf`)
+    } catch (e) {
+      console.error('[PdfForhandsvisning] spara misslyckades', e)
     }
   }
 
@@ -163,15 +181,27 @@ export default function PdfForhandsvisning({ skapa, filnamn, titel, onStang }: {
         >
           <Ikon namn="chevron_left" storlek={IKON.rad} farg={FARG.bla} />
         </button>
-        <button
-          type="button"
-          onClick={dela}
-          disabled={!kanDela}
-          aria-busy={delar}
-          style={{ ...KNAPP.lank, padding: `0 ${AVSTAND.s}px`, ...(kanDela ? null : INAKTIV) }}
-        >
-          Dela
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.xs }}>
+          {kanSpara && (
+            <button
+              type="button"
+              onClick={spara}
+              disabled={!kanDela}
+              style={{ ...KNAPP.lank, padding: `0 ${AVSTAND.s}px`, ...(kanDela ? null : INAKTIV) }}
+            >
+              Spara
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={dela}
+            disabled={!kanDela}
+            aria-busy={delar}
+            style={{ ...KNAPP.lank, padding: `0 ${AVSTAND.s}px`, ...(kanDela ? null : INAKTIV) }}
+          >
+            Dela
+          </button>
+        </div>
       </div>
 
       {/* Sidorna: en vit canvas per sida som fyller bredden, scroll genom alla. */}
