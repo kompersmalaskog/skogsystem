@@ -31,7 +31,7 @@ describe.skipIf(!HAR_PROD_ENV)("byggMeddelande — låsskärmstext", async () =>
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   it("dagsslut med obesvarad brandrisk (Stefan 2026-08-13 03:00) → '… · brandrisk? · Stämmer?'", async () => {
     const st = await sb.from("medarbetare").select("id").ilike("namn", "Stefan%").maybeSingle();
-    const m = await byggMeddelande({ typ: "dagsslut", mottagare_id: st.data!.id, datum: "2026-08-13" });
+    const m = (await byggMeddelande({ typ: "dagsslut", mottagare_id: st.data!.id, datum: "2026-08-13" }))!;
     console.log("  ", m.title, "|", m.body);
     expect(m.title).toBe("Din arbetsdag");
     expect(m.body).toMatch(/^\d+h \d+min · brandrisk\? · Stämmer\?$/);
@@ -39,12 +39,12 @@ describe.skipIf(!HAR_PROD_ENV)("byggMeddelande — låsskärmstext", async () =>
   }, 30_000);
   it("dagsslut utan brandriskfråga (Stefan 2026-08-19 06:00) → '… · Stämmer?'", async () => {
     const st = await sb.from("medarbetare").select("id").ilike("namn", "Stefan%").maybeSingle();
-    const m = await byggMeddelande({ typ: "dagsslut", mottagare_id: st.data!.id, datum: "2026-08-19" });
+    const m = (await byggMeddelande({ typ: "dagsslut", mottagare_id: st.data!.id, datum: "2026-08-19" }))!;
     console.log("  ", m.title, "|", m.body);
     expect(m.body).toMatch(/^\d+h \d+min · Stämmer\?$/);
   }, 30_000);
   it("manadsskifte → kort sammanfattning", async () => {
-    const m = await byggMeddelande({ typ: "manadsskifte", mottagare_id: "x", payload: { period: "2026-08", obekraftade: 3, obesvarade: 2, oforklarade: 1 } });
+    const m = (await byggMeddelande({ typ: "manadsskifte", mottagare_id: "x", payload: { period: "2026-08", obekraftade: 3, obesvarade: 2, oforklarade: 1 } }))!;
     console.log("  ", m.title, "|", m.body);
     expect(m.title).toBe("Augusti 2026: fixa innan lönen");
     expect(m.body).toBe("3 obekräftade dagar · 2 brandriskfrågor · 1 tidsavvikelse");
@@ -52,11 +52,11 @@ describe.skipIf(!HAR_PROD_ENV)("byggMeddelande — låsskärmstext", async () =>
   it("grot_senast → 'GROT · namn' / 'Ska vara bortkört senast <datum> — <markvillkor>' (köas av /api/grot/paminnelse)", async () => {
     const { idagStockholm, kortDatum } = await import("../lib/grotvy/format");
     const idag = idagStockholm();
-    const m = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Bjällerhult au + ga", senast: idag, dagar_fore: 7, mark_begransning: "dålig bärighet" } });
+    const m = (await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Bjällerhult au + ga", senast: idag, dagar_fore: 7, mark_begransning: "dålig bärighet" } }))!;
     expect(m.title).toBe("GROT · Bjällerhult au + ga");
     expect(m.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)} — dålig bärighet`);
     expect(m.url).toBe("/oversikt");
-    const utan = await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Karsemåla AU 2025", senast: idag, dagar_fore: 2, mark_begransning: null } });
+    const utan = (await byggMeddelande({ typ: "grot_senast", mottagare_id: "x", payload: { namn: "Karsemåla AU 2025", senast: idag, dagar_fore: 2, mark_begransning: null } }))!;
     expect(utan.body).toBe(`Ska vara bortkört senast ${kortDatum(idag, idag)}`);
   });
 });
