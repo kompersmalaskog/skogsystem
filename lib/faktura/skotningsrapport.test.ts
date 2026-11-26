@@ -392,6 +392,13 @@ describe('hela sidan', () => {
     // Traktgränsen är randig, körspåret ett band, avlägget en symbol.
     for (const form of ['randig', 'band', 'symbol']) expect(KARTA_FORKLARING).toContain(form);
     expect(KARTA_FORKLARING).toContain('Norr är uppåt');
+    // Och den säger FÄRGERNA som faktiskt ritas. Kartan är hyttens sedan
+    // 2026-11-26 (skördarens stråk lila, skotarens körning vit); stod det kvar
+    // "turkosa band" vore teckenförklaringen en lögn, och då litar ingen på
+    // resten av rapporten heller.
+    expect(KARTA_FORKLARING).toContain('lila');
+    expect(KARTA_FORKLARING).toContain('vitt');
+    expect(KARTA_FORKLARING).not.toContain('turkos');
   });
 });
 

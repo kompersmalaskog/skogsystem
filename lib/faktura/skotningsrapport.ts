@@ -407,9 +407,17 @@ export function periodText(p: { fran: string; till: string } | null): string | n
  *
  * Grundraden: det som alltid finns på kartan.
  */
+/**
+ * EN mening om vad man ser. Den säger "skotarens körning i vitt" utan att skilja
+ * på skotarens eget band och den vita strimman i skördarens stråk — båda är
+ * skotaren, och två meningar om samma sak gör kartan rörig (Martin 2026-11-26:
+ * "inte för mycket text"). Den får ALDRIG nämna en färg eller en symbol kartan
+ * inte ritar: står det "turkosa band" när stråken är lila är teckenförklaringen
+ * en lögn, och då litar ingen på resten heller.
+ */
 export const KARTA_FORKLARING =
-  'Traktgränsen randig röd och gul som snitseln i skogen, skotarens körspår som '
-  + 'turkosa band och avlägget med sin symbol. Norr är uppåt.';
+  'Traktgränsen randig röd och gul som snitseln i skogen, skördarens stråk som '
+  + 'lila band, skotarens körning i vitt och avlägget med sin symbol. Norr är uppåt.';
 
 /**
  * Teckenförklaringen för DEN HÄR kartan: grundraden plus en mening om hänsynen

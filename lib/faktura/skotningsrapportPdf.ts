@@ -31,6 +31,7 @@
 import { sanera } from '@/lib/markagarrapport/pdf';
 import { breddUtanKerning, delaUpphojt, UPP_LYFT, UPP_SKALA } from '@/lib/upphojtPdf';
 import { ritaKarta, type KartLager } from '@/lib/egenkontrollRapportKartaPdf';
+import { delaKlart, delaUtanfor, type Koord, type LinjeFeature } from '@/lib/korsparKlart';
 import type { KartMarkering, MarkSlag } from '@/lib/egenkontrollRapportKarta';
 import type { SkotningsrapportSida, Rad, VirkeRad } from './skotningsrapport';
 
@@ -56,6 +57,17 @@ export type RapportKarta = {
    * här är en bild, inte en mätning — men namnet ska inte be om ett undantag.
    */
   korspar: { lat: number; lng: number }[][];
+  /**
+   * SKÖRDARENS körspår, av samma skäl som i maskinen (Martin 2026-11-26: "kan du
+   * inte göra dom samma som appen har när vi kör med maskinen").
+   *
+   * I hytten är stråken LILA — skördarens — och skotaren syns som en vit
+   * mittlinje där den kört i stråket (`lib/korsparKlart` delaKlart/delaUtanfor).
+   * Utan skördarens spår går den bilden inte att rita, och då blir skotarens
+   * spår en ensam linje i en färg som inte betyder något i resten av appen.
+   * Tom lista: hela skotarens spår ritas som "utanför stråket".
+   */
+  skordarspar?: { lat: number; lng: number }[][];
   /** Avläggen, numrerade som på kartan i appen. */
   avlagg: { nr: number; namn: string; plats: { lat: number; lng: number } }[];
   /**
@@ -105,7 +117,7 @@ export function klippSparMotTrakt<T extends RapportKarta>(k: T): T {
   const inom: { lat: number; lng: number }[] = [
     ...k.granser.flat(), ...k.stammar, ...k.avlagg.map(a => a.plats),
   ];
-  if (inom.length === 0 || k.korspar.length === 0) return k;
+  if (inom.length === 0 || (k.korspar.length === 0 && (k.skordarspar ?? []).length === 0)) return k;
 
   const latMin = Math.min(...inom.map(p => p.lat));
   const latMax = Math.max(...inom.map(p => p.lat));
@@ -118,16 +130,22 @@ export function klippSparMotTrakt<T extends RapportKarta>(k: T): T {
     p.lat >= latMin - dLat && p.lat <= latMax + dLat
     && p.lng >= lngMin - dLng && p.lng <= lngMax + dLng;
 
-  const korspar: RapportKarta['korspar'] = [];
-  for (const linje of k.korspar) {
-    let bit: { lat: number; lng: number }[] = [];
-    for (const p of linje) {
-      if (inne(p)) bit.push(p);
-      else { if (bit.length > 1) korspar.push(bit); bit = []; }
+  // Samma klippning för BÅDA rollerna: `hyttspar` bär hela dagens körning,
+  // hemresan med, och ett oklippt skördarspår drar ut ramen lika illa som ett
+  // oklippt skotarspår (uppmätt på Skälviken: 6 308 m mot traktens 448).
+  const klipp = (linjer: RapportKarta['korspar']): RapportKarta['korspar'] => {
+    const ut: RapportKarta['korspar'] = [];
+    for (const linje of linjer) {
+      let bit: { lat: number; lng: number }[] = [];
+      for (const p of linje) {
+        if (inne(p)) bit.push(p);
+        else { if (bit.length > 1) ut.push(bit); bit = []; }
+      }
+      if (bit.length > 1) ut.push(bit);
     }
-    if (bit.length > 1) korspar.push(bit);
-  }
-  return { ...k, korspar };
+    return ut;
+  };
+  return { ...k, korspar: klipp(k.korspar), skordarspar: k.skordarspar ? klipp(k.skordarspar) : undefined };
 }
 
 /** true när det finns något att rita. En tom karta ritas aldrig. */
@@ -136,6 +154,43 @@ export function harKarta(k: RapportKarta): boolean {
   // skulle ge en tom ruta med en teckenförklaring under.
   return k.granser.some(r => r.length > 0)
     || k.korspar.some(l => l.length > 0) || k.avlagg.length > 0;
+}
+
+/**
+ * Körspåren i kartans TRE lägen, exakt som skärmen i maskinen (Martin
+ * 2026-11-26: "kan du inte göra dom samma som appen har när vi kör med
+ * maskinen"): skördarens stråk lila, en vit mittlinje där skotaren kört i
+ * stråket, och skotarens spår utanför stråket som ett eget ljust band.
+ *
+ * Delningen görs av `lib/korsparKlart` — SAMMA funktioner som kartan i hytten,
+ * ingen kopia, så gränsen för "har kört här" (8 m) aldrig kan glida isär.
+ * Utan skördarspår är hela skotarens spår "utanför", vilket är sant: då vet vi
+ * inte var stråken går.
+ */
+function sparLager(k: RapportKarta): KartLager['hyttspar'] {
+  const tillKoord = (l: { lat: number; lng: number }[]): Koord[] => l.map(p => [p.lng, p.lat]);
+  const tillLatLng = (c: Koord[]) => c.map(([lng, lat]) => ({ lat, lng }));
+  const feature = (c: Koord[]): LinjeFeature =>
+    ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: {} });
+
+  const skotare = k.korspar.filter(l => l.length > 1).map(tillKoord);
+  const skordare = (k.skordarspar ?? []).filter(l => l.length > 1).map(tillKoord);
+  if (skotare.length === 0 && skordare.length === 0) return undefined;
+
+  const ut: NonNullable<KartLager['hyttspar']> = [];
+  // Skördarens stråk, delat på var skotaren kört: bitarna med `klar` får den
+  // vita mittlinjen.
+  for (const f of delaKlart(skordare.map(feature), skotare)) {
+    ut.push({
+      roll: 'skordare', linjer: [tillLatLng(f.geometry.coordinates)],
+      klar: f.properties.klar === true,
+    });
+  }
+  // Skotaren UTANFÖR stråket: eget ljust band. Innanför syns den som mittlinjen.
+  for (const f of delaUtanfor(skotare.map(feature), skordare)) {
+    ut.push({ roll: 'skotare', linjer: [tillLatLng(f.geometry.coordinates)], ute: true });
+  }
+  return ut.length > 0 ? ut : undefined;
 }
 
 function tillLager(k: RapportKarta): KartLager {
@@ -147,7 +202,7 @@ function tillLager(k: RapportKarta): KartLager {
     // spåret. Hur långt virket låg står i tabellen bredvid, i m³fub per
     // avståndsklass, och ett tal är mer sant än en bild av samma sak.
     stammar: [],
-    hyttspar: k.korspar.length > 0 ? [{ roll: 'skotare', linjer: k.korspar.filter(l => l.length > 1) }] : undefined,
+    hyttspar: sparLager(k),
     markeringar: k.markeringar ?? [],
     mark: k.mark,
     pinnar: k.avlagg.map(a => ({ nr: a.nr, rubrik: a.namn, plats: a.plats })),

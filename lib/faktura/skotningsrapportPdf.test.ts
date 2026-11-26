@@ -426,7 +426,7 @@ describe('PDF:en', () => {
   // det är i resten av appen". Kartan på rapporten och kartan i hytten ska
   // betyda samma sak — annars måste den som läser rapporten lära sig ett andra
   // språk. Mätt i den renderade PDF:ens egna pixlar, inte i koden.
-  it('KARTAN RITAS SOM I APPEN: snitselgräns i rött och gult, spåret som turkost band', async () => {
+  it('KARTAN RITAS SOM I APPEN: snitselgräns i rött och gult, skördarens stråk lila, skotarens körning vit', async () => {
     const ruta = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
     const pdf = await bygg(SKALVIKEN, KARTA);
     // Traktgränsen: BÅDA snitselfärgerna, inte en svart streckad linje.
@@ -434,24 +434,73 @@ describe('PDF:en', () => {
     const gul = ritat(pdf, ruta, 1, 150, (r, g, b) => r > 200 && g > 140 && b < 120).ritade;
     expect(röd).toBeGreaterThan(80);
     expect(gul).toBeGreaterThan(80);
-    // Körspåret: ett BAND, inte en hårstreckstunn linje. Mätt som TJOCKLEK —
-    // längsta sammanhängande turkosa sträcka i en lodrät kolumn tvärs ett rakt
-    // spår. Antalet pixlar beror på hur långt spåret råkar vara; tjockleken på
-    // att bredden räknas i METER som i appen. Uppmätt på Bondeskog: 8–12 px vid
-    // 110 dpi. Den gamla stilen var 0,7 pt (≈ 1 px) med opacitet 0,3 — den kan
-    // aldrig ge 4 sammanhängande turkosa pixlar.
+
+    // HYTTENS TRE TILLSTÅND (Martin 2026-11-26: "gör dom samma som appen har
+    // när vi kör med maskinen"). Delningen görs av lib/korsparKlart — samma
+    // funktioner som kartan i maskinen — så testet mäter att ritaren ger dem
+    // var sitt utseende, inte att delningen är rätt (det står i dess egna
+    // tester).
     const g = fixtur.granser as number[][][];
     const [lng0, lat0] = g[0][0];
     const rakt = [[{ lat: lat0 - 0.0008, lng: lng0 }, { lat: lat0 - 0.0008, lng: lng0 + 0.0020 }]];
-    const medBand = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt });
-    expect(tjockast(medBand, 0.28, 0.52, (rr, gg, bb) => bb > 180 && gg > 160 && rr < 150)).toBeGreaterThan(2);
-    const turkos = (b: Uint8Array) => ritat(b, ruta, 1, 250, (rr, gg, bb) => bb > 180 && gg > 160 && rr < 150).ritade;
-    // Och att spåret alls ritas: 196 px uppmätt för testets korta raka spår på
-    // Skälvikens utzoomade karta. Den gamla stilen (0,7 pt, opacitet 0,3)
-    // blandas mot den grå bakgrunden och ger nästan inga pixlar som passerar
-    // filtret — tröskeln 120 kan den inte nå.
-    expect(turkos(medBand)).toBeGreaterThan(turkos(await bygg(SKALVIKEN, { ...KARTA, korspar: [] })) + 120);
-  }, 90000);
+    const lilaF = (r: number, gg: number, b: number) => r > 140 && b > 190 && gg < 140;
+    const lila = (b: Uint8Array) => ritat(b, ruta, 1, 250, lilaF).ritade;
+    const mörk = (b: Uint8Array) => ritat(b, ruta, 1, 250, (r, gg, bb) => r < 110 && gg < 110 && bb < 110).ritade;
+
+    const utan = await bygg(SKALVIKEN, { ...KARTA, korspar: [] });
+    // 1. SKÖRDARENS stråk: ett lila BAND, inte en hårstreckstunn linje. Mätt som
+    //    TJOCKLEK — längsta sammanhängande lila sträcka i en lodrät kolumn tvärs
+    //    ett rakt spår — så måttet säger att bredden räknas i METER som i appen.
+    //    Den gamla stilen var 0,7 pt (≈ 1 px) med opacitet 0,3 och kan aldrig ge
+    //    tre sammanhängande lila pixlar.
+    const medSkordare = await bygg(SKALVIKEN, { ...KARTA, korspar: [], skordarspar: rakt });
+    expect(tjockast(medSkordare, 0.28, 0.52, lilaF)).toBeGreaterThan(2);
+    expect(lila(medSkordare)).toBeGreaterThan(lila(utan) + 120);
+
+    // 2. SKOTAREN UTANFÖR stråket ritas som ett eget vitt band med mörk kant —
+    //    aldrig lila. (Utan skördarspår ligger hela skotarspåret utanför.)
+    //    Mätt som ALLT RITAT, inte som mörka pixlar: kanten är smal och dess
+    //    kantpixlar blandas ljusare än 110 vid 110 dpi. Med det lilas golv och
+    //    en kant på +0,8 pt gav hela spåret 7 ritade pixlar — osynligt, och en
+    //    trakt utan skördarhyttspår (Edestad) hade fått en tom karta. Nu 219.
+    const baraSkotare = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt });
+    const allt = (b: Uint8Array) => ritat(b, ruta, 1, 235).ritade;
+    expect(lila(baraSkotare)).toBeLessThan(lila(utan) + 20);
+    expect(allt(baraSkotare)).toBeGreaterThan(allt(utan) + 120);
+
+    // 3. SKOTAREN I stråket: den vita mittlinjen äter mitten av det lila bandet,
+    //    så samma stråk ger FÄRRE lila pixlar när skotaren följt det. Så ser
+    //    hytten ut — lila band med vit strimma. Mäts på en INZOOMAD trakt:
+    //    mittlinjen ritas bara när bandet är brett nog att rymma den, och på
+    //    Skälvikens karta (avlägget långt bort) ligger kärnan på sitt golv.
+    const liten = (d: number) => [[{ lat: lat0, lng: lng0 }, { lat: lat0, lng: lng0 + d }, { lat: lat0 - d / 2, lng: lng0 + d }, { lat: lat0 - d / 2, lng: lng0 }, { lat: lat0, lng: lng0 }]];
+    const litetSpar = (d: number) => [[{ lat: lat0 - d / 4, lng: lng0 + d * 0.1 }, { lat: lat0 - d / 4, lng: lng0 + d * 0.9 }]];
+    const inzoomad = (d: number, extra: Partial<RapportKarta>) => bygg(SKALVIKEN, {
+      granser: liten(d), stammar: [], korspar: [], avlagg: [{ nr: 1, namn: '01-1', plats: { lat: lat0 - d / 4, lng: lng0 + d / 2 } }], ...extra,
+    });
+    const D = 0.0008;
+    const bara = await inzoomad(D, { skordarspar: litetSpar(D) });
+    const bada = await inzoomad(D, { skordarspar: litetSpar(D), korspar: litetSpar(D) });
+    expect(lila(bada)).toBeLessThan(lila(bara) - 60);
+
+    // 3b. MEN UTZOOMAT RITAS INGEN MITTLINJE — appen gör likadant (den är
+    //     meterbaserad och försvinner när man zoomar ut). Uppmätt på Bondeskog:
+    //     med mittlinjen alltid på låg kärnan på sitt golv och den vita
+    //     strimman åt hela det lila — stråken läste som VITA med lila kontur,
+    //     och lila gick från 11 839 till 6 079 px. Samma stråk ska ge samma
+    //     mängd lila med och utan skotare när bandet är för smalt.
+    const badaUtzoomad = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt, skordarspar: rakt });
+    expect(lila(badaUtzoomad)).toBeGreaterThan(lila(medSkordare) - 20);
+
+    // TAKET: bandet får inte svälja en liten trakt. Bredden räknas i meter, och
+    // utan tak blev ett 4 m-band 24 px på en 89 m-trakt och 64 px på en 33 m —
+    // en femtedel av kartan, så både marken och mönstret försvann. Uppmätt nu:
+    // 8 px på 267 m, 10 på 89 och 10 på 33.
+    for (const d of [0.0008, 0.0003]) {
+      const b = await inzoomad(d, { skordarspar: litetSpar(d) });
+      expect(tjockast(b, 0.28, 0.52, lilaF)).toBeLessThan(13);
+    }
+  }, 180000);
 
   // Marken ritas EFTER spåret på rapporten (till skillnad från appen, där den är
   // bakgrund): bandet är brett, och på Bondeskog täckte det marken nästan helt —

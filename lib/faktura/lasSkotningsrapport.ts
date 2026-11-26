@@ -187,7 +187,9 @@ export async function lasSkotningsrapport(
         .in('objekt_id', ids).not('latitude', 'is', null),
       'id',
     ),
-    sb.from('hyttspar').select('points').eq('objekt_id', a.objektUuid).eq('roll', 'skotare'),
+    // Båda rollernas körspår: skotarens är det rapporten handlar om, skördarens
+    // ritar STRÅKEN som kartan i hytten visar dem (se `RapportKarta.skordarspar`).
+    sb.from('hyttspar').select('points, roll').eq('objekt_id', a.objektUuid).in('roll', ['skotare', 'skordare']),
     sb.from('skotar_lass')
       .select('datum, maskin_id, status, bekraftad_av')
       .in('vo_nummer', ids)
@@ -246,12 +248,17 @@ export async function lasSkotningsrapport(
   // linje. (Rådata har GPS-hopp och darr; allt som RÄKNAS använder rådata,
   // men det här är en bild.)
   let korspar: LatLng[][] = [];
-  if (sparSvar.error) fel.push('Skotarens körspår kunde inte läsas.');
+  let skordarspar: LatLng[][] = [];
+  if (sparSvar.error) fel.push('Körspåren kunde inte läsas.');
   else {
-    korspar = ((sparSvar.data ?? []) as { points?: unknown }[])
+    const rader = (sparSvar.data ?? []) as { points?: unknown; roll?: unknown }[];
+    const linjer = (roll: string) => rader
+      .filter(r => r.roll === roll)
       .flatMap(r => korsparLinjer(Array.isArray(r.points) ? (r.points as never) : []))
       .map(l => l.map(([lng, lat]) => ({ lat, lng })))
       .filter(l => l.length > 1);
+    korspar = linjer('skotare');
+    skordarspar = linjer('skordare');
   }
 
   // Planerarens zoner. De ligger i x/y mot ett origo, och origot avgörs med
@@ -350,6 +357,6 @@ export async function lasSkotningsrapport(
 
   // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
   // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
-  const karta = klippSparMotTrakt({ granser, stammar, korspar, avlagg, markeringar, mark });
+  const karta = klippSparMotTrakt({ granser, stammar, korspar, skordarspar, avlagg, markeringar, mark });
   return { karta, virke, period, dagar, skotare, fel };
 }

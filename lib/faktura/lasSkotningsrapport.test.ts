@@ -97,6 +97,7 @@ function fake(svar: Record<string, { data?: unknown; error?: unknown }>) {
 }
 
 const HYTTSPAR = [{
+  roll: 'skotare',
   points: [
     { lat: 56.2875, lng: 15.37601, tid: '2026-11-03T08:00:00Z' },
     { lat: 56.2870, lng: 15.37590, tid: '2026-11-03T08:01:00Z' },
@@ -145,7 +146,9 @@ describe('kolumnerna som PROD har', () => {
     gransMock.mockResolvedValue(gransOk);
     const { sb, fragor } = allt();
     await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
-    expect(fragor.find(f => f.tabell === 'hyttspar')!.kolumner).toBe('points');
+    // Rollen måste med: skördarens stråk och skotarens körning ritas olika
+    // (hyttens tre tillstånd), och utan den går de inte att skilja åt.
+    expect(fragor.find(f => f.tabell === 'hyttspar')!.kolumner).toBe('points, roll');
   });
 });
 
@@ -221,6 +224,7 @@ describe('vad som kommer ut', () => {
       detalj_stam: { data: [{ latitude: 56.2857, longitude: 15.3742 }], error: null },
       hyttspar: {
         data: [{
+          roll: 'skotare',
           points: [
             { lat: 56.2860, lng: 15.3758 }, { lat: 56.2862, lng: 15.3759 },
             { lat: 56.2864, lng: 15.3760 },
@@ -454,7 +458,7 @@ describe('KASTAR ALDRIG — varje del faller för sig, och det SÄGS', () => {
     const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
     const f = r.fel.join(' ');
     expect(f).toContain('Stammarnas lägen');
-    expect(f).toContain('körspår');
+    expect(f).toContain('Körspåren');
     expect(f).toContain('perioden saknas');
     // Gränsen och avläggen kom ändå — kartan är halv, inte borta.
     expect(r.karta.granser).toHaveLength(1);

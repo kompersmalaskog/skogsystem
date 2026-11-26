@@ -155,8 +155,8 @@ const MUTANTER = [
   {
     namn: 'kartans ram tar inte med avlägget (klipps bort som förut)',
     fil: 'lib/faktura/skotningsrapportPdf.ts',
-    fran: '        { etiketter: true, extentAllt: true },',
-    till: '        { etiketter: true },',
+    fran: '          extentAllt: true,',
+    till: '          extentAllt: false,',
   },
   {
     namn: 'en tom karta ritas som en tom ruta utan förklaring',
@@ -188,6 +188,66 @@ const MUTANTER = [
     namn: '³ lämnas som tecken — glyfen blir ett tomrum',
     fil: 'lib/upphojtPdf.ts',
     fran: "    if (t === '²' || t === '³') {",
+    till: '    if (false) {',
+  },
+
+  // ── Kartan ritas som i hytten (Martin 2026-11-26) ────────────────────────
+  {
+    namn: 'skördarens stråk ritas inte — bara skotarens körning kommer med',
+    fil: 'lib/faktura/skotningsrapportPdf.ts',
+    fran: "  const skordare = (k.skordarspar ?? []).filter(l => l.length > 1).map(tillKoord);",
+    till: '  const skordare: Koord[][] = [];',
+  },
+  {
+    namn: 'skotarens spår utanför stråket ritas lila som skördarens',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: "    const appVitt = opts.appstil && h.ute;",
+    till: '    const appVitt = false;',
+  },
+  {
+    // Den verkliga regressionen: det vita ritat som det lila, med en hårfin
+    // kant. Uppmätt gav hela skotarspåret 7 ritade pixlar — osynligt.
+    namn: 'det vita bandet ritas som det lila med hårfin kant — osynligt på papper',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: `          const vitKarna = Math.max(UTE_GOLV_PT, karna);
+          sida.drawSvgPath(d, { ...SVG, borderColor: grå(55), borderWidth: vitKarna + 1.4,`,
+    till: `          const vitKarna = karna;
+          sida.drawSvgPath(d, { ...SVG, borderColor: grå(55), borderWidth: vitKarna + 0.8,`,
+  },
+  {
+    namn: 'mittlinjen ritas alltid — äter det lila bandet när kartan är utzoomad',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: "          if (h.klar && karna >= MITTLINJE_MIN_KARNA_PT) {",
+    till: '          if (h.klar) {',
+  },
+  {
+    namn: 'mittlinjen ritas aldrig — skotaren syns inte i stråket',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: "          if (h.klar && karna >= MITTLINJE_MIN_KARNA_PT) {",
+    till: '          if (false) {',
+  },
+  {
+    namn: 'bandet saknar tak — sväljer en liten trakt',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: "  const skala = Math.max(pr.meterPerPt, BAND_MIN_METER_PER_PT);",
+    till: '  const skala = pr.meterPerPt;',
+  },
+  {
+    namn: 'traktgränsen ritas svart streckad i stället för snitselns röd och gul',
+    fil: 'lib/egenkontrollRapportKartaPdf.ts',
+    fran: "    if (opts.appstil) {\n      sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, LEGEND.fara), borderWidth: 1.6 });",
+    till: "    if (false) {\n      sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, LEGEND.fara), borderWidth: 1.6 });",
+  },
+  {
+    namn: 'teckenförklaringen säger turkosa band fast stråken är lila',
+    fil: 'lib/faktura/skotningsrapport.ts',
+    fran: "  + 'lila band, skotarens körning i vitt och avlägget med sin symbol. Norr är uppåt.';",
+    till: "  + 'turkosa band och avlägget med sin symbol. Norr är uppåt.';",
+  },
+  {
+    namn: 'evighetsträd och högstubbar tas inte med på kartan',
+    fil: 'lib/faktura/lasSkotningsrapport.ts',
+    fran: "    if (f.properties.kind === 'symbol') {",
     till: '    if (false) {',
   },
 ];
