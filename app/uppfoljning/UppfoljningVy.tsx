@@ -18,6 +18,7 @@ import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
 import { useKlarDatum } from './hooks/useKlarDatum';
 import { klarDatumText } from './lib/klarDatum';
+import { ProdChart } from './ProdChart';
 import { snittPerDag, snittPerDagHel } from './lib/snittPerDag';
 import { svenskIdag } from './lib/datum';
 
@@ -862,45 +863,6 @@ function Produktivitet({ data }: { data: UppfoljningData }) {
 }
 
 // ── Produktion per dag ────────────────────────────────────────────────────
-function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; lass?: number }[]; color: string; snitt: number }) {
-  const [active, setActive] = useState<number | null>(null);
-  const max = Math.max(...data.map(d => d.m3), 1);
-  const chartH = 130;
-  const barMaxH = chartH - 20;
-  const snittH = snitt ? (snitt / max) * barMaxH : 0;
-  return (
-    <div style={{ background: V6_CARD, borderRadius: RADIE.kort, padding: `${AVSTAND.l}px` }}>
-      <div style={{ position: 'relative', height: chartH, borderBottom: `0.5px solid ${V6_SEP}`, paddingBottom: 4 }}>
-        {snitt > 0 && (
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 4 + snittH, height: 0, borderTop: `1px dashed ${V6_GREY2}`, pointerEvents: 'none', zIndex: 2 }}>
-            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 13, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: `0 ${AVSTAND.xs}px` }}>snitt {Math.round(snitt)} m³</span>
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%' }}>
-          {data.map((d, i) => {
-            const h = (d.m3 / max) * barMaxH;
-            const isActive = active === i;
-            return (
-              <div key={i} onClick={() => setActive(isActive ? null : i)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', cursor: 'pointer', position: 'relative' }}>
-                {isActive && d.lass != null && (
-                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: FARG.upphojt, border: `0.5px solid ${FARG.linje}`, borderRadius: RADIE.rad, padding: `${AVSTAND.s}px`, whiteSpace: 'nowrap', fontSize: 11, color: FARG.text, zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
-                )}
-                <div style={{ fontSize: 11, color: FARG.text, fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{Math.round(d.m3)}</div>
-                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: RADIE.stapel, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: overgang('opacity') }} />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-        {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function ProdPerDag({ data }: { data: UppfoljningData }) {
   const skData = data.prodSkordarePerDag || [];
   const stRaw = data.lassPerDag || [];
@@ -940,7 +902,6 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
             </span>
           </div>
           <ProdChart data={stData} color={V6_ST} snitt={stSnitt} />
-          <div style={{ fontSize: 13, color: V6_GREY2, marginTop: AVSTAND.s, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
         </div>
       )}
     </div>
