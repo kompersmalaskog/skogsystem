@@ -172,7 +172,7 @@ describe('LivestatusKort — skotare läser lossningstiden', () => {
     db.fil = { data: [{ importerad_tid: fore(10), status: 'OK' }], error: null }
     await act(async () => { r.render(<LivestatusKort maskin={{ id: 'A030353' }} roll="skotare" />) })
     await vanta(() => text().includes('Filer in'))
-    expect(db.rpc[0].namn).toBe('maskindata_lass_senaste')
+    expect(db.rpc[0].namn).toBe('maskindata_lass_senaste_alla')
     expect(text()).toContain('Senaste signal för 30 min sedan')
     expect(prickFarg('[data-livestatus]')).toBe(rgb(FARG.gul))
   })

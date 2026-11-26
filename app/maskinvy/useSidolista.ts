@@ -1,6 +1,6 @@
 'use client'
 // Hämtningen bakom sidolistan (components i Sidolista.tsx). Per maskin: senaste produktionssignalen (samma RPC:er som Idag och
-// Översikt: skördarens `skapad_tid`, skotarens `lossnings_tid`) och — bara om signalen är från idag — dagens rader.
+// Översikt: skördarens `skapad_tid`, skotarens `lossnings_tid` ur Opti-filerna OCH appens lass) och — bara om signalen är från idag — dagens rader.
 // Produktion och tid hämtas SEPARAT och slås ihop i JavaScript (fakt_produktion och fakt_tid får aldrig joinas).
 //
 // Ett tillägg som aldrig får fälla vyn: en maskin som inte går att läsa får 'fel' på sin rad, resten visas. En dag med 1 000
@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { stockholmDag } from '@/lib/maskinvy/livestatus'
 import { arAvslutad, summeraIdag, type SidoData, type SidoRoll } from '@/lib/maskinvy/sidolista'
+import { RPC_LASS, RPC_LASS_SENASTE } from '@/lib/maskinvy/skotarlass'
 import { COMBO_IDS } from './OversiktShared'
 
 export type SidoMaskin = { id: string; namn: string; roll: SidoRoll }
@@ -20,7 +21,8 @@ const SIDGRANS = 1000
 
 async function hamtaEn(roll: SidoRoll, maskinId: string): Promise<SidoData | null> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
-  const rpcSenaste = roll === 'skordare' ? 'maskindata_produktion_senaste' : 'maskindata_lass_senaste'
+  // Skotaren: senaste lossning över Opti OCH appens egna lass (Elefant 26 och 810E rapporterar i appen).
+  const rpcSenaste = roll === 'skordare' ? 'maskindata_produktion_senaste' : RPC_LASS_SENASTE
   const { data: sen, error } = await supabase.rpc(rpcSenaste, { p_maskin_ids: ids })
   if (error) throw error
   const rad = (sen as any[] | null)?.[0]
@@ -39,7 +41,7 @@ async function hamtaEn(roll: SidoRoll, maskinId: string): Promise<SidoData | nul
     const tidRader = tid.error || ((tid.data as any[] | null) || []).length >= SIDGRANS ? null : ((tid.data as any[] | null) || [])
     ut.idag = summeraIdag('skordare', prodRader, tidRader)
   } else {
-    const lass = await supabase.rpc('maskindata_lass', dag)
+    const lass = await supabase.rpc(RPC_LASS, dag)
     if (lass.error) throw lass.error
     const lassRader = (lass.data as any[] | null) || []
     if (lassRader.length >= SIDGRANS) throw new Error('sidolista: dagens lass nådde sidgränsen')

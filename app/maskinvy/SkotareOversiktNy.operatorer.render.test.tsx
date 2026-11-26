@@ -46,7 +46,7 @@ vi.mock('@/lib/supabase', () => {
     return q
   }
   const rpc = (namn: string, p: any) => {
-    const kalla = namn === 'maskindata_lass' ? db.lass : namn === 'maskindata_tid' ? db.tid : []
+    const kalla = namn === 'maskindata_lass_alla' ? db.lass : namn === 'maskindata_tid' ? db.tid : []
     const rader = kalla.filter((r: any) => p.p_maskin_ids.includes(r.maskin_id)
       && (!p.p_datum_start || r.datum >= p.p_datum_start) && (!p.p_datum_slut || r.datum <= p.p_datum_slut))
     const pr: any = Promise.resolve({ data: rader, error: null })

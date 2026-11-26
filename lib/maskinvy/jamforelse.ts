@@ -125,6 +125,14 @@ export type MaskinObjektSumma = {
   g15h: number           // g15Sek / 3600
   bransle: number
   dagar: Set<string>     // dagar med tid — "skift"
+  /**
+   * Volym och lass på DAGAR SOM HAR G15-tid — täljaren i kvoter per G15-timme och L/m³ (bränslet hör till tiden). Appens lass har
+   * ingen maskintid efter att Opti-filerna slutat; volym utan tid i täljaren blåser annars upp kvoten (lib/maskinvy/skotarlass).
+   */
+  volymMedTid: number
+  lassMedTid: number
+  /** Volym på lass som HAR körsträcka — täljaren i m³ per 100 m (appens lass har ingen körsträcka). */
+  volymMedKor: number
 }
 
 /** Lass och tid hämtas separat och möts här per (maskin, objekt) — aldrig joinade. */
@@ -134,17 +142,26 @@ export function summeraPerMaskinObjekt(lass: JLass[], tid: JTid[]): MaskinObjekt
     const k = `${maskin_id}|${objekt_id}`
     let s = m.get(k)
     if (!s) {
-      s = { maskin_id, objekt_id, lass: 0, volym: 0, korM: 0, lassMedKor: 0, g15h: 0, bransle: 0, dagar: new Set() }
+      s = { maskin_id, objekt_id, lass: 0, volym: 0, korM: 0, lassMedKor: 0, g15h: 0, bransle: 0, dagar: new Set(), volymMedTid: 0, lassMedTid: 0, volymMedKor: 0 }
       m.set(k, s)
     }
     return s
   }
+  // Tiden först: vilka (maskin, objekt, dag) har G15-tid? Lassen avgör sedan vad som får stå i täljaren.
+  const g15Dag = new Map<string, number>()
+  for (const r of tid) {
+    if (!r.objekt_id || !r.datum) continue
+    const k = `${r.maskin_id}|${r.objekt_id}|${r.datum}`
+    g15Dag.set(k, (g15Dag.get(k) ?? 0) + g15Sek(r.processing_sek, r.terrain_sek, r.other_work_sek))
+  }
   for (const r of lass) {
     if (!r.objekt_id) continue
     const s = hamta(r.maskin_id, r.objekt_id)
+    const v = r.volym_m3sub || 0
     s.lass++
-    s.volym += r.volym_m3sub || 0
-    if (r.korstracka_m != null) { s.korM += Number(r.korstracka_m) || 0; s.lassMedKor++ }
+    s.volym += v
+    if (r.korstracka_m != null) { s.korM += Number(r.korstracka_m) || 0; s.lassMedKor++; s.volymMedKor += v }
+    if (r.datum && (g15Dag.get(`${r.maskin_id}|${r.objekt_id}|${r.datum}`) ?? 0) > 0) { s.volymMedTid += v; s.lassMedTid++ }
   }
   for (const r of tid) {
     if (!r.objekt_id) continue

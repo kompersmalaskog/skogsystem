@@ -10,7 +10,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 const SCORPION = 'PONS20SDJAA270231'
 const WISENT = 'A030353'
-const data = vi.hoisted(() => ({ fel: new Set<string>(), manga: false, tidFel: false, senasteAnrop: 0, avslutadFel: false, anrop: [] as string[][] }))
+const data = vi.hoisted(() => ({ fel: new Set<string>(), manga: false, tidFel: false, senasteAnrop: 0, avslutadFel: false, anrop: [] as string[][], elefant: false }))
 
 vi.mock('@/lib/supabase', () => {
   const from = (t: string) => {
@@ -24,6 +24,7 @@ vi.mock('@/lib/supabase', () => {
       const rader =
         t === 'dim_maskin' ? [
           { maskin_id: 'A030353', visningsnamn: 'Ponsse Wisent', modell: 'Wisent', maskin_typ: 'Forwarder', aktiv_fran: '2020-01-01', aktiv_till: null },
+          ...(data.elefant ? [{ maskin_id: 'A130743', visningsnamn: 'Elefant 26', modell: 'Elephant King AF', maskin_typ: 'Forwarder', aktiv_fran: '2026-08-13', aktiv_till: null }] : []),
           { maskin_id: 'A110148', visningsnamn: 'Elefant AF', modell: 'Elephant King', maskin_typ: 'Forwarder', aktiv_fran: '2021-03-01', aktiv_till: '2026-07-08' },
           { maskin_id: 'R64101', visningsnamn: 'H8E -23', modell: 'H8E', maskin_typ: 'Harvester', aktiv_fran: null, aktiv_till: '2026-03-11' },
         ]
@@ -43,13 +44,16 @@ vi.mock('@/lib/supabase', () => {
       if (id === 'R64101') return Promise.resolve({ data: [{ datum: '2026-03-11', skapad_tid: null }], error: null })
       return Promise.resolve({ data: [], error: null })
     }
-    if (namn === 'maskindata_lass_senaste') return Promise.resolve({ data: [{ datum: '2026-10-22', lossnings_tid: '2026-10-22T07:20:00Z' }], error: null })
+    // Elefant 26 rapporterar lass i appen (Opti-filerna slutade 2 nov): senaste lossning och dagens lass kommer ur skotar_lass.
+    if (namn === 'maskindata_lass_senaste_alla' && id === 'A130743') return Promise.resolve({ data: [{ datum: '2026-10-22', lossnings_tid: '2026-10-22T07:50:00Z', kalla: 'app' }], error: null })
+    if (namn === 'maskindata_lass_alla' && id === 'A130743') return Promise.resolve({ data: Array.from({ length: 13 }, (_, i) => ({ volym_m3sub: i % 2 ? 25 : 21, kalla: 'app' })), error: null })
+    if (namn === 'maskindata_lass_senaste_alla') return Promise.resolve({ data: [{ datum: '2026-10-22', lossnings_tid: '2026-10-22T07:20:00Z' }], error: null })
     if (namn === 'maskindata_produktion') {
       return Promise.resolve({ data: data.manga ? Array.from({ length: 1000 }, () => ({ volym_m3sub: 1 })) : [{ volym_m3sub: 100 }, { volym_m3sub: 42 }], error: null })
     }
     if (namn === 'maskindata_tid' && data.tidFel) return Promise.resolve({ data: null, error: new Error('tid nej') })
     if (namn === 'maskindata_tid') return Promise.resolve({ data: [{ processing_sek: 36000, terrain_sek: 3600, other_work_sek: 1800 }], error: null })
-    if (namn === 'maskindata_lass') return Promise.resolve({ data: [{ volym_m3sub: 10 }, { volym_m3sub: 11 }, { volym_m3sub: 12 }], error: null })
+    if (namn === 'maskindata_lass_alla') return Promise.resolve({ data: [{ volym_m3sub: 10 }, { volym_m3sub: 11 }, { volym_m3sub: 12 }], error: null })
     return Promise.resolve({ data: [], error: null })
   }
   return { supabase: { from, rpc } }
@@ -95,7 +99,7 @@ const flik = (text: string) => Array.from(document.querySelectorAll('[role=tab]'
 beforeEach(() => {
   ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T08:00:00Z') })   // 10:00 svensk tid
-  data.fel = new Set(); data.manga = false; data.tidFel = false; data.senasteAnrop = 0; data.avslutadFel = false; data.anrop = []
+  data.fel = new Set(); data.manga = false; data.tidFel = false; data.senasteAnrop = 0; data.avslutadFel = false; data.anrop = []; data.elefant = false
   rot = document.createElement('div'); document.body.appendChild(rot); r = createRoot(rot)
 })
 afterEach(() => { act(() => r.unmount()); rot.remove(); vi.useRealTimers(); document.body.removeAttribute('data-mv-sidolista') })
@@ -122,6 +126,18 @@ describe('sidolistan på stor skärm', () => {
     expect(wi.getAttribute('data-sido-niva')).toBe('sen')                  // lass för 40 min sedan → gul
     expect(wi.textContent).toContain('För 40 min sedan')
     expect(wi.textContent).toContain('33 m³ · 3 lass')
+  })
+
+  it('Elefant 26 (lass bara i appen): status och dagens siffror kommer ur appens lass — inte "Senast 2 nov · Ingen körning idag"', async () => {
+    data.elefant = true
+    await montera()
+    const el = rad('A130743')!
+    expect(el).not.toBeNull()
+    expect(el.getAttribute('data-sido-niva')).toBe('aktiv')                // lossning för 10 min sedan (07:50Z, nu 08:00Z)
+    expect(el.textContent).toContain('Aktiv nu')
+    expect(el.textContent).toContain('297 m³ · 13 lass')                   // 7 × 21 + 6 × 25
+    expect(el.textContent).not.toContain('Ingen körning idag')
+    expect(el.textContent).not.toContain('Senast')
   })
 
   it('en maskin utan någon data alls säger "Ingen data" — den står aldrig kvar på "Läser …"', async () => {

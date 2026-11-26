@@ -8,6 +8,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { fordelaSkotadVolymFrånDB, type SkotareManuellRad } from '@/lib/ekonomi/acord'
+import { RPC_LASS, type SkotarLassRad } from './skotarlass'
 
 // ── Typer ──────────────────────────────────────────────────────
 
@@ -78,15 +79,15 @@ export function harManuellData(rader: ManuellRad[]): boolean {
   return rader.some(r => (r.volym_m3 ?? 0) > 0)
 }
 
-// Hämtar all-time lass (med objekt_id, kräver 20260804_maskindata_lass_objekt_id.sql)
+// Hämtar all-time lass (Opti OCH appens egna, `maskindata_lass_alla` — dubbelräkningen är avgjord i SQL, se skotarlass.ts)
 // och tid för en eller flera maskiner utan datumfilter.
 export async function fetchAllTimeLassTid(maskinIds: string[]): Promise<{
-  lassRows: LassRad[]
+  lassRows: SkotarLassRad[]
   tidRows:  TidRad[]
 }> {
   const params = { p_maskin_ids: maskinIds }
   const [lassRows, tidRows] = await Promise.all([
-    rpcPaginerat<LassRad>('maskindata_lass', params),
+    rpcPaginerat<SkotarLassRad>(RPC_LASS, params),
     rpcPaginerat<TidRad>('maskindata_tid', params),
   ])
   return { lassRows, tidRows }
@@ -103,7 +104,7 @@ export async function fetchAllTimeLassTid(maskinIds: string[]): Promise<{
 //   • Objekt UTAN manuell: raw lass-volym summeras per dag inom perioden.
 //   • Lass-antal (totalLass): alltid raw FPR-data, manuell ändrar aldrig lass-count.
 //
-// Kräver att allTimeLassRows har objekt_id (från uppdaterad maskindata_lass-RPC).
+// Kräver att allTimeLassRows har objekt_id (maskindata_lass_alla bär det).
 // Om objekt_id saknas (migration ej körd): alla lass → __null → raw lass används.
 export function byggVolymPerDag(
   allTimeLassRows: LassRad[],

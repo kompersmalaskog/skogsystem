@@ -10,6 +10,15 @@
 // produktiviteten räknas om (volym / g15h). Dagar är DISTINKTA datum över alla
 // personens operator_id — en dag med två id räknas en gång.
 
+import { kvotVolymUrDagar } from './skotarlass'
+
+/**
+ * Appens lass har ingen operator_id utan en medarbetare. De får ett syntetiskt id `app:<medarbetare_id>` (som kopplas till samma person
+ * i `OperatorKoppling`), så en förare som kört både med Opti-fil och registrerat i appen blir EN rad.
+ */
+export const APP_OPERATOR_PREFIX = 'app:'
+const arApp = (id: string): number => (id.startsWith(APP_OPERATOR_PREFIX) ? 1 : 0)
+
 export type OperatorSumma = {
   id: string
   namn: string
@@ -22,6 +31,12 @@ export type OperatorSumma = {
   ids?: string[]
   /** Distinkta produktionsdatum — behövs för att dagar ska kunna slås ihop utan dubbelräkning. */
   datum?: string[]
+  /**
+   * Skotare: volym och G15-sekunder per dag. Produktiviteten (m³/G15h) räknas bara på volym från dagar som har G15-tid — appens lass
+   * har ingen maskintid, och volym utan tid i täljaren blåser upp kvoten (lib/maskinvy/skotarlass).
+   */
+  volymPerDag?: Record<string, number>
+  g15SekPerDag?: Record<string, number>
 }
 
 /** operator_id → medarbetare_id (ur operator_medarbetare). */
@@ -58,23 +73,38 @@ export function slaIhopOperatorer<T extends OperatorSumma>(
       ut.push({ ...o, ids: o.ids ?? [o.id] })
       return
     }
-    const sorterade = [...medlemmar].sort((a, b) => a.id.localeCompare(b.id))
+    // Appens syntetiska id sist: personens namn ska vara det Opti-namn som finns (fullt namn), inte appens förnamn.
+    const sorterade = [...medlemmar].sort((a, b) => arApp(a.id) - arApp(b.id) || a.id.localeCompare(b.id))
     const forst = sorterade[0]
     const ids = Array.from(new Set(sorterade.flatMap(m => m.ids ?? [m.id])))
     const harDatum = sorterade.every(m => m.datum !== undefined)
     const datum = harDatum ? Array.from(new Set(sorterade.flatMap(m => m.datum!))).sort() : undefined
     const g15h = sorterade.reduce((s, m) => s + m.g15h, 0)
     const volym = sorterade.reduce((s, m) => s + m.volym, 0)
+    // Per-dag-kartorna adderas dag för dag; finns de på alla medlemmar räknas kvoten på volym från dagar med G15-tid.
+    const harDagar = sorterade.every(m => m.volymPerDag !== undefined && m.g15SekPerDag !== undefined)
+    let volymPerDag: Record<string, number> | undefined
+    let g15SekPerDag: Record<string, number> | undefined
+    if (harDagar) {
+      volymPerDag = {}; g15SekPerDag = {}
+      for (const m of sorterade) {
+        for (const [d, v] of Object.entries(m.volymPerDag!)) volymPerDag[d] = (volymPerDag[d] ?? 0) + v
+        for (const [d, v] of Object.entries(m.g15SekPerDag!)) g15SekPerDag[d] = (g15SekPerDag[d] ?? 0) + v
+      }
+    }
+    const kvotVolym = harDagar ? kvotVolymUrDagar(volymPerDag!, g15SekPerDag!) : volym
     ut.push({
       ...forst,
       ids,
       datum,
       g15h,
       volym,
+      volymPerDag,
+      g15SekPerDag,
       stammar: sorterade.reduce((s, m) => s + m.stammar, 0),
       // utan datumlistor går bara summan (kan dubbelräkna en gemensam dag)
       dagar: datum ? datum.length : sorterade.reduce((s, m) => s + m.dagar, 0),
-      prod: g15h > 0 ? volym / g15h : null,
+      prod: g15h > 0 ? kvotVolym / g15h : null,
     })
   })
   return ut.sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
