@@ -18,6 +18,7 @@ import { sortimentVisning } from '@/lib/skotarLass/sortiment';
 import { lasSortimentKlass } from '@/lib/skotarLass/koKopplad';
 import { useKlarDatum } from './hooks/useKlarDatum';
 import { klarDatumText } from './lib/klarDatum';
+import { snittPerDag, snittPerDagHel } from './lib/snittPerDag';
 import { svenskIdag } from './lib/datum';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -535,8 +536,7 @@ function RisRubrik({ data }: { data: UppfoljningData }) {
   // en lägre kopia — bara m³fub-enheten och "rapporterat"-märket skiljer (volymen
   // är förarens lassmätning, inte skördarmätt virke).
   const lassDagar = data.lassPerDag || [];
-  const dagarMedM3 = lassDagar.filter(d => typeof d.m3 === 'number' && (d.m3 || 0) > 0);
-  const snitt = dagarMedM3.length > 0 ? Math.round(dagarMedM3.reduce((a, b) => a + (b.m3 || 0), 0) / dagarMedM3.length) : null;
+  const snitt = snittPerDagHel(lassDagar);
   const dagar = lassDagar.length > 0 ? lassDagar.length : null;
   const idag = svenskIdag();
   const statusOrd = data.skotareSlut ? `klar ${fmtISO(data.skotareSlut)}` : data.skotareLastDate === idag ? 'kör idag' : null;
@@ -632,10 +632,9 @@ function Maskinkort({ data, skotareOmlastning }: { data: UppfoljningData; skotar
   const statusOrd = (slut?: string | null, lastDate?: string | null) =>
     slut ? `klar ${fmtISO(slut)}` : lastDate === idag ? 'kör idag' : null;
   const skProd = data.prodSkordarePerDag || [];
-  const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
+  const skSnitt = snittPerDagHel(skProd);
   const stProd = data.lassPerDag || [];
-  const stProdWithM3 = stProd.filter(d => typeof d.m3 === 'number');
-  const stSnitt = stProdWithM3.length > 0 ? Math.round(stProdWithM3.reduce((a, b) => a + (b.m3 || 0), 0) / stProdWithM3.length) : null;
+  const stSnitt = snittPerDagHel(stProd);
 
   const showSt = !!data.skotareModell || data.skotat > 0;
   const hasSk = !!data.skordareModell || data.skordat > 0;
@@ -911,8 +910,8 @@ function ProdPerDag({ data }: { data: UppfoljningData }) {
   const hasSt = stData.length > 0;
   if (!hasSk && !hasSt) return <div style={{ padding: `0 ${AVSTAND.xl}px ${AVSTAND.l}px`, color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
 
-  const skSnitt = hasSk ? skData.reduce((a, b) => a + b.m3, 0) / skData.length : 0;
-  const stSnitt = hasSt ? stData.reduce((a, b) => a + b.m3, 0) / stData.length : 0;
+  const skSnitt = snittPerDag(skData) ?? 0;
+  const stSnitt = snittPerDag(stData) ?? 0;
   const stTotalLass = hasSt ? stData.reduce((a, b) => a + (b.lass || 0), 0) : 0;
   const stTotal = hasSt ? stData.reduce((a, b) => a + b.m3, 0) : 0;
   const skTotal = hasSk ? skData.reduce((a, b) => a + b.m3, 0) : 0;
@@ -1356,10 +1355,8 @@ export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData;
   })();
 
   const perDagVarde = (() => {
-    const skDagar = visadData.prodSkordarePerDag || [];
-    const skSnitt = skDagar.length > 0 ? Math.round(skDagar.reduce((a, b) => a + b.m3, 0) / skDagar.length) : null;
-    const stDagar = (visadData.lassPerDag || []).filter(d => typeof d.m3 === 'number' && d.m3 > 0);
-    const stSnitt = stDagar.length > 0 ? Math.round(stDagar.reduce((a, b) => a + (b.m3 || 0), 0) / stDagar.length) : null;
+    const skSnitt = snittPerDagHel(visadData.prodSkordarePerDag);
+    const stSnitt = snittPerDagHel(visadData.lassPerDag);
     if (skSnitt != null && stSnitt != null) return `Skördare ${sv(skSnitt)} · Skotare ${sv(stSnitt)}`;
     if (skSnitt != null) return `snitt ${sv(skSnitt)} m³/dag`;
     if (stSnitt != null) return `snitt ${sv(stSnitt)} m³/dag`;
