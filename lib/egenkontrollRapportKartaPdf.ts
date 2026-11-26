@@ -18,7 +18,8 @@ import {
   HYTTSPAR_FARG, MARK_STIL, STAMMOLN_FARG, TRAKTGRANS_FARG, markeringsStil,
   type KartMarkering, type MarkSlag,
 } from './egenkontrollRapportKarta';
-import { DIKE } from './kartstil';
+import { DIKE, LEGEND, STRECK_RANDAD } from './kartstil';
+import { BAND_BREDD_M, BAND_KANT_M } from './sparStil';
 
 type PdfLib = typeof import('pdf-lib');
 
@@ -109,6 +110,30 @@ export function kartaHojd(l: KartLager, b: number, min = 230, max = 400, pad = 1
 
 const hex = (lib: PdfLib, f: string) => lib.rgb(parseInt(f.slice(1, 3), 16) / 255, parseInt(f.slice(3, 5), 16) / 255, parseInt(f.slice(5, 7), 16) / 255);
 
+/**
+ * "Rita kartan som den ser ut i appen" (Martin 2026-11-26: "kör stråcken som
+ * det är i appen så det liknar exakt som det är i resten av appen").
+ *
+ * EN karta, ETT språk: den som läser rapporten och den som sitter i hytten ska
+ * se samma sak betyda samma sak. Tre skillnader mot egenkontrollens rapport,
+ * som behåller sitt eget utseende:
+ *
+ * - **Traktgränsen är snitseln**: röd heldragen med gula streck ovanpå, exakt
+ *   som `boundary` i appens kartstil — inte en svart streckad linje.
+ * - **Körspåret är ett BAND i meter**, i rollfärgen, med en svagare ytterkant
+ *   under: `BAND_BREDD_M` / `BAND_KANT_M` ur `lib/sparStil`, samma tal som
+ *   kartan i maskinen. Egenkontrollen ritar tunna linjer med låg opacitet, för
+ *   där är spåret bakgrund; här är det svaret.
+ * - **Pinnarna är en SYMBOL ur appens symbolkälla** (avlägget), inte en
+ *   numrerad grå ring. Numret står bredvid bara när det finns mer än ett
+ *   avlägg — med ett enda säger symbolen redan allt.
+ *
+ * Måtten är i METER och skalas med kartan (`meterPerPt`), så ett band är lika
+ * brett i verkligheten oavsett hur stor trakten är. Golvet i punkter finns för
+ * att en stor trakt annars ger ett band som inte går att se.
+ */
+export type AppStil = { pinnsymbol: string; pinnnummer?: boolean };
+
 /** Ritar kartan. Returnerar meter per pt (for skalstocken) eller null nar det inte finns nagot att rita. */
 export function ritaKarta(
   lib: PdfLib,
@@ -117,7 +142,7 @@ export function ritaKarta(
   ruta: Ruta,
   l: KartLager,
   san: (s: string) => string,
-  opts: { stammarBlek?: boolean; etiketter?: boolean; extentAllt?: boolean } = {},
+  opts: { stammarBlek?: boolean; etiketter?: boolean; extentAllt?: boolean; appstil?: AppStil } = {},
 ): { meterPerPt: number } | null {
   const grå = (g: number) => lib.rgb(g / 255, g / 255, g / 255);
   sida.drawRectangle({ x: ruta.x, y: SIDHOJD - ruta.top - ruta.h, width: ruta.b, height: ruta.h, color: grå(247), borderColor: grå(215), borderWidth: 0.5 });
@@ -142,14 +167,24 @@ export function ritaKarta(
   //    blir varje överlapp mellan två grannrutor en mörkare söm), och därefter
   //    strecken klippta mot samma ringar, så mönstret ligger i ETT rutnät över
   //    hela trakten i stället för att börja om i varje 10 m-ruta.
-  for (const slag of (['fuktigt', 'blott', 'brant', 'mycket_brant'] as const)) {
-    const ytor = (l.mark ?? []).filter((m) => m.slag === slag && m.ruta.length >= 3);
-    if (ytor.length === 0) continue;
-    const st = MARK_STIL[slag];
-    sida.drawSvgPath(ytor.map((m) => bana(m.ruta, true)).join(' '), { ...SVG, color: hex(lib, st.farg), opacity: st.fyllning });
-    ritaStreckmonster(lib, sida, ytor.map((m) => m.ruta.map(ap)), st.farg,
-      { lutning: st.lutning, avstand: st.avstand, tjocklek: st.tjocklek, opacitet: 0.85 });
-  }
+  //
+  //    MED `appstil` ritas marken EFTER körspåret i stället (se `ritaMark`
+  //    nedan): bandet är brett, och på en trakt där skotaren kört överallt
+  //    täcker det marken helt — uppmätt på Bondeskog gick de blå pixlarna från
+  //    3 895 till 628. Marken ÄR skälet till att vägen blev så lång, så den får
+  //    inte döljas av vägen. Mönstret är streck, inte en yta, så spåret syns
+  //    fortfarande under det.
+  const ritaMark = () => {
+    for (const slag of (['fuktigt', 'blott', 'brant', 'mycket_brant'] as const)) {
+      const ytor = (l.mark ?? []).filter((m) => m.slag === slag && m.ruta.length >= 3);
+      if (ytor.length === 0) continue;
+      const st = MARK_STIL[slag];
+      sida.drawSvgPath(ytor.map((m) => bana(m.ruta, true)).join(' '), { ...SVG, color: hex(lib, st.farg), opacity: st.fyllning });
+      ritaStreckmonster(lib, sida, ytor.map((m) => m.ruta.map(ap)), st.farg,
+        { lutning: st.lutning, avstand: st.avstand, tjocklek: st.tjocklek, opacitet: 0.85 });
+    }
+  };
+  if (!opts.appstil) ritaMark();
 
   // 1. Hänsynsytor/zoner: fyllning och snedstreck underst. KANTEN ritas en
   //    andra gång efter virket (steg 4b) — en hänsynsyta är ofta liten, och
@@ -173,17 +208,47 @@ export function ritaKarta(
   //    samma skäl: det är många linjer ovanpå varandra, inte en — och det är
   //    en fördel, för där skotaren kört många gånger lägger sig linjerna till
   //    ett tydligare band. Tätheten säger alltså hur mycket som körts där.
+  //
+  //    MED `appstil`: ett BAND i meter som i appen (se AppStil) — den svagare
+  //    ytterkanten först, bandet ovanpå. Där skotaren kört fram och tillbaka på
+  //    samma stickväg lägger sig banden över varandra till en stickväg, precis
+  //    som på skärmen i hytten.
+  const bandPt = (m: number, golv: number) => Math.max(golv, m / pr.meterPerPt);
   for (const h of l.hyttspar ?? []) {
+    const farg = hex(lib, HYTTSPAR_FARG[h.roll]);
     for (const linje of h.linjer) {
       if (linje.length < 2) continue;
-      sida.drawSvgPath(bana(linje, false), { ...SVG, borderColor: hex(lib, HYTTSPAR_FARG[h.roll]), borderWidth: 0.7, borderOpacity: 0.3, ...(h.roll === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });
+      const d = bana(linje, false);
+      if (opts.appstil) {
+        // Golvet i PUNKTER: en trakt vars avlägg ligger 600 m bort ger en
+        // utzoomad karta där fyra meter är under en punkt, och utan golv
+        // försvinner bandet. Måtten är VALDA PÅ BILDEN, inte räknade: med 3 och
+        // 5 pt smälte Bondeskogs stickvägar ihop till ett enda blått fält
+        // (22 400 turkosa pixlar mot 15 200) och mönstret — det som visar var
+        // skotaren kört fram och tillbaka — försvann. Höj dem inte utan att
+        // rendera en trakt där skotaren kört överallt och titta.
+        sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: bandPt(BAND_KANT_M, 2.4), borderOpacity: 0.45, borderLineCap: lib.LineCapStyle.Round });
+        sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: bandPt(BAND_BREDD_M, 1.5), borderOpacity: 0.95, borderLineCap: lib.LineCapStyle.Round });
+      } else {
+        sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: 0.7, borderOpacity: 0.3, ...(h.roll === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });
+      }
     }
   }
 
-  // 3. Traktgrans (streckad) — ovanpa ytorna och sparen men under virket.
+  if (opts.appstil) ritaMark();
+
+  // 3. Traktgrans — ovanpa ytorna och sparen men under virket. MED `appstil`:
+  //    snitseln, röd heldragen med gula streck ovanpå (som `boundary` i appens
+  //    kartstil); utan: neutral svart streckad, som egenkontrollen alltid haft.
   for (const ring of l.granser) {
     if (ring.length < 2) continue;
-    sida.drawSvgPath(bana(ring, true), { ...SVG, borderColor: hex(lib, TRAKTGRANS_FARG), borderWidth: 1.2, borderDashArray: [5, 3] });
+    const d = bana(ring, true);
+    if (opts.appstil) {
+      sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, LEGEND.fara), borderWidth: 1.6 });
+      sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, LEGEND.gul), borderWidth: 1.6, borderDashArray: [...STRECK_RANDAD].map((n) => n * 1.6) });
+    } else {
+      sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, TRAKTGRANS_FARG), borderWidth: 1.2, borderDashArray: [5, 3] });
+    }
   }
 
   // 2. STAMMOLNET: en fylld cirkel per stam. Aldrig utglesat — mönstret är
@@ -243,9 +308,19 @@ export function ritaKarta(
   const noteringar = (l.noteringar ?? []).filter(arMedIRapport);
   for (const n of noteringar) ritaNoteringForm(lib, sida, SVG, n, ap);
 
-  // 5. Kontrollpunkterna, numrerade, overst.
+  // 5. Pinnarna overst: egenkontrollens kontrollpunkter som numrerade ringar,
+  //    eller — med `appstil` — appens egen symbol (avlagget). Numret står
+  //    bredvid bara när det finns mer än ett att skilja åt.
   for (const p of l.pinnar) {
     const a = ap(p.plats);
+    if (opts.appstil) {
+      ritaSymbol(lib, sida, opts.appstil.pinnsymbol, a, 14);
+      if (opts.appstil.pinnnummer) {
+        const t = String(p.nr);
+        sida.drawText(t, { x: a.x + 8, y: SIDHOJD - a.y + 2, size: 7.5, font: fonter.fet, color: grå(40) });
+      }
+      continue;
+    }
     sida.drawCircle({ x: a.x, y: SIDHOJD - a.y, size: 8.5, color: grå(17), borderColor: grå(255), borderWidth: 1 });
     const t = String(p.nr);
     sida.drawText(t, { x: a.x - fonter.fet.widthOfTextAtSize(t, 9) / 2, y: SIDHOJD - a.y - 3.2, size: 9, font: fonter.fet, color: grå(255) });

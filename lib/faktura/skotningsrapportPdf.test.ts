@@ -129,6 +129,34 @@ const TAB_KOL = { x0: 0.62, x1: 0.95 };
  * Alla gränser är andel av bildens bredd/höjd. Läser pdftoppm:s egen
  * PPM-utgång i stället för en bildparser — ingen extra beroende.
  */
+/**
+ * Tjockleken på det tjockaste sammanhängande draget av en färg, mätt lodrätt:
+ * längsta obrutna sträckan i någon kolumn. Mäter BREDD, inte mängd — ett band
+ * på fyra meter ger ett tiotal pixlar, en hårstreckstunn linje ger en eller två,
+ * hur lång den än är.
+ */
+function tjockast(
+  pdf: Uint8Array, y0: number, y1: number,
+  farg: (r: number, g: number, b: number) => boolean,
+): number {
+  const dir = mkdtempSync(join(tmpdir(), 'skotrapport-tjock-'));
+  const fil = join(dir, 'r.pdf');
+  writeFileSync(fil, pdf);
+  execFileSync('pdftoppm', ['-r', '110', '-f', '1', '-l', '1', fil, join(dir, 's')]);
+  const buf = readFileSync(join(dir, readdirSync(dir).find(f => f.endsWith('.ppm'))!));
+  const m = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(buf.subarray(0, 64).toString('latin1'))!;
+  const b = Number(m[1]), h = Number(m[2]), start = m[0].length;
+  let bast = 0;
+  for (let x = Math.floor(b * KART_KOL.x0); x < Math.floor(b * KART_KOL.x1); x++) {
+    let run = 0;
+    for (let y = Math.floor(h * y0); y < Math.floor(h * y1); y++) {
+      const i = start + (y * b + x) * 3;
+      if (farg(buf[i], buf[i + 1], buf[i + 2])) { run++; if (run > bast) bast = run; } else run = 0;
+    }
+  }
+  return bast;
+}
+
 function ritat(
   pdf: Uint8Array, r: Ruta, sida = 1, troskel = 235,
   /** Egen färgregel i stället för "mörkare än tröskeln" — för att mäta EN färg. */
@@ -298,12 +326,14 @@ describe('PDF:en', () => {
     const nordligastIGransen = Math.max(...KARTA.granser.flat().map(p => p.lat));
     expect(utanforTrakten).toBeGreaterThan(nordligastIGransen); // annars provar testet inget
 
-    // Avläggspinnen är en fylld svart ring: en tät mörk fläck överst i
-    // kartan, uppmätt på 0,32–0,35 av höjden.
+    // Avlägget är appens egen symbol (`AppStil`, Martin 2026-11-26) — en mörk
+    // rund puck med glyfen i, överst i kartan, uppmätt på 0,32–0,35 av höjden.
+    // Tröskeln 120 px: symbolen ritar färre pixlar än den gamla fyllda ringen
+    // (287 mot 354 uppmätt), men den ska fortfarande vara omöjlig att missa.
     const ruta = { x0: 0.15, x1: 0.45, y0: 0.32, y1: 0.35 };
     const med = ritat(await bygg(), ruta, 1, 200);
     const utan = ritat(await bygg(SKALVIKEN, { ...KARTA, avlagg: [] }), ruta, 1, 200);
-    expect(med.ritade).toBeGreaterThan(utan.ritade + 200);
+    expect(med.ritade).toBeGreaterThan(utan.ritade + 120);
   }, 30000);
 
   // pdf-lib ritar inte ² och ³ med StandardFonts.Helvetica: texten hamnar i
@@ -391,6 +421,60 @@ describe('PDF:en', () => {
     const grön = (b: Uint8Array) => ritat(b, ruta, 1, 150, (r, gg, bb) => gg > 110 && gg > r + 30 && gg > bb + 30).ritade;
     expect(grön(med)).toBeGreaterThan(grön(utan) + 100);
   }, 60000);
+
+  // Martin 2026-11-26: "kör stråcken som det är i appen så det liknar exakt som
+  // det är i resten av appen". Kartan på rapporten och kartan i hytten ska
+  // betyda samma sak — annars måste den som läser rapporten lära sig ett andra
+  // språk. Mätt i den renderade PDF:ens egna pixlar, inte i koden.
+  it('KARTAN RITAS SOM I APPEN: snitselgräns i rött och gult, spåret som turkost band', async () => {
+    const ruta = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
+    const pdf = await bygg(SKALVIKEN, KARTA);
+    // Traktgränsen: BÅDA snitselfärgerna, inte en svart streckad linje.
+    const röd = ritat(pdf, ruta, 1, 150, (r, g, b) => r > 190 && g < 120 && b < 120).ritade;
+    const gul = ritat(pdf, ruta, 1, 150, (r, g, b) => r > 200 && g > 140 && b < 120).ritade;
+    expect(röd).toBeGreaterThan(80);
+    expect(gul).toBeGreaterThan(80);
+    // Körspåret: ett BAND, inte en hårstreckstunn linje. Mätt som TJOCKLEK —
+    // längsta sammanhängande turkosa sträcka i en lodrät kolumn tvärs ett rakt
+    // spår. Antalet pixlar beror på hur långt spåret råkar vara; tjockleken på
+    // att bredden räknas i METER som i appen. Uppmätt på Bondeskog: 8–12 px vid
+    // 110 dpi. Den gamla stilen var 0,7 pt (≈ 1 px) med opacitet 0,3 — den kan
+    // aldrig ge 4 sammanhängande turkosa pixlar.
+    const g = fixtur.granser as number[][][];
+    const [lng0, lat0] = g[0][0];
+    const rakt = [[{ lat: lat0 - 0.0008, lng: lng0 }, { lat: lat0 - 0.0008, lng: lng0 + 0.0020 }]];
+    const medBand = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt });
+    expect(tjockast(medBand, 0.28, 0.52, (rr, gg, bb) => bb > 180 && gg > 160 && rr < 150)).toBeGreaterThan(2);
+    const turkos = (b: Uint8Array) => ritat(b, ruta, 1, 250, (rr, gg, bb) => bb > 180 && gg > 160 && rr < 150).ritade;
+    // Och att spåret alls ritas: 196 px uppmätt för testets korta raka spår på
+    // Skälvikens utzoomade karta. Den gamla stilen (0,7 pt, opacitet 0,3)
+    // blandas mot den grå bakgrunden och ger nästan inga pixlar som passerar
+    // filtret — tröskeln 120 kan den inte nå.
+    expect(turkos(medBand)).toBeGreaterThan(turkos(await bygg(SKALVIKEN, { ...KARTA, korspar: [] })) + 120);
+  }, 90000);
+
+  // Marken ritas EFTER spåret på rapporten (till skillnad från appen, där den är
+  // bakgrund): bandet är brett, och på Bondeskog täckte det marken nästan helt —
+  // de blå pixlarna gick från 3 895 till 628. Marken är skälet till att vägen
+  // blev lång; den får inte döljas av vägen.
+  it('MARKEN SYNS GENOM SPÅRET — mönstret ritas ovanpå bandet', async () => {
+    const g = fixtur.granser as number[][][];
+    const [lng0, lat0] = g[0][0];
+    const yta = [
+      { lat: lat0 - 0.0004, lng: lng0 + 0.0004 },
+      { lat: lat0 - 0.0004, lng: lng0 + 0.0016 },
+      { lat: lat0 - 0.0012, lng: lng0 + 0.0016 },
+      { lat: lat0 - 0.0012, lng: lng0 + 0.0004 },
+    ];
+    // Ett körspår rakt genom den blöta ytan: utan "marken sist" färgas strecken
+    // över av bandet.
+    const spar = [[{ lat: lat0 - 0.0008, lng: lng0 }, { lat: lat0 - 0.0008, lng: lng0 + 0.0020 }]];
+    const ruta = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
+    const blå = (b: Uint8Array) => ritat(b, ruta, 1, 200, (r, gg, bb) => bb > 140 && bb > r + 60 && bb > gg + 40).ritade;
+    const mark = [{ slag: 'blott' as const, ruta: yta }];
+    expect(blå(await bygg(SKALVIKEN, { ...KARTA, korspar: spar, mark })))
+      .toBeGreaterThan(blå(await bygg(SKALVIKEN, { ...KARTA, korspar: spar, mark: [] })) + 150);
+  }, 90000);
 
   it('BLÖTT OCH BRANT ritas i olika mönster — och sägs i teckenförklaringen', async () => {
     const g = fixtur.granser as number[][][];

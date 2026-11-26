@@ -329,7 +329,20 @@ export async function skapaSkotningsrapportPdf(
         // `extentAllt`: avlägget ligger utanför traktgränsen och MÅSTE med —
         // rapporten handlar om avståndet från det. `ritaKarta` ritar sin egen
         // skalstock inne i rutan; vi ritar ingen till.
-        { etiketter: true, extentAllt: true },
+        //
+        // `appstil`: kartan ska se ut som appens karta — snitselgränsen, bandet
+        // och avläggssymbolen (se `AppStil`). Numret bredvid avlägget bara när
+        // de är fler än ett; med ett enda säger symbolen allt.
+        //
+        // `etiketter: false`: symbolernas NAMN ritas inte bredvid dem. Bondeskog
+        // har sex evighetsträd och två högstubbar — åtta textrutor på en karta
+        // som är 500 pt bred gör bilden rörig, och det är symbolen man känner
+        // igen. Namnen står i teckenförklaringen under kartan i stället.
+        {
+          etiketter: false,
+          extentAllt: true,
+          appstil: { pinnsymbol: 'landing', pinnnummer: lager.pinnar.length > 1 },
+        },
       );
       stycke(sida.kartforklaring, MARG, toppen + kartH + 6, STEG.micro, normal, F.sek, KART_B);
     } else {

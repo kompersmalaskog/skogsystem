@@ -339,6 +339,29 @@ describe('varför vägen blev så lång', () => {
     expect(egna).not.toContain('gallring');
   });
 
+  // Martin 2026-11-26: "att evighetsträden är med och högstubbarna". Det är
+  // hänsynen vi lämnat kvar — den förklarar både varför skotaren kört som den
+  // gjort och att vi gjort vad certifieringen kräver. Naturhörnan räknas som
+  // evighetsträd i appens egen räkning och följer med.
+  it('EVIGHETSTRÄD OCH HÖGSTUBBAR är med — men inte varje symbol planeraren satt', async () => {
+    gransMock.mockResolvedValue(gransOk);
+    const { sb } = allt({
+      planering_markeringar: {
+        data: [
+          { data: { isMarker: true, type: 'eternitytree', x: 0, y: 0 } },
+          { data: { isMarker: true, type: 'highstump', x: 8, y: 4 } },
+          { data: { isMarker: true, type: 'naturecorner', x: -6, y: 9 } },
+          { data: { isMarker: true, type: 'brashpile', x: 4, y: -7 } },
+          { data: { isMarker: true, type: 'windfall', x: -3, y: 3 } },
+        ],
+        error: null,
+      },
+    });
+    const r = await lasSkotningsrapport(sb, { objektUuid: 'u', nummer: ['11271860'] });
+    const symboler = (r.karta.markeringar ?? []).filter(m => m.slag === 'symbol').map(m => m.typ);
+    expect(symboler.sort()).toEqual(['eternitytree', 'highstump', 'naturecorner']);
+  });
+
   it('går origot inte att styrka ritas INGEN hänsyn — och det sägs', async () => {
     gransMock.mockResolvedValue(gransOk);
     // Samma zon, men långt utanför Vidas ruta: ett förskjutet origo.

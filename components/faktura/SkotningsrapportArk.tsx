@@ -113,6 +113,8 @@ export default function SkotningsrapportArk({ d, onStang }: { d: Trakt; onStang:
             kartinnehall: {
               zoner: (underlag.karta.markeringar ?? [])
                 .filter(m => m.slag === 'zon').map(m => m.typ),
+              symboler: (underlag.karta.markeringar ?? [])
+                .filter(m => m.slag === 'symbol').map(m => m.typ),
               mark: markSlagen(underlag.karta.mark ?? []),
             },
             pris: {

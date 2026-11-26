@@ -73,7 +73,7 @@ export type SkotningsrapportIndata = {
    * Vad kartan faktiskt bär — teckenförklaringen får bara nämna det som ritas.
    * `zoner` är zontyper (protected, wet, …), `mark` blött/brant-slagen.
    */
-  kartinnehall?: { zoner: string[]; mark: MarkSlag[] };
+  kartinnehall?: { zoner: string[]; mark: MarkSlag[]; symboler?: string[] };
   pris: {
     /** Meter som ingår utan tillägg. null = ingen sats gäller. */
     grundavstandM: number | null;
@@ -408,8 +408,8 @@ export function periodText(p: { fran: string; till: string } | null): string | n
  * Grundraden: det som alltid finns på kartan.
  */
 export const KARTA_FORKLARING =
-  'Traktgränsen streckad, skotarens körspår som linje och avläggen som ringar. '
-  + 'Norr är uppåt.';
+  'Traktgränsen randig röd och gul som snitseln i skogen, skotarens körspår som '
+  + 'turkosa band och avlägget med sin symbol. Norr är uppåt.';
 
 /**
  * Teckenförklaringen för DEN HÄR kartan: grundraden plus en mening om hänsynen
@@ -431,6 +431,14 @@ export function kartforklaring(k?: SkotningsrapportIndata['kartinnehall']): stri
     // behöver ingen förklaring — den syns; ett ord till gör bara raden längre.
     ut.push(`Ytor vi inte kört i: ${listaOrd(zoner)}.`);
   }
+
+  // SYMBOLERNA står utan namn bredvid sig på kartan — sex gånger ordet
+  // "Evighetsträd" gör bilden rörig, och det är symbolen man känner igen. Namnen
+  // hör därför hemma här, i samma ordning som appens egen symbolkälla ger dem.
+  const symboler = [...new Set(k?.symboler ?? [])]
+    .map((typ) => markeringsStil('symbol', typ)?.etikett)
+    .filter((e): e is string => !!e);
+  if (symboler.length > 0) ut.push(`Kvarlämnat: ${listaOrd(symboler.map((s) => s.toLowerCase()))}.`);
 
   // MARKEN: säg VAD som är tonat och VARIFRÅN talet kommer — aldrig vad
   // skotaren gjorde åt det. Att skotaren "körde runt" det blöta är en slutsats

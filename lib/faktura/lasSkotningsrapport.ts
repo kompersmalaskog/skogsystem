@@ -147,6 +147,20 @@ function vidaZoner(ytor: unknown[], trakt: TraktModell | null): KartMarkering[] 
 const EGNA_ZONER = new Set(['protected', 'fornlamning', 'culture', 'wet', 'steep', 'noentry']);
 
 /**
+ * Planerarens SYMBOLER som ska med (Martin 2026-11-26: "att evighetsträden är
+ * med och högstubbarna").
+ *
+ * Det är hänsynen vi lämnat kvar, och den förklarar både varför skotaren kört
+ * som den gjort och att vi gjort vad certifieringen kräver — inköparen ser den
+ * på bilden i stället för att behöva tro på en siffra. Naturhörnan räknas som
+ * evighetsträd i appens egen räkning (`lib/miljokrav`) och följer därför med.
+ *
+ * Inget annat: en karta med alla symboler planeraren satt blir samma rörighet
+ * som högarna var.
+ */
+const EGNA_SYMBOLER = new Set(['eternitytree', 'highstump', 'naturecorner']);
+
+/**
  * Allt rapporten behöver utöver fakturans tal.
  *
  * `objektUuid` är objekt-tabellens id (traktgräns, hyttspår, markeringar och
@@ -271,8 +285,16 @@ export async function lasSkotningsrapport(
       } else {
         for (const rad of rader) {
           const f = kontextFeature(rad.data, origo);
-          if (!f || f.properties.kind !== 'zon') continue;
+          if (!f) continue;
           const typ = String(f.properties.typ ?? '');
+          if (f.properties.kind === 'symbol') {
+            if (!EGNA_SYMBOLER.has(typ)) continue;
+            if (f.geometry.type !== 'Point') continue;
+            const [lng, lat] = f.geometry.coordinates as [number, number];
+            markeringar.push({ slag: 'symbol', typ, plats: { lat, lng } });
+            continue;
+          }
+          if (f.properties.kind !== 'zon') continue;
           if (!EGNA_ZONER.has(typ)) continue;
           const ring = f.geometry.type === 'Polygon' ? (f.geometry.coordinates[0] as [number, number][])
             : f.geometry.type === 'LineString' ? (f.geometry.coordinates as [number, number][]) : [];

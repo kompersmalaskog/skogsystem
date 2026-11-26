@@ -387,7 +387,10 @@ describe('hela sidan', () => {
   });
 
   it('teckenförklaringen står i ord — färg är aldrig ensam bärare', () => {
-    expect(KARTA_FORKLARING).toContain('streckad');
+    // Varje sak på kartan ska ha ett FORMORD, inte bara en färg: rapporten
+    // skrivs ofta ut i svartvitt, och då är "röd" och "gul" samma gråton.
+    // Traktgränsen är randig, körspåret ett band, avlägget en symbol.
+    for (const form of ['randig', 'band', 'symbol']) expect(KARTA_FORKLARING).toContain(form);
     expect(KARTA_FORKLARING).toContain('Norr är uppåt');
   });
 });
