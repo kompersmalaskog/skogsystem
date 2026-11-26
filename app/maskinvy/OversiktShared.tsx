@@ -1078,43 +1078,31 @@ export function initials(namn: string): string {
 //   appMark='uppskattad'  → 'uppskattad' (dämpad)  — förarens egen siffra ur appens lass (skotar_lass), ej skalad
 //   appMark='skalad'      → 'skalad'     (blå)     — förarens siffra skalad mot skördat (Färdigskotad)
 //   annars                → 'preliminär' (dämpad)  — värdet är raw FPR-data
-// Manuell går först (objektets totalvolym är den som gäller); sedan appens märke; Opti-lass har inget eget märke utöver
-// 'preliminär' som förut. `appMark` kommer ur lib/maskinvy/skotarlass.appMark över lassen som ingår i siffran.
+// Blandade perioder visar BÅDA märkena (Martin 2026-11-26): ett objekt med manuell totalvolym och ett annat vars volym är förarens
+// uppskattning i appen (Elefant november: manuell på fyra objekt, uppskattad på Lidhem) — ett enda märke vore en förenkling som
+// får 16 % av siffran att se mer säker ut än den är. Opti-lass har inget eget märke utöver 'preliminär' som förut.
+// `appMark` kommer ur lib/maskinvy/skotarlass.appMark över lassen som ingår i siffran.
+const MARKE_BLA = {
+  fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
+  background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
+  padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
+} as const
+const MARKE_DAMPAD = {
+  fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
+  background: FARG.linje, borderRadius: RADIE.stapel,
+  padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
+} as const
 export function VolymBadge({ harManuell, appMark = null }: { harManuell: boolean; appMark?: AppMark }) {
-  if (harManuell) {
-    return (
-      <span style={{
-        fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
-        background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
-        padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-      }}>manuell</span>
-    )
-  }
-  if (appMark === 'skalad') {
-    return (
-      <span data-volym-mark="skalad" style={{
-        fontSize: TYP.micro.fontSize, fontWeight: VIKT.halvfet, color: FARG.bla,
-        background: tint(FARG.bla, 12), borderRadius: RADIE.stapel,
-        padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-      }}>skalad</span>
-    )
-  }
-  if (appMark === 'uppskattad') {
-    return (
-      <span data-volym-mark="uppskattad" style={{
-        fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
-        background: FARG.linje, borderRadius: RADIE.stapel,
-        padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-      }}>uppskattad</span>
-    )
-  }
-  return (
-    <span style={{
-      fontSize: TYP.micro.fontSize, fontWeight: VIKT.normal, color: FARG.text2,
-      background: FARG.linje, borderRadius: RADIE.stapel,
-      padding: `0 ${AVSTAND.s}px`, letterSpacing: 0.1,
-    }}>preliminär</span>
-  )
+  const manuell = harManuell ? <span data-volym-mark="manuell" style={MARKE_BLA}>manuell</span> : null
+  const app = appMark === 'skalad'
+    ? <span data-volym-mark="skalad" style={MARKE_BLA}>skalad</span>
+    : appMark === 'uppskattad'
+      ? <span data-volym-mark="uppskattad" style={MARKE_DAMPAD}>uppskattad</span>
+      : null
+  if (manuell && app) return <span style={{ display: 'inline-flex', gap: AVSTAND.xs }}>{manuell}{app}</span>
+  if (manuell) return manuell
+  if (app) return app
+  return <span style={MARKE_DAMPAD}>preliminär</span>
 }
 
 export function OperatorList({ operatorer, loading, onSelect }: {
