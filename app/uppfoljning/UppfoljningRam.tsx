@@ -17,7 +17,7 @@ const FRAN_PX = 1100;
 const BREDD_PX = 360;
 const BAS = '/uppfoljning';
 // Egna helsides-vyer — aldrig master-detail.
-const EGEN_VY = new Set(['fordelning', 'hpr-import']);
+const EGEN_VY = new Set(['fordelning', 'hpr-import', 'i-skogen']);
 
 const css = `
 .uf-ram { display: flex; min-height: ${ROT_MIN_HOJD}; background: ${FARG.bg}; color: ${FARG.text}; }

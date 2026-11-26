@@ -113,7 +113,7 @@ export const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
   if (värsta.n < GRIND_ATGARD) {
     return { status: 'tendens', fel: null, klass: värsta, bandZon,
       mening1: `Ser ut att brista på ${klassGrovlek(värsta.klass)}.`,
-      mening2: 'Ta fler kontrollstammar på grova träd innan du justerar.' };
+      mening2: 'För få mätpunkter för en säker bedömning.' };
   }
   // Teckenanalys — bara månader med n ≥ 20 (glesa månader är brus).
   const mån = värsta.systMonthly.filter(m => m.n >= 20);
@@ -132,24 +132,21 @@ export const diagnos = (resp: DiagnosResp | null): DiagnosVerdikt => {
     }
   }
   const g = klassGrovlek(värsta.klass);
-  // Tryck är en AVVÄGNING, inte en gratis fix — mening3 dämpar. Appen ger
-  // underlaget, föraren fattar beslutet.
+  // Appen ger INGA råd (Martin 2026-11-25): bara vad datan visar. Maskinen
+  // (Opti) föreslår kalibreringen, föraren fattar beslutet.
   const copy: Record<DiagFel, { m1: string; m2: string; m3?: string }> = {
-    tryck: {
-      m1: `Maskinen mäter ostadigt på ${g}.`,
-      m2: 'Greppet räcker inte — höj trycket på knivar eller matarhjul.',
-      m3: 'Men känn efter: går det för trögt kostar det bränsle och produktion.',
-    },
-    kurva: { m1: `Maskinen mäter fel storlek på ${g}.`, m2: 'Diameterkurvan behöver ses över — kontakta tekniker.' },
-    slitage: { m1: 'Greppet brister trots höjt tryck.', m2: 'Byt matarvalsar/slitdelar — verkstad.' },
+    tryck: { m1: `Maskinen mäter ostadigt på ${g}.`, m2: 'Felet byter håll mellan månaderna.' },
+    kurva: { m1: `Maskinen mäter fel storlek på ${g}.`, m2: 'Felet ligger åt samma håll varje månad.' },
+    slitage: { m1: `Maskinen mäter fortfarande ostadigt på ${g} efter förra åtgärden.`, m2: 'Felet byter håll mellan månaderna.' },
   };
   return { status: 'diagnos', fel, klass: värsta, bandZon, mening1: copy[fel].m1, mening2: copy[fel].m2, mening3: copy[fel].m3 };
 };
 
-// === "Flaxar den?" — slutsatsen RÄKNAS UT, gissas inte (håller efter fälttest) ===
-//   std ökar med grovleken            → höj trycket
-//   ungefär lika överallt / ökar över tid → kontrollera givare/bussningar
+// === "Flaxar den?" — vad datan visar, INGA råd (Martin 2026-11-25) ===
+//   std ökar med grovleken            → "värst på grova bitar"
+//   ungefär lika överallt / ökar över tid → "lika överallt" (+ "ökar över tid")
 //   rak linje (lågt syst) men taggig  → tillägg: det är inte kalibrering
+// atgard är null när det flaxar — appen säger aldrig vad man ska göra.
 export const FLAX_GRADIENT = 1.0; // mm skillnad klenaste→grövsta klass = "värst på grova"
 export const FLAX_TREND = 0.5;    // mm ökning första→sista halvan = "ökar över tid"
 export type FlaxSlutsats = { status: 'tyst' | 'jamn' | 'flaxar'; rubrik: string; atgard: string | null; tillagg: string | null };
@@ -205,21 +202,19 @@ export const flaxSlutsats = (klasser: DiagKlass[], stdGolv: number | null, systM
     return {
       status: 'flaxar',
       rubrik: `Spridningen ligger över kravet på ${namn}.`,
-      atgard: 'Underlaget saknar grova stammar — utan dem går tryck inte att skilja från givarfel.',
+      atgard: 'Underlaget saknar grova stammar.',
       tillagg,
     };
   }
 
   const klenast = sorted[0].standardavv as number;
   const grovast = sorted[sorted.length - 1].standardavv as number;
-  let rubrik: string, atgard: string;
+  let rubrik: string;
   if (grovast - klenast >= FLAX_GRADIENT) {
     rubrik = `Flaxar värst på ${klassGrovlek(sorted[sorted.length - 1].klass)} — spridningen växer med grovleken.`;
-    atgard = 'Greppet räcker inte — höj trycket på knivar eller matarhjul. Men känn efter: går det för trögt kostar det bränsle och produktion.';
   } else {
     const stiger = spridStiger(varsta);
     rubrik = stiger ? 'Flaxar ungefär lika överallt, och spridningen ökar över tid.' : 'Flaxar ungefär lika överallt.';
-    atgard = 'Kontrollera givare och bussningar.';
   }
-  return { status: 'flaxar', rubrik, atgard, tillagg };
+  return { status: 'flaxar', rubrik, atgard: null, tillagg };
 };

@@ -23,6 +23,8 @@ vi.mock('@/lib/grot-koppling', () => ({
   hamtaKallhyggen: async () => ({ ok: true, hyggen: [], message: '' }),
 }));
 
+vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
+vi.mock('./hooks/useKlarDatum', () => ({ useKlarDatum: () => null }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -48,7 +50,7 @@ const risjobb = (over: Partial<UppfoljningData>): UppfoljningData => ({
   tradslag: [], sortiment: [{ namn: 'Energived', m3: 450 }],
   dieselTotalt: 150, dieselPerM3: 0.33, skordareL: 0, skordareL_M3: 0, skordareL_G15h: 0,
   skotareL: 150, skotareL_M3: 0.33, skotareL_G15h: 9, dieselSkordare: [], dieselSkotare: [],
-  avbrottSkordare: [], avbrottSkotareTotalt: '0,5 h', avbrottSkordare_totalt: '0 h', avbrottSkotare: [],
+  avbrottSkordare: [], avbrottSkotareSek: 1800, avbrottSkordareSek: 0, avbrottSkotare: [],
   antalLass: 25, snittlassM3: 18, lassG15h: 2.1,
   lassPerDag: [
     { datum: '2026-10-28', m3: 160, lass: 9 },

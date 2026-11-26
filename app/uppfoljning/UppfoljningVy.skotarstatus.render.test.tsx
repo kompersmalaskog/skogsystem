@@ -10,9 +10,12 @@
 // riktningar: ett slutdatum GER "klar", null GER "kör" — så den dag någon åter
 // matar end_date in i skotareSlut syns det som "Skotaren klar" på en oskotad
 // trakt och ett test faller.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+vi.mock('@/lib/skotarLass/koKopplad', () => ({ lasSortimentKlass: async () => false }));
+let klarSvar: any = null;
+vi.mock('./hooks/useKlarDatum', () => ({ useKlarDatum: () => klarSvar }));
 import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -36,7 +39,7 @@ const skalviken = (over: Partial<UppfoljningData>): UppfoljningData => ({
   tradslag: [{ namn: 'Gran', pct: 73 }, { namn: 'Tall', pct: 27 }], sortiment: [{ namn: 'Timmer', m3: 1000 }],
   dieselTotalt: 400, dieselPerM3: 0.48, skordareL: 300, skordareL_M3: 0.48, skordareL_G15h: 13,
   skotareL: 100, skotareL_M3: 0.4, skotareL_G15h: 12, dieselSkordare: [], dieselSkotare: [],
-  avbrottSkordare: [], avbrottSkotareTotalt: '0,5 h', avbrottSkordare_totalt: '0,8 h', avbrottSkotare: [],
+  avbrottSkordare: [], avbrottSkotareSek: 1800, avbrottSkordareSek: 2880, avbrottSkotare: [],
   antalLass: 32, snittlassM3: 20, lassG15h: 2, skotningsavstand: 300,
   lassPerDag: [
     { datum: '2026-10-26', m3: 20 }, { datum: '2026-10-27', m3: 180 },
@@ -48,7 +51,7 @@ const skalviken = (over: Partial<UppfoljningData>): UppfoljningData => ({
 
 let rot: Root | null = null;
 let be: HTMLElement | null = null;
-afterEach(() => { act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
+afterEach(() => { klarSvar = null; act(() => { rot?.unmount(); }); be?.remove(); rot = null; be = null; });
 
 function rendera(data: UppfoljningData): string {
   be = document.createElement('div'); document.body.appendChild(be);
@@ -72,5 +75,28 @@ describe('Detaljvyns skotarstatus', () => {
     const text = rendera(skalviken({ skotareSlut: '2026-10-28' }));
     expect(text).toContain('Skotaren klar');
     expect(text).not.toContain('Skotaren kör');
+  });
+
+  it('liggetiden står när skördaren är klar och virke ligger kvar', () => {
+    const text = rendera(skalviken({ skotareSlut: null, sistaAvverkning: '2026-10-28' }));
+    expect(text).toMatch(/Avverkat 28 okt\.? · legat \d+ (dag|dgr)/);
+  });
+
+  it('ingen liggetid medan skördaren kör, eller när markägaren skotar själv', () => {
+    expect(rendera(skalviken({ skordareSlut: null, skordareLastDate: idag, sistaAvverkning: idag }))).not.toContain('legat');
+    act(() => { rot?.unmount(); }); be?.remove();
+    expect(rendera(skalviken({ sistaAvverkning: '2026-10-28', egenSkotning: true }))).not.toContain('legat');
+  });
+
+  it('klar-datumet kommer ur helikopterns plan, och saknas det står inget', () => {
+    const om3 = new Date(Date.now() + 3 * 864e5 + 6 * 36e5).toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' });
+    klarSvar = { skotare: { datum: om3, ca: true } };
+    const text = rendera(skalviken({ skotareSlut: null }));
+    expect(text).toMatch(/Skotaren kör· klar om ~[34] dagar/);
+    expect(text).not.toContain('klart om');
+    act(() => { rot?.unmount(); }); be?.remove();
+    klarSvar = null;
+    const utan = rendera(skalviken({ skotareSlut: null }));
+    expect(utan).not.toMatch(/klar om|klart om/);
   });
 });

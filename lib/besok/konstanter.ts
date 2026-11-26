@@ -15,8 +15,10 @@ export const BESOK_EFTERTID_MIN = 120;
 /** En maskin räknas som "på trakten" på besökssidan om dess senaste hyttspårspunkt är yngre än detta (minuter). */
 export const MASKIN_FERSK_MIN = 240;
 
-/** Hytten läser besöken så här ofta (ms) — kravet är ≤ 5 s. */
-export const HYTT_POLL_MS = 4000;
+/** Hytten läser besöken så här ofta (ms). Ett NYTT besök kommer direkt som server-push till maskinen (public/sw.js hyttPush → läs om på en gång,
+ *  mätt 139 ms), så läsningen är ett skyddsnät för när pushen uteblir och för att kortet ska släppa när besöket är över. Var 4:e sekund (2026-11)
+ *  gav 300–500 anrop per maskin och dag med p95 18 s mot databasen; var 60:e sekund är Martins eget förslag. */
+export const HYTT_POLL_MS = 60000;
 
 /** Besökssidan läser om kartan och kvitteringen så här ofta (ms). */
 export const PUBLIK_POLL_MS = 15000;

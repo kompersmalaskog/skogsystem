@@ -81,6 +81,11 @@ const nextConfig = {
       // /maskinflytt (förarflödet) är ersatt av "Hämta en maskin" i Lastbilen (steg 3 av 4). 308: den kommer inte tillbaka, och ett bokmärke eller en
       // hemskärmsgenväg ska landa i Lastbilen. Bara adressen ovan — /maskinflytt/platser (flyttplatserna) lever kvar.
       { source: '/maskinflytt', destination: '/lastbil', permanent: true },
+      // Maskinvyn: nya vyn (med sidolistan) är den enda och bor på /maskinvy (2026-11-22). De döda sidorna från mars 2026 (borttagna
+      // 2026-09-30) hamnar där; ?ny=1, vy=analys m.fl. i ett gammalt bokmärke städas av sidan själv (lib/maskinvy/historik.ts), för en
+      // redirect här skulle skicka med frågeparametrarna och gå i loop.
+      { source: '/maskinvy2', destination: '/maskinvy', permanent: true },
+      { source: '/maskinvy-ny', destination: '/maskinvy', permanent: true },
       // Beställningsvyn och objektvyn är EN vy (2026-10-19): beställningen är behållaren, objekten raderna under. Frågeparametrarna (?ar=&manad=) följer med.
       { source: '/bestallningar', destination: '/objekt', permanent: true },
       { source: '/massaved', destination: '/affarsuppfoljning/kvalitet', permanent: false },

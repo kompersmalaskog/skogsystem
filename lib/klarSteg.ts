@@ -4,12 +4,12 @@
 import type { KlarStatus, PostId } from './klarTrakt';
 
 /** Stegen i den ordning de ligger. `sammanfattning` är sista steget i "Gå igenom"; `ovrigt` (Markägare & övrigt) nås bara från sammanställningen. */
-export type StegId = 'avlagg' | 'basvag' | 'forutsattningar' | 'maskiner' | 'medelstam' | 'harDu' | 'risker' | 'prognos' | 'ovrigt' | 'sammanfattning';
+export type StegId = 'avlagg' | 'larmplats' | 'basvag' | 'forutsattningar' | 'maskiner' | 'medelstam' | 'harDu' | 'risker' | 'prognos' | 'ovrigt' | 'sammanfattning';
 
-export const STEG_ORDNING: readonly StegId[] = ['avlagg', 'basvag', 'forutsattningar', 'maskiner', 'medelstam', 'harDu', 'risker', 'prognos', 'sammanfattning'];
+export const STEG_ORDNING: readonly StegId[] = ['avlagg', 'larmplats', 'basvag', 'forutsattningar', 'maskiner', 'medelstam', 'harDu', 'risker', 'prognos', 'sammanfattning'];
 
 export const STEG_NAMN: Record<StegId, string> = {
-  avlagg: 'Avlägg', basvag: 'Basväg', forutsattningar: 'Förutsättningar', maskiner: 'Maskiner', medelstam: 'Medelstam', harDu: 'Har du …', risker: 'Risker', prognos: 'Prognos', ovrigt: 'Markägare & övrigt', sammanfattning: 'Sammanfattning',
+  avlagg: 'Avlägg', larmplats: 'Larmplats', basvag: 'Basväg', forutsattningar: 'Förutsättningar', maskiner: 'Maskiner', medelstam: 'Medelstam', harDu: 'Har du …', risker: 'Risker', prognos: 'Prognos', ovrigt: 'Markägare & övrigt', sammanfattning: 'Sammanfattning',
 };
 
 /** Vilka steg som är kvar just nu, i ordning. Samma antal som `status.antalKvar`. */
@@ -17,6 +17,7 @@ export function kvarSteg(status: KlarStatus): StegId[] {
   const post = (id: PostId) => status.poster.find((x) => x.id === id)?.kvar ?? false;
   const kvar: Record<StegId, boolean> = {
     avlagg: post('avlagg'),
+    larmplats: post('larmplats'),
     basvag: post('basvag'),
     forutsattningar: status.forutsattningarKvar > 0,
     maskiner: status.maskinerKvar > 0,

@@ -72,7 +72,7 @@ describe('start', () => {
     expect(kontroll.startKlar).toBe(true);
   });
 
-  it('gå till startsidan och tillbaka (adressen utan ?objekt=) → samma objekt (ur minnet), och adressen får ?objekt= igen', async () => {
+  it('gå till startsidan och tillbaka (adressen utan ?objekt=) → LISTAN, inte senaste objektet (Martin 2026-11-18); minnet rörs inte', async () => {
     await montera({ hamta: alla() });
     await act(async () => { kontroll.valj(OBJ.a); });
     await avmontera();
@@ -81,9 +81,11 @@ describe('start', () => {
     expect(sok()).toBe('');
     const hamta = alla();
     await montera({ hamta });
-    expect(hamta).toHaveBeenCalledWith('a');
-    expect(kontroll.valt?.id).toBe('a');
-    expect(sok()).toBe('?objekt=a');
+    expect(hamta).not.toHaveBeenCalled();
+    expect(kontroll.valt).toBeNull();
+    expect(kontroll.startKlar).toBe(true);
+    expect(sok()).toBe('');
+    expect(hamtaSenastePlanering('anna')).toBe('a');
   });
 
   it('delad länk: adressens objekt vinner över minnet', async () => {
@@ -116,6 +118,7 @@ describe('start', () => {
 
   it('hämtfel (nätet) → listan, men minnet behålls', async () => {
     sattSenastePlanering('anna', 'a');
+    window.history.replaceState(null, '', '/planering?objekt=a');
     await montera({ hamta: vi.fn(async () => ({ typ: 'fel' as const })) });
     expect(kontroll.valt).toBeNull();
     expect(kontroll.startKlar).toBe(true);

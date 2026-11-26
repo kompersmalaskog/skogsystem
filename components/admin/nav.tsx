@@ -76,3 +76,6 @@ export function useAdminNav(): Ctx {
   if (!c) throw new Error("useAdminNav utanför AdminNavProvider");
   return c;
 }
+
+/** Lön-sidorna som nås via Mer (inte flikraden): de har "‹ Lön" och egen rubrik i stället för sidans rubrik. */
+export const LON_MER = ["arsovertid", "vila", "lonearter", "system", "atk"] as const;

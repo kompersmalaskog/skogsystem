@@ -20,6 +20,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { SKARP_START, franGolv } from '@/lib/skarpStart'
+import { statusPunkter, type StatusRad } from '@/lib/datahalsa/status'
 
 // Importfel räknas från SKARP START (lib/skarpStart). De fyra kända felen
 // från maj/juni 2026 (2 "Kunde inte spara", 2 "No such file") ligger före
@@ -82,12 +83,10 @@ export type InvarianterData = {
   motorUtanArbete: MotorUtanArbete[]
 }
 
-export type GapCheckData = {
-  kordTid: string
-  status: string                 // 'OK' | 'LARM'
-  larmAntal: number
-  sammanfattning: string | null
-}
+// Statusraderna (meta_datahalsa_status): 'import_live' skrivs av databasen var
+// 15:e minut (import_larm_kontroll), övriga av gap_check.py på importdatorn.
+// All tolkning — texter, lägen, ordning — bor i lib/datahalsa/status.
+export type { StatusRad } from '@/lib/datahalsa/status'
 
 // import_fel — verifierade datatapp: tabellskrivningar som misslyckades i
 // Python-importen (upsert_data:s felgren). Wisent-läxan 21/7: skiftdata
@@ -140,7 +139,8 @@ export type Datahalsa = {
   filer: Sektion<FilerData>
   leverans: Sektion<LeveransRad[]>
   invarianter: Sektion<InvarianterData>
-  gapCheck: Sektion<GapCheckData | null> & { tabellSaknas: boolean }
+  /** Alla statusrader. Vyn delar dem i import_live (överst) och importdatorns kontroller (lib/datahalsa/status). */
+  status: Sektion<StatusRad[]> & { tabellSaknas: boolean }
   importFel: Sektion<ImportFelRad[]> & { tabellSaknas: boolean }
   koordinatLarm: Sektion<KoordinatLarmData>
   besked: Besked
@@ -167,7 +167,7 @@ export function useDatahalsa(): Datahalsa {
   const [filer, setFiler] = useState<Sektion<FilerData>>({ laddar: true, fel: null, data: null })
   const [leverans, setLeverans] = useState<Sektion<LeveransRad[]>>({ laddar: true, fel: null, data: null })
   const [invarianter, setInvarianter] = useState<Sektion<InvarianterData>>({ laddar: true, fel: null, data: null })
-  const [gapCheck, setGapCheck] = useState<Sektion<GapCheckData | null> & { tabellSaknas: boolean }>(
+  const [status, setStatus] = useState<Sektion<StatusRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
   const [importFel, setImportFel] = useState<Sektion<ImportFelRad[]> & { tabellSaknas: boolean }>(
     { laddar: true, fel: null, data: null, tabellSaknas: false })
@@ -351,20 +351,24 @@ export function useDatahalsa(): Datahalsa {
       setInvarianter({ laddar: false, fel: null, data: { over24h, dubbletter, tomgangInkonsistenta, motorUtanArbete } })
     })()
 
-    // ── 4. Senaste Gap Check (meta_datahalsa_status — kräver migration) ──
+    // ── 4. Statusraderna (meta_datahalsa_status): import_live + importdatorns kontroller ──
+    // Alla rader i EN läsning. Förr lästes bara samlingsraden 'gap_check'; den skrivs
+    // inte längre, och kontrollerna har var sin rad.
     ;(async () => {
       const { data, error } = await supabase.from('meta_datahalsa_status')
-        .select('kord_tid, status, larm_antal, sammanfattning').eq('id', 'gap_check')
+        .select('id, kord_tid, status, larm_antal, sammanfattning').order('id')
       if (avbruten) return
       if (error) {
         const saknas = /does not exist|relation|schema cache/i.test(error.message)
-        setGapCheck({ laddar: false, fel: saknas ? null : error.message, data: null, tabellSaknas: saknas })
+        setStatus({ laddar: false, fel: saknas ? null : error.message, data: null, tabellSaknas: saknas })
         return
       }
-      const rad = data?.[0]
-      setGapCheck({
+      setStatus({
         laddar: false, fel: null, tabellSaknas: false,
-        data: rad ? { kordTid: rad.kord_tid, status: rad.status, larmAntal: rad.larm_antal, sammanfattning: rad.sammanfattning } : null,
+        data: ((data ?? []) as any[]).map((r): StatusRad => ({
+          id: String(r.id), kordTid: r.kord_tid ?? null, status: String(r.status ?? ''),
+          larmAntal: Number(r.larm_antal) || 0, sammanfattning: r.sammanfattning ?? null,
+        })),
       })
     })()
 
@@ -500,7 +504,7 @@ export function useDatahalsa(): Datahalsa {
 
   // ── Beskedet — EN sammanvägning, samma överallt. Leverans (maskintystnad)
   //    matar ALDRIG beskedet: semester ser ut som fel. ──
-  const laddar = filer.laddar || invarianter.laddar || gapCheck.laddar || importFel.laddar || koordinatLarm.laddar
+  const laddar = filer.laddar || invarianter.laddar || status.laddar || importFel.laddar || koordinatLarm.laddar
   let besked: Besked
   if (laddar) {
     besked = { niva: 'laddar', rubrik: 'Kontrollerar …', punkter: [] }
@@ -519,8 +523,8 @@ export function useDatahalsa(): Datahalsa {
       if (invarianter.data.tomgangInkonsistenta > 0)
         punkter.push(`${invarianter.data.tomgangInkonsistenta} tomgångs-inkonsistenta rader`)
     }
-    if (gapCheck.data && gapCheck.data.status !== 'OK')
-      punkter.push(`Gap Check larmade (${gapCheck.data.larmAntal})`)
+    // Statusraderna: importen felar / kontrolleras inte, och varje kontroll på importdatorn som larmar.
+    if (status.data) punkter.push(...statusPunkter(status.data, Date.now()))
     // Bara ÄKTA tapp senaste dygnet är rött — avvisade dubbletter (409) är
     // ingen datatapp och räknas aldrig hit.
     const farskaAktaImportFel = (importFel.data ?? [])
@@ -538,7 +542,7 @@ export function useDatahalsa(): Datahalsa {
         punkter.push(`${koordinatLarm.data.dupTrakt.length} trakt(er) på flera vo-nummer — koordinat kan tappas vid vo-byte`)
     }
 
-    const kundeInteLasa = [filer.fel, invarianter.fel, gapCheck.fel, importFel.fel, koordinatLarm.fel].some(Boolean)
+    const kundeInteLasa = [filer.fel, invarianter.fel, status.fel, importFel.fel, koordinatLarm.fel].some(Boolean)
     if (punkter.length > 0) {
       besked = { niva: 'rod', rubrik: `${punkter.length} sak${punkter.length > 1 ? 'er' : ''} att titta på`, punkter }
     } else if (kundeInteLasa) {
@@ -554,5 +558,5 @@ export function useDatahalsa(): Datahalsa {
     }
   }
 
-  return { filer, leverans, invarianter, gapCheck, importFel, koordinatLarm, besked }
+  return { filer, leverans, invarianter, status, importFel, koordinatLarm, besked }
 }

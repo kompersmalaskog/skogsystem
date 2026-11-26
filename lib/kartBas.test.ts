@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { KARTBAS_DAMPAD, KARTBAS_PAINT, KARTBAS_SKARP, KARTBAS_STANDARD_STYRKA, kartBasPaint } from './kartBas';
+import { KARTBAS_DAMPAD, KARTBAS_LJUS, KARTBAS_MAX_STYRKA, KARTBAS_PAINT, KARTBAS_SKARP, KARTBAS_STANDARD_STYRKA, kartBasPaint, kartBasStandard } from './kartBas';
 import { KARTLAGER, KARTLAGER_LAGER_ID, RASTER_KARTLAGER } from './kartlager';
 import { tomKartaStil } from './objektKarta';
 
@@ -54,9 +54,10 @@ describe('standarden (85) — Martin 2026-10-27: tydligare, inte grått', () => 
   it('standardstyrkan är 85 och KARTBAS_PAINT är det som gäller utan eget val', () => {
     expect(KARTBAS_STANDARD_STYRKA).toBe(85);
     for (const l of KARTLAGER) expect(KARTBAS_PAINT[l]).toEqual(kartBasPaint(l));
+    for (const l of KARTLAGER) if (l !== 'satellite') expect(kartBasStandard(l), l).toBe(85);
   });
-  it('Flygfoto: ljus ~0,9 och mättnad ~−0,1', () => {
-    const p = KARTBAS_PAINT.satellite;
+  it('Flygfoto: ljus ~0,9 och mättnad ~−0,1 vid 85 (vad den som redan valt 85 behåller)', () => {
+    const p = kartBasPaint('satellite', 85);
     expect(p['raster-brightness-max']).toBeGreaterThanOrEqual(0.88); expect(p['raster-brightness-max']).toBeLessThanOrEqual(0.95);
     expect(p['raster-saturation']).toBeGreaterThanOrEqual(-0.15); expect(p['raster-saturation']).toBeLessThanOrEqual(-0.05);
   });
@@ -89,7 +90,8 @@ describe('reglaget Dämpad ↔ Skarp', () => {
   it('halvvägs är exakt mitt emellan, och värden utanför 0–100 klamras', () => {
     expect(kartBasPaint('satellite', 50)['raster-brightness-max']).toBe(0.75);
     expect(kartBasPaint('satellite', -20)).toEqual(kartBasPaint('satellite', 0));
-    expect(kartBasPaint('satellite', 400)).toEqual(kartBasPaint('satellite', 100));
+    expect(kartBasPaint('satellite', 400)).toEqual(kartBasPaint('satellite', KARTBAS_MAX_STYRKA.satellite));
+    expect(kartBasPaint('lantmateriet', 400)).toEqual(kartBasPaint('lantmateriet', 100));
     expect(kartBasPaint('satellite', Number.NaN)).toEqual(kartBasPaint('satellite'));
   });
   it('kartBasPaint ger en kopia (ingen kan ändra konstanterna av misstag)', () => {
@@ -130,5 +132,31 @@ describe('page.tsx tar baslagrens paint ur lib/kartBas (ingen egen kopia av siff
   it('de gamla bokstavliga värdena finns inte kvar i baslagren', () => {
     expect(sida).not.toMatch(/id: 'satellite-layer'[^\n]*'raster-brightness-max': 0\.7/);
     expect(sida).not.toMatch(/id: 'lm-layer'[^\n]*'raster-saturation': -0\.45/);
+  });
+});
+
+describe('Ljus — ett steg förbi Skarp, bara Flygfoto (Martin 2026-11-22)', () => {
+  it('bara Flygfoto har Ljus, och bara Flygfoto når över 100; Ljus är standard där', () => {
+    expect(Object.keys(KARTBAS_LJUS)).toEqual(['satellite']);
+    for (const l of KARTLAGER) expect(KARTBAS_MAX_STYRKA[l], l).toBe(l === 'satellite' ? 120 : 100);
+    expect(kartBasStandard('satellite')).toBe(120);
+    expect(KARTBAS_PAINT.satellite).toEqual(kartBasPaint('satellite', 120));
+    expect(KARTBAS_PAINT.satellite).toEqual({ ...KARTBAS_LJUS.satellite });
+  });
+  it('Ljus lyfter skuggorna, höjer kontrast och mättnad lite — och rör inte toppen (inget bränns ut)', () => {
+    const skarp = kartBasPaint('satellite', 100), ljus = kartBasPaint('satellite', 120);
+    expect(skarp['raster-brightness-min']).toBe(0);
+    expect(ljus['raster-brightness-min']).toBeGreaterThanOrEqual(0.06); expect(ljus['raster-brightness-min']).toBeLessThanOrEqual(0.15);
+    expect(ljus['raster-brightness-max']).toBe(1);                      // toppen oförändrad: grus och hygge blir aldrig ljusare än i Skarp
+    expect(ljus['raster-contrast']).toBeGreaterThan(0); expect(ljus['raster-contrast']).toBeLessThanOrEqual(0.15);   // lite, inte mer
+    expect(ljus['raster-saturation']).toBeGreaterThan(0); expect(ljus['raster-saturation']).toBeLessThanOrEqual(0.2);
+  });
+  it('mellan Skarp och Ljus interpoleras jämnt, och steget tillbaka sätter varje egenskap rätt (ingen nyckel blir kvar)', () => {
+    const mitt = kartBasPaint('satellite', 110);
+    expect(mitt['raster-brightness-min']).toBe(0.05); expect(mitt['raster-contrast']).toBe(0.06);
+    for (const v of [0, 50, 85, 100]) expect(Object.keys(kartBasPaint('satellite', v)).sort(), `${v}`).toEqual(Object.keys(KARTBAS_LJUS.satellite!).sort());
+    expect(kartBasPaint('satellite', 100)).toEqual(KARTBAS_SKARP.satellite);
+    let min = -1;
+    for (let v = 0; v <= 120; v += 5) { const m = kartBasPaint('satellite', v)['raster-brightness-min']; expect(m, `${v}`).toBeGreaterThanOrEqual(min); min = m; }
   });
 });

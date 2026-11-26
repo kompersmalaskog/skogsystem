@@ -29,13 +29,15 @@ const Rad = ({ r }: { r: KvarSortiment }) => (
   </div>
 );
 
-export function KvarArk({ kvar, sammanfattning, dagens, idagText, vantande, onLass, onStang }: {
+export function KvarArk({ kvar, sammanfattning, dagens, idagText, vantande, onLass, onLaggTill, onStang }: {
   kvar: Kvar;
   sammanfattning: KvarSammanfattning;
   dagens: readonly Lass[];
   idagText: string;
   vantande: number;
   onLass: (l: Lass) => void;
+  /** Lägg till ett lass i efterhand (föraren kom på att ett lass inte registrerades). */
+  onLaggTill?: () => void;
   onStang: () => void;
 }) {
   const [visaIdag, setVisaIdag] = useState(false);
@@ -78,6 +80,10 @@ export function KvarArk({ kvar, sammanfattning, dagens, idagText, vantande, onLa
           {visaIdag && (
             <div style={{ marginTop: AVSTAND.s, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
               {dagens.length === 0 && <div style={meta}>Inga lass i dag än.</div>}
+              {dagens.length > 0 && <div style={meta}>Tryck på ett lass för att ändra eller ta bort det.</div>}
+              {onLaggTill && (
+                <button type="button" data-testid="kvar-lagg-till" onClick={onLaggTill} style={{ ...knappStor, width: '100%' }}>+ Lägg till lass</button>
+              )}
               {[...dagens].sort((a, b) => b.lassNummer - a.lassNummer).map((l) => (
                 <button key={l.id} type="button" data-testid={`kvar-lass-${l.lassNummer}`} onClick={() => onLass(l)}
                   style={{ ...knappStor, width: '100%', display: 'block', textAlign: 'left', background: FARG.tonad, minHeight: TRYCK_PX }}>

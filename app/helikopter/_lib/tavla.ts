@@ -18,7 +18,7 @@
 // Inga imports av React eller Supabase.
 import { TYP_NAMN, oskotatKvar, type ManadStatus, type SparLage } from './berakningar'
 import { fmt, fmtDag, kortNamn } from './format'
-import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, dagarBehov, kanValjas, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
+import { KLAR_TYP_NAMN, MATT_VISA_FRAN, arVirke, dagarBehov, kanTa, kanValjas, korOrdning, type Flytt, type KlarData, type KlarMaskin, type KlarRoll, type KlarTrakt } from './klar'
 import type { Typ } from './queries'
 import type { Ton } from './kort'
 
@@ -78,7 +78,7 @@ const klar6 = (x: number) => Math.round(x * 1e6) / 1e6
 export function ko(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string, egna: ReadonlySet<string>): KoRad[] {
   const ordnade = trakter
     .filter(t => (m.manuell ? t.rest_volym == null || t.rest_volym > 0 : t.timmar == null || t.timmar > 0))
-    .sort((a, b) => a.sortn - b.sortn)
+    .sort(korOrdning)
   const dagarIManaden = m.dagar.filter(d => d <= sistaArbetsdag).length
   let summa = 0
   return ordnade.map(t => {

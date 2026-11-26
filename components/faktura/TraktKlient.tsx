@@ -7,23 +7,33 @@
 //   * EN orange rad direkt under när något behöver tittas på;
 //   * ett kort per maskin där VARJE rad säger vad den är och kolumnen går att
 //     räkna ihop med miniräknare (lib/faktura/traktVy.ts);
-//   * potten EN gång, i ord, under korten — kortet "Delas mellan maskinerna"
-//     visade samma tillägg en andra gång på samma skärm;
+//   * de TRE tal som bestämmer priset — medelstam, sortiment, skotningsavstånd
+//     — som var sin rad under "Priset", var och en med sitt värde och var det
+//     kommer ifrån;
 //   * det manuella arbetet ur arbetsrapporten som en egen sektion, märkt med
 //     att priset inte går att hämta än.
+//
+// LÄTTARE (Martin 2026-11-20: "kan man göra sidan lättare så ett barn förstår
+// direkt", "inte för mycket text, det blir rörigt då"). Borta i samma omgång:
+// pottmeningen under korten (varje tal i den stod redan som en rad i korten),
+// "kostnadsställe SCO" i rubrikerna (Fortnox-internt), och halva den orange
+// meningen. Maskinernas summor är nedtonade ett steg: sidans ENA stora tal är
+// kronorna överst, och kortets eget svar är priset per m³fub som raderna
+// summerar till — summan är en följd av det, inte en andra fråga.
 //
 // Ingenting sparas och ingenting skickas till Fortnox härifrån.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Rad from '@/components/design/Rad';
 import Sektion from '@/components/design/Sektion';
-import { byggMaskinkort, pottMening, type MaskinRad } from '@/lib/faktura/traktVy';
+import { byggMaskinkort, type MaskinRad } from '@/lib/faktura/traktVy';
+import { avstandMeter, avstandRadVy } from '@/lib/faktura/granskningVy';
 import type { ManuelltArbete } from '@/lib/faktura/lasManuellt';
 import { arbetsprisNot } from '@/lib/faktura/arbetspris';
 import type { Granskningsunderlag } from '@/lib/faktura/hamtaUnderlag';
 import { fattasRubrik, type FattasPost } from '@/lib/faktura/fattas';
 import GranskningArk, { type Vy } from '@/components/faktura/GranskningArk';
-import { fordelaTillagg, type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
+import { type Tillaggspost } from '@/lib/ekonomi/prisPerM3';
 import {
   AVSTAND, FARG, INAKTIV, KNAPP, KOLUMN, KORT, RADIE, TAL_FONT, TYP, TRAFFYTA,
 } from '@/lib/design/tokens';
@@ -133,9 +143,13 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
   // bär avståndstillägget och som ändras när antalet sortiment ändras.
   const skotarrad = maskinRader.find(r => r.artikelnr === '2');
   const poster: Tillaggspost[] = skordarrad?.tillaggsposter ?? [];
-  const forslag = poster.length > 0 ? fordelaTillagg(poster) : null;
-  const pott = pottMening(poster, forslag, skordarrad?.delar_andel ?? null);
   const prislista = skordarrad?.prislista ?? null;
+  // Avståndet i meter — samma tal som arket visar (lib/faktura/granskningVy).
+  const avstandIndata = d.granskning
+    ? { a: d.granskning.avstand, volym: d.granskning.volym, prisdatum: d.granskning.prisdatum }
+    : null;
+  const avstandM = avstandIndata ? avstandMeter(avstandIndata.a) : null;
+  const avstandRad = avstandIndata ? avstandRadVy(avstandIndata) : null;
   const kontrakt = d.rader.find(r => r.artikelnr === '8')?.benamning ?? '';
 
   return (
@@ -166,7 +180,7 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
         <div style={{ marginTop: AVSTAND.xl }}>
           <Sektion
             rubrik={fattasRubrik(d.fattas)}
-            not={<><Prick inline />Appen fakturerar som det står här. Fyll i det du vet — eller lämna som det är.</>}
+            not={<><Prick inline />Appen fakturerar som det står här.</>}
           >
             {d.fattas.map((p, i) => (
               <Rad
@@ -175,10 +189,7 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
                 titel={p.rubrik}
                 under={p.text}
                 hoger={p.varde ? <span style={TAL_FONT}>{p.varde}</span> : undefined}
-                href={p.var === 'redigering' && d.objekt_ids[0]
-                  ? `/redigering?objekt=${encodeURIComponent(d.objekt_ids[0])}`
-                  : undefined}
-                onTryck={p.var === 'granskning' ? () => setGranskning('sortiment') : undefined}
+                onTryck={p.ark ? () => setGranskning(p.ark as Vy) : undefined}
                 sista={i === d.fattas.length - 1}
               />
             ))}
@@ -189,9 +200,9 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
       {d.hinder.map((h, i) => <Varning key={`h${i}`} text={h} />)}
       {d.noter.filter(n => n.niva === 'varning').map((n, i) => <Varning key={`n${i}`} text={n.text} />)}
 
-      <div className="fa-maskiner" style={{ marginTop: AVSTAND.xl }}>
+      <div className="fa-maskiner" style={{ marginTop: AVSTAND.xl, marginBottom: AVSTAND.xl }}>
         {maskinRader.map(r => {
-          const k = byggMaskinkort(r);
+          const k = byggMaskinkort(r, avstandM);
           return (
             <div key={r.radnr}>
               <h3 style={{ ...TYP.micro, color: FARG.text2, margin: `0 0 ${AVSTAND.xs}px` }}>{k.etikett}</h3>
@@ -212,11 +223,14 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
                   <span style={{ ...TYP.text, color: FARG.text, flex: 1 }}>{k.prisEtikett}</span>
                   <span style={{ ...TYP.rubrik, ...TAL_FONT, color: FARG.text }}>{kr2(k.pris)}</span>
                 </div>
+                {/* Summan är en FÖLJD av priset ovanför, inte en andra fråga:
+                    ett steg mindre, så kortets svar är priset per m³fub och
+                    sidans ena stora tal är kronorna överst. */}
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: AVSTAND.m }}>
                   <span style={{ ...TYP.meta, ...TAL_FONT, color: FARG.text2, flex: 1 }}>
                     × {kr2(k.antal)} {k.antalEnhet}
                   </span>
-                  <span style={{ ...TYP.rubrik, ...TAL_FONT, color: FARG.text }}>
+                  <span style={{ ...TYP.text, ...TAL_FONT, color: FARG.text }}>
                     {k.summa != null ? `${nr(k.summa)} kr` : '—'}
                   </span>
                 </div>
@@ -226,10 +240,10 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
         })}
       </div>
 
-      {pott && (
-        <p style={{ margin: `0 0 ${AVSTAND.xl}px ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text2 }}>{pott}</p>
-      )}
-
+      {/* TRE TAL BESTÄMMER PRISET — medelstam, sortiment och skotningsavstånd.
+          Alla tre står här, var och en med sitt värde och var det kommer
+          ifrån. Avståndsraden saknades till 2026-11-20, och det var just den
+          som flyttar mest pengar. */}
       {d.granskning && (
         <Sektion rubrik="Priset">
           {prislista && (
@@ -242,13 +256,24 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
             />
           )}
           <Rad
-            sista
             titel="Vilka sortiment räknas?"
             under={sortimentUnder(d.granskning)}
             hoger={<span style={TAL_FONT}>{d.granskning.sortiment.anvant}</span>}
             hogerUnder="st"
+            sista={!avstandRad}
             onTryck={() => setGranskning('sortiment')}
           />
+          {avstandRad && (
+            <Rad
+              sista
+              attr={{ 'data-avstand-rad': '' }}
+              titel="Hur långt skotades det?"
+              under={avstandRad.under}
+              hoger={<span style={TAL_FONT}>{avstandRad.varde}</span>}
+              hogerUnder="m enkel väg"
+              onTryck={() => setGranskning('avstand')}
+            />
+          )}
         </Sektion>
       )}
 
@@ -312,7 +337,7 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
         <button type="button" disabled style={{ ...KNAPP.primar, ...INAKTIV }}>Markera som granskad</button>
       </div>
       <p style={{ margin: `${AVSTAND.s}px 0 0 ${AVSTAND.xs}px`, ...TYP.meta, color: FARG.text3 }}>
-        Granskning och sändning är inte byggt än — vyn räknar bara fram raderna.
+        Granskning och sändning är inte byggt än.
       </p>
 
       {granskning && d.granskning && (
@@ -332,6 +357,8 @@ function Innehall({ d, manuellt, omlasning }: { d: Detalj; manuellt: ManuelltArb
             prisdatum: d.granskning.prisdatum,
             sortiment: d.granskning.sortiment,
           }}
+          avstand={d.granskning.avstand}
+          terrangKr={d.granskning.terrangKr}
           summa={d.summa_kant}
           skotarAntal={skotarrad?.antal ?? null}
           skotarPris={skotarrad?.a_pris_beraknat ?? null}

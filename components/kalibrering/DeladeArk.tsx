@@ -16,6 +16,7 @@ import AtgardArk from './AtgardArk';
 import DagArk from './DagArk';
 import HjalpArk from './HjalpArk';
 import KontrollInnehall from './KontrollInnehall';
+import MatdonArk from './MatdonArk';
 import KontrollPanel, { type BladLage } from './KontrollPanel';
 import NyAtgardArk from './NyAtgardArk';
 import PlanArk from './PlanArk';
@@ -38,7 +39,7 @@ export default function DeladeArk({ ark, d, bladLage, visaBlad }: { ark: Kalibre
       {top && post && arBladPost(post) && visaBlad && <Blad ark={ark} d={d} lage={bladLage} />}
 
       {top && post && !arBladPost(post) && (
-        post.typ === 'ny_atgard' ? <NyAtgardArk d={d} onStang={ark.stang} /> : (
+        post.typ === 'ny_atgard' ? <NyAtgardArk d={d} onStang={ark.stang} /> : post.typ === 'matdon' ? <MatdonArk d={d} onStang={ark.stang} /> : (
           <SvajStang onStang={ark.stang}>
             <Ark key={`${post.typ}:${arkRubrik(post)}`} rubrik={arkRubrik(post)} onStang={ark.stang} stang={post.typ === 'hjalp' || post.typ === 'art' || post.typ === 'atgard' || post.typ === 'ruta' ? 'Klar' : 'Avbryt'}>
               {post.typ === 'art' && d.speciesData[post.art] && (

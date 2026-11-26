@@ -73,7 +73,8 @@ describe('kortet och sidan', () => {
   });
   it('Klar för maskin: planerad + klar_skickad_timestamp i ett anrop, verifierat; knappen spärras aldrig av "kvar"', () => {
     expect(page).toContain("{ status: STATUS_PLANERAD, klar_skickad_timestamp: nowIso }, { id: valtObjekt.id }, 'status,klar_skickad_timestamp'");
-    expect(kort).toContain('disabled={p.klarSparar}');
+    // Larmplatsen är det ENDA som spärrar Klar för maskin (Martin 2026-11-19: planeraren måste godkänna den); inget annat "kvar" gör det
+    expect(kort).toContain('disabled={p.klarSparar || larmSpar}');
     expect(kort).not.toMatch(/disabled=\{[^}]*status\.klar/);
     expect(kort).not.toContain('disabled={!status.klar}');
   });
@@ -143,7 +144,8 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
   });
   it('Klar för maskin spärrar aldrig: ingen knapp i kortet eller stegen är disabled av "kvar"', () => {
     expect(allt).not.toMatch(/disabled=\{[^}]*(status\.klar|antalKvar|kvar\b)/);
-    expect(kort).toContain('disabled={p.klarSparar}');
+    // Larmplatsen är det ENDA som spärrar Klar för maskin (Martin 2026-11-19: planeraren måste godkänna den); inget annat "kvar" gör det
+    expect(kort).toContain('disabled={p.klarSparar || larmSpar}');
   });
   it('prognosen: bara ett fält åt gången och aldrig en sammanfattning bredvid fälten', () => {
     expect(steg).toContain('const [cell, setCell] = useState<CellId | null>(null);');
@@ -181,7 +183,7 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
     expect(page).toContain("onRitaBasvag: () => { setKlarAterBasvag(true); stang(); setDrawType('mainRoad');");
     expect(page).toContain("useEffect(() => { if (klarAterBasvag && !isDrawMode) { setKlarAterBasvag(false); setInfoStartVy('klar'); setTraktOversiktOpen(true); } }, [klarAterBasvag, isDrawMode]);");
     // kortets vy minns över ritningen, precis som över avläggsplaceringen
-    expect(page).toContain('if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg) klarVyRef.current = null;');
+    expect(page).toContain('if (!traktOversiktOpen && !klarAterAvlagg && !klarAterBasvag && !klarGranskaAvlagg && !klarGranskaLarm) klarVyRef.current = null;');
     const lista = page.slice(page.indexOf('{ritListSynlig && (klarAterBasvag'), page.indexOf('{ritListSynlig && (klarAterBasvag') + 700);
     expect(lista).toContain("tillbaka={{ etikett: 'Klar med trakten?', onClick: cancelDrawing, testid: 'rita-tillbaka' }}");
   });
@@ -242,7 +244,7 @@ describe('två lägen: GÖRA och SE (jobb 1)', () => {
   it('orange bara på rubrikens antal och på värden i Behöver dig; i stegen bara på ej valda etiketter, prognosen utanför liknande trakter och varningsrutor', () => {
     const orangeRader = (kalla: string) => kalla.split('\n').filter((r) => r.includes('FARG.orange'));
     // orkestratorn: rubrikens antal (läget + "· N kvar"), värdet i raden, frågans varning, och två felrutor (datalage med ikon + text, sparfel)
-    expect(orangeRader(kort).length).toBe(7);
+    expect(orangeRader(kort).length).toBe(9);   // + "Måste vara klar först: Larmplats" och "Ingen larmplats finns"
     expect(orangeRader(kort).filter((r) => r.includes('klar-rad-${s}-varde')).length).toBe(1);
     // stegen: ej vald segmentetikett, varningsruta (Varningsruta, 2 rader), prestation + varningsrad
     expect(orangeRader(steg).length).toBe(5);

@@ -19,8 +19,10 @@ const LISTAR = ['lib/hooks/useKalibreringData.ts', 'app/api/kalibrering/kalender
 const UPPSLAG = new Set([
   'app/api/kalibrering/tradslag/route.ts',
   'app/api/kalibrering/grovlek/route.ts',
+  'app/api/kalibrering/felet/route.ts',
   'app/api/kalibrering/objekt/route.ts',
   'app/api/kalibrering/kontroll/route.ts',
+  'lib/kalibrering/vaderServer.ts', // senaste stocken → kontrollens väder per filnamn
 ]);
 
 function filer(dir: string, ut: string[] = []): string[] {

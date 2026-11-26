@@ -7,10 +7,11 @@ ett längdtak på 325 cm som prislistan inte har alls.
 
 Skriptet rör inte den vanliga importen. Det läser bara ProductDefinition ur
 filhuvudet och skriver dim_objekt_sortiment_fonster genom exakt samma
-funktion som importen använder — spara_apteringsfonster — så att
-FONSTER_BYTTE-regeln gäller också här: FÖRSTA fönstret vinner och avvikelsen
-går till import_fel. En backfill som skriver om historien vore precis det
-tabellen finns för att förhindra.
+funktion som importen använder — spara_apteringsfonster — så att samma regel
+gäller också här: maskinens fil gäller, ett ändrat fönster skrivs men det gamla
+sparas först i dim_objekt_sortiment_fonster_historik (och en pendling larmas
+som FONSTER_FLIPFLOP). Filerna läses äldst först, så den nyaste filen vinner
+och varje byte på vägen står i historiken.
 
 Filerna är delvis kumulativa: samma objekt förekommer i upp till en fil per
 timme. Apteringsdefinitionen är densamma i alla filer för ett objekt, så
@@ -180,8 +181,8 @@ def main():
 
     # Alla filer läses. Fönstret ligger i HUVUDET, så kostnaden är låg per
     # fil, och bara genom att se flera filer per objekt kan ett prislistbyte
-    # mitt i en trakt upptäckas — det är hela poängen med FONSTER_BYTTE.
-    # Äldst först: första fönstret vinner, och "först" ska betyda tidigast.
+    # mitt i en trakt upptäckas och hamna i historiken.
+    # Äldst först: den nyaste filen ska vinna, och varje byte på vägen sparas.
     valda = sorted(alla, key=os.path.getmtime)
     print('läser huvudet i alla %d filer (äldst först)' % len(valda))
 
@@ -232,7 +233,7 @@ def main():
         print('')
         print('Rader byggda: %d   FAKTISKT SKRIVNA: %d   objekt: %d'
               % (rader_totalt, skrivna[0], len(objekt_med_fonster)))
-        print('Redan identiska: %d   fonsterbyten till import_fel: %d'
+        print('Redan identiska: %d   fonsterbyten (sparade i historiken): %d'
               % (oforandrade[0], bytten[0]))
         # Skillnaden är inte kosmetisk: 0 skrivna med 1 922 byggda är exakt
         # hur en tyst 401 ser ut.

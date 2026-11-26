@@ -33,8 +33,8 @@ describe('föraren registrerar själv — appen frågar aldrig (Martin 2026-10-2
     const raknaZon = hook.slice(hook.indexOf('const raknaZon = useCallback'), hook.indexOf('useEffect(() => {\n    if (!aktiv || !objektId || !maskinId || !position) return;'));
     expect(raknaZon).not.toMatch(/startaUtkast|skapaLass|spara\(|lossaVidAvlagg|registreraLass/);
     // startaUtkast når man bara via de tre tryck: Lossa-knappen, + › Registrera lass (och Ja på frågan som den ställer) och testlägets Provkör
-    expect(hook.match(/startaUtkast\(/g)).toHaveLength(4);   // lossaVidAvlagg, provkorLossning, registreraLass och svaraNyttAvlagg (Ja på frågan registreraLass ställer)
-    for (const f of ['lossaVidAvlagg', 'provkorLossning', 'registreraLass', 'svaraNyttAvlagg']) expect(hook).toContain(`const ${f} = useCallback`);
+    expect(hook.match(/startaUtkast\(/g)).toHaveLength(5);   // lossaVidAvlagg, provkorLossning, registreraLass, laggTillLass (ett tryck i efterhand) och svaraNyttAvlagg (Ja på frågan registreraLass ställer)
+    for (const f of ['lossaVidAvlagg', 'provkorLossning', 'registreraLass', 'laggTillLass', 'svaraNyttAvlagg']) expect(hook).toContain(`const ${f} = useCallback`);
   });
   it('INGEN självbekräftelse (Martin 2026-10-20): bekräftat blir bara det föraren svarat Klar på — som \'forare\', på exakt ett ställe', () => {
     expect(hook).not.toMatch(/bekrafta\([^)]*'auto'/);

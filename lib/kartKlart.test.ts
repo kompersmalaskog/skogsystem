@@ -62,7 +62,7 @@ describe('page.tsx — klart-kopplingen', () => {
     // ingen grå fyllning: fotot inne i trakten ska synas i full skärpa (Martin 2026-10-27)
     expect(sida).not.toContain("KLART_FYLLNING_LAGER");
     expect(sida).not.toMatch(/KLART_KALLA[^\n]*type: 'fill'/);
-    expect(sida).toMatch(/KEEP_PREFIX = \[[^\]]*'klart-'\]/);
+    expect(sida).toMatch(/KEEP_PREFIX = \[[^\]]*'klart-'/);
   });
   it('planeringsvyn gråar aldrig vägar eller spår för att trakten är avslutad — basvägen behåller blå/gul', () => {
     expect(sida).not.toMatch(/traktKlar/);

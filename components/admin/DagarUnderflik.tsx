@@ -124,6 +124,10 @@ export default function DagarUnderflik() {
   const [fel, setFel] = useState<string | null>(null);
   // Förvalt: bara avvikelserna (svaret först). "Visa alla" är ett val man gör; ?avv=0 öppnar med alla.
   const [baraAvv, setBaraAvv] = useState(nav.params.avv !== "0");
+  // Från Förare · Månad: bara den föraren (?vem=<id>), och från raden "N obekräftade" bara dagarna som inte är bekräftade (?obekr=1).
+  // Sammanställningen överst räknas alltid över alla förare. "Visa alla förare" tar bort filtret.
+  const [vem, setVem] = useState<string | null>(nav.params.vem || null);
+  const [baraObekr, setBaraObekr] = useState(nav.params.obekr === "1");
   const [oppen, setOppen] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<Record<string, string>>({});
   const [forsok, setForsok] = useState(0);
@@ -197,8 +201,10 @@ export default function DagarUnderflik() {
   }, [data, roda]);
 
   const antalForare = new Set(rader.map(r => r.namn)).size;
-  const medAvv = rader.filter(r => r.avv.length > 0);
-  const visade = baraAvv ? medAvv : rader;
+  const forarRader = vem ? rader.filter(r => r.id === vem) : rader;
+  const medAvv = forarRader.filter(r => r.avv.length > 0);
+  const visade = baraObekr ? forarRader.filter(r => !r.d.bekraftad) : baraAvv ? medAvv : forarRader;
+  const vemNamn = vem ? (rader.find(r => r.id === vem)?.namn.split(" ")[0] ?? null) : null;
   const arNu = offset >= 0;
   const periodLabel = range.label;
 
@@ -342,14 +348,25 @@ export default function DagarUnderflik() {
             </div>
           )}
 
+          {/* Filtret från Förare · Månad: vems dagar som visas, med en väg ut. */}
+          {vem && (
+            <div data-dagar-vem={vem} style={{ ...KORT, display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
+              <span style={{ ...TYP.listtitel, color: FARG.text }}>{`${vemNamn ?? "Föraren"}${baraObekr ? " · obekräftade dagar" : ""}`}</span>
+              <button type="button" onClick={() => { setVem(null); setBaraObekr(false); }}
+                style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px` }}>Visa alla förare</button>
+            </div>
+          )}
+
           {/* Svaret först: hur många dagar som avviker. "Bara avvikelser" är förvalt; alla dagar ligger bakom "Visa alla". */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: AVSTAND.m, marginBottom: AVSTAND.l }}>
-            <span style={{ ...TYP.meta, ...TNUM, color: medAvv.length ? FARG.orange : FARG.text2 }}>
-              {baraAvv
+            <span style={{ ...TYP.meta, ...TNUM, color: (baraObekr ? visade.length : medAvv.length) ? FARG.orange : FARG.text2 }}>
+              {baraObekr
+                ? `${visade.length} ${visade.length === 1 ? "obekräftad dag" : "obekräftade dagar"}`
+                : baraAvv
                 ? `${medAvv.length} ${medAvv.length === 1 ? "dag" : "dagar"} med avvikelse`
                 : `${antalForare} förare · ${rader.length} ${rader.length === 1 ? "rad" : "rader"} · ${medAvv.length} med avvikelse`}
             </span>
-            {!baraAvv && (
+            {!baraAvv && !baraObekr && (
               <button onClick={() => setBaraAvv(true)} aria-pressed={false}
                 style={{ ...KNAPP.sekundar, width: "auto", flexShrink: 0, whiteSpace: "nowrap", padding: `0 ${AVSTAND.l}px` }}>
                 Bara avvikelser
@@ -361,7 +378,7 @@ export default function DagarUnderflik() {
             <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga arbetsdagar registrerade i {periodLabel}. Dagar skapas av maskinfilerna och av förarnas perioder.</p></div>
           )}
           {rader.length > 0 && visade.length === 0 && (
-            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>Inga avvikelser i {periodLabel}.</p></div>
+            <div style={KORT}><p style={{ margin: 0, ...TYP.meta, color: FARG.text2 }}>{baraObekr ? "Alla dagar är bekräftade." : `Inga avvikelser i ${periodLabel}.`}</p></div>
           )}
 
           {visade.length > 0 && (
@@ -427,10 +444,10 @@ export default function DagarUnderflik() {
             </div>
           )}
 
-          {baraAvv && rader.length > visade.length && (
-            <button onClick={() => setBaraAvv(false)} data-visa-alla=""
+          {(baraAvv || baraObekr) && forarRader.length > visade.length && (
+            <button onClick={() => { setBaraAvv(false); setBaraObekr(false); }} data-visa-alla=""
               style={{ ...KNAPP.sekundar, marginTop: AVSTAND.l }}>
-              Visa alla {rader.length}
+              Visa alla {forarRader.length}
             </button>
           )}
 

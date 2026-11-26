@@ -52,3 +52,6 @@ export function maskinSomFelText(skal: AvvisaSkal, som: string | null | undefine
     case 'laddningMisslyckades': return 'Kunde inte ladda behörighet och maskinregister. Ladda om sidan eller gå tillbaka till appen.';
   }
 }
+
+/** Sessionsnyckel: testläget (admin, /maskin?som=) minns maskinen så Hem i andra vyer hittar tillbaka till maskinlådan. */
+export const MASKIN_SOM_SESSION = 'maskin_som_session_v1';

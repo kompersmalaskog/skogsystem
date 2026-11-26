@@ -92,7 +92,7 @@ describe('LossaKnapp', () => {
 describe('AndraLassArk', () => {
   const valbara = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 0 }, { nyckel: 'ved_markagare', namn: 'Ved markägare', m3: 0 }];
   const rendera = (l: Lass, fn: Partial<Parameters<typeof AndraLassArk>[0]> = {}) => visa(
-    <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
+    <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
   it('summan överst, en rad per sortiment med − och +, tillägg för det som saknas inkl. Ved markägare', async () => {
     await rendera(lass());
     expect(q('andra-summa')?.textContent).toContain('18');
@@ -106,6 +106,26 @@ describe('AndraLassArk', () => {
     await rendera(lass(), { onRad });
     await tryck('plus-talltimmer'); await tryck('minus-talltimmer'); await tryck('tillagg-granmassa');
     expect(onRad.mock.calls.map((c) => c[1])).toEqual([1, -1, 1]);
+  });
+  it('Smalt | Breddat är en av två: vald följer lasset och ett tryck byter', async () => {
+    const onBreddat = vi.fn();
+    await rendera(lass(), { onBreddat });
+    expect(q('andra-lass')?.textContent).toContain('Lastrum');
+    expect(q('lastrum-smalt')?.getAttribute('aria-checked')).toBe('true');
+    expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('false');
+    await tryck('lastrum-breddat');
+    expect(onBreddat).toHaveBeenCalledWith(true);
+    await rendera({ ...lass(), breddat: true });
+    expect(q('lastrum-breddat')?.getAttribute('aria-checked')).toBe('true');
+  });
+  it('✕ tar bort hela sortimentet (alla m³ på raden) med ett tryck', async () => {
+    const onRad = vi.fn();
+    await rendera(lass(), { onRad });
+    const m3 = lass().delar[0].rader.find((r) => r.nyckel === 'talltimmer')!.m3;
+    await tryck('ta-bort-talltimmer');
+    expect(onRad).toHaveBeenCalledTimes(1);
+    expect(onRad.mock.calls[0][0].nyckel).toBe('talltimmer');
+    expect(onRad.mock.calls[0][1]).toBe(-Math.round(m3));
   });
   it('Klar är grå utan sortiment/avlägg och aktiv när lasset går att bekräfta', async () => {
     const tomt = lass({ status: 'vantar_forare' }); tomt.delar[0].rader = [];
@@ -141,7 +161,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
   const sortiment = (n: number) => Array.from({ length: n }, (_, i) => ({ nyckel: `s${i}`, namn: `Massa: Sort${i}_V3`, m3: 0 }));
   const valbara = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }];
   const rendera = (fn: Partial<Parameters<typeof AndraLassArk>[0]> = {}) => visa(
-    <AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
+    <AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={valbara} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} {...fn} />);
   const pekare = async (id: string, typ: 'pointerdown' | 'pointerup' | 'pointercancel') => {
     const e = q(id); if (!e) throw new Error(`saknas: ${id}`);
     await act(async () => { e.dispatchEvent(new MouseEvent(typ, { bubbles: true, cancelable: true })); });
@@ -261,7 +281,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       expect(nio.siffra.shrink).toBe('0'); expect(nio.minus.shrink).toBe('0'); expect(nio.plus.shrink).toBe('0');
       expect(nio.minus.w).toBe('56px'); expect(nio.plus.w).toBe('56px'); expect(nio.minus.h).toBe('56px');
       expect(parseFloat(nio.gap)).toBeGreaterThanOrEqual(12);
-      expect(nio.ordning).toEqual(['namn', 'minus-talltimmer', 'andra-siffra-talltimmer', 'plus-talltimmer']);
+      expect(nio.ordning).toEqual(['namn', 'minus-talltimmer', 'andra-siffra-talltimmer', 'plus-talltimmer', 'ta-bort-talltimmer']);
       expect(nio.tabell).toBe('tabular-nums');
     });
   });
@@ -337,7 +357,7 @@ describe('AndraLassArk: stor pekskärm i en skakande hytt', () => {
       return <AndraLassArk lass={l} delNr={1} avlagg={[A2, A3]}
         valbara={[{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 0 }, { nyckel: 'granmassa', namn: 'Massa: Gran_V3', m3: 0 }]}
         onRad={(rad, d) => setL((x) => andraRadModell(x, 1, rad, d, NU))}
-        onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />;
+        onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />;
     }
     it('1 m³ kvar → − → raden är borta (ingen egen ta-bort-knapp) och sortimentet finns under Lägg till', async () => {
       const l = lass(); l.delar[0].rader = [{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 1 }];
@@ -551,7 +571,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
       expect(smaTexter()).toEqual([]);
     });
     it('Ändra lass, Färdigskotad och väder', async () => {
-      await visa(<AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={[{ nyckel: 'kubb', namn: 'Kubb: Tall_V3', m3: 0 }]} onRad={vi.fn()} onAvlagg={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />);
+      await visa(<AndraLassArk lass={lass()} delNr={1} avlagg={[A2, A3]} valbara={[{ nyckel: 'kubb', namn: 'Kubb: Tall_V3', m3: 0 }]} onRad={vi.fn()} onAvlagg={vi.fn()} onBreddat={vi.fn()} onKlar={vi.fn()} onAvbryt={vi.fn()} onTaBort={vi.fn()} />);
       expect(smaTexter()).toEqual([]);
       const kv = beraknaKvar([{ nyckel: 'talltimmer', namn: 'Timmer: Tall_V3', m3: 100 }], []);
       await visa(<FardigskotadKort kontroll={farduskotatKontroll(kv)} klar={false} onKarta={vi.fn()} onBekrafta={vi.fn()} onAvbryt={vi.fn()} />);
@@ -566,7 +586,7 @@ describe('Kvar, färdigskotad, väder, avlägg', () => {
     const onB = vi.fn(); const onK = vi.fn();
     await visa(<FardigskotadKort kontroll={stor} klar={false} onKarta={onK} onBekrafta={onB} onAvbryt={vi.fn()} />);
     expect(q('fardigskotad')?.getAttribute('data-fraga')).toBe('ja');
-    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~130 m³ kvar – Talltimmer ~90, Massaved gran ~40/);
+    expect(q('fardigskotad-text')?.textContent).toMatch(/Enligt skördaren ~127 m³ kvar – Talltimmer ~90, Massaved gran ~37/); // björkmassan (3 m³, ett namn skördaren inte har) dras av granmassan i samma grupp; kubben (5 m³) har ingen grupp att hamna i
     await tryck('fardigskotad-karta'); await tryck('fardigskotad-anda');
     expect(onK).toHaveBeenCalled(); expect(onB).toHaveBeenCalled();
     const litet = farduskotatKontroll(beraknaKvar([{ nyckel: 'talltimmer', namn: 'T', m3: 100 }], [lass({ status: 'bekraftat', delar: [{ ...lass().delar[0], rader: [{ nyckel: 'talltimmer', namn: 'T', m3: 99 }] }] })]));

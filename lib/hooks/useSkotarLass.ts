@@ -20,7 +20,7 @@ import { avlaggFlytt, stoppMitt } from '@/lib/skotarLass/lossaHar';
 import { avstand } from '@/lib/skotarLass/geo';
 import { avlaggIZon, ZON, type ZonTraff } from '@/lib/skotarLass/zon';
 import {
-  andraRad as andraRadModell, bekrafta, bytAvlagg, forraLass, kanBekrafta, nastaLassNummer, skapaLass, stryk,
+  andraRad as andraRadModell, bekrafta, bytAvlagg, sattBreddat, forraLass, kanBekrafta, nastaLassNummer, skapaLass, stryk,
   type LassKontext,
 } from '@/lib/skotarLass/lassModell';
 import { beraknaKvar, harSkordat, idagText, kvarSammanfattning, skalningsfaktorer, type Kvar, type KvarSammanfattning } from '@/lib/skotarLass/kvar';
@@ -300,6 +300,12 @@ export function useSkotarLass(i: SkotarLassIn) {
     if (l) spara(andraRadModell(l, delNr, rad, delta, serverNu()));
   }, [andra, spara]);
 
+  /** Breddat eller smalt lastrum på lasset som ändras (en av två). */
+  const valjBreddat = useCallback((lassId: string, breddat: boolean) => {
+    const l = hamtaLass(lassId);
+    if (l) spara(sattBreddat(l, breddat, serverNu()));
+  }, [spara]);
+
   const valjAvlagg = useCallback((lassId: string, delNr: number, a: Avlagg) => {
     const l = hamtaLass(lassId);
     if (l) spara(bytAvlagg(l, delNr, a, serverNu()));
@@ -383,6 +389,14 @@ export function useSkotarLass(i: SkotarLassIn) {
     startaUtkast(a, { lat: a.lat, lng: a.lng });
   }, [startaUtkast]);
 
+  /** Lägg till ett lass i efterhand: ett utkast utan avlägg (föraren väljer det i lasskortet). Inget sparas förrän Klar. */
+  const laggTillLass = useCallback(() => {
+    if (utkastRef.current) return;
+    const p = senastePosRef.current;
+    const a0 = avlaggRef.current[0];
+    startaUtkast(null, p ? { lat: p.lat, lng: p.lng } : a0 ? { lat: a0.lat, lng: a0.lng } : { lat: 0, lng: 0 });
+  }, [startaUtkast]);
+
   /** + › Registrera lass — där inget avlägg finns (eller knappen inte syns): ett utkast vid närmaste avlägg, och finns inget avlägg inom zonen (50 m) frågas "Nytt avlägg här?" —
    *  då läggs avlägget MITT PÅ STOPPET och märks (viaLossaHar). Ett lass kopplat till ett avlägg 200 m bort vore fel. */
   const registreraLass = useCallback(() => {
@@ -419,9 +433,9 @@ export function useSkotarLass(i: SkotarLassIn) {
   const andraLass = andra ? hamtaLass(andra.lassId) : null;
 
   return {
-    provkorLossning, registreraLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
+    provkorLossning, registreraLass, laggTillLass, lossaVidAvlagg, lossaKnapp, lossaVal, iZon, utkast, andraLass,
     lass, avlagg, nyttAvlagg, andra, vantande, skordat, skordatLaddat, ingetSkordat, kvar, sammanfattning, idag, valbara, allaSortiment: sortimentval.alla, sortimentKalla: sortimentval.kalla, lasOmSortiment, avslut, skotningAvslutad,
-    oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
+    oppnaAndra, stangAndra, avbrytAndra, andraRad, valjAvlagg, valjBreddat, strykLass, svaraNyttAvlagg, fardigskotad, laddaOm: ladda,
   };
 }
 

@@ -7,6 +7,7 @@
 //     Lagrens ursprungliga värde (ofta ett uttryck — fokus på trakten) sparas första gången och faktorn multipliceras in; ändrar annan kod värdet efteråt gäller det nya.
 // Orört med flit: produktionshögarna, GROT-högarna, körspåren, markeringarna och allt som är FARA — de har inga reglage.
 import type { Kartlager } from './kartlager';
+import { KARTBAS_MAX_STYRKA } from './kartBas';
 import { LAGER_OP_MAX, LAGER_OP_MIN, REGLAGE_STEG, STYRKA_MAX, STYRKA_MIN, opacitetTillProcent, styrkaFor, type LagerOpacitet, type Styrkor } from './kartReglage';
 
 /** Raster-överläggens startopacitet (0–1). Nyckel = överläggets id. */
@@ -111,5 +112,7 @@ export function overlayReglage(overlayId: string, lagerOp: LagerOpacitet, setLag
 
 /** Reglaget "Dämpad ↔ Skarp" under en bakgrund. */
 export function bakgrundReglage(lager: Kartlager, styrkor: Styrkor, setStyrka: (lager: Kartlager, v: number) => void): ReglageRad {
-  return { varde: styrkaFor(styrkor, lager), min: STYRKA_MIN, max: STYRKA_MAX, steg: REGLAGE_STEG, vanster: 'Dämpad', hoger: 'Skarp', onAndra: (v) => setStyrka(lager, v) };
+  // Flygfoto har ett steg förbi Skarp (Ljus, lib/kartBas) på SAMMA reglage: högre ände "Ljus", högsta värdet 120. Övriga: 0–100, "Skarp".
+  const ljus = KARTBAS_MAX_STYRKA[lager] > STYRKA_MAX;
+  return { varde: styrkaFor(styrkor, lager), min: STYRKA_MIN, max: KARTBAS_MAX_STYRKA[lager], steg: REGLAGE_STEG, vanster: 'Dämpad', hoger: ljus ? 'Ljus' : 'Skarp', onAndra: (v) => setStyrka(lager, v) };
 }

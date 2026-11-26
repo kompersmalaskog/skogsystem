@@ -17,6 +17,8 @@ export interface KlarFixtur {
   vidaAvlagg?: string[];
   /** planeraren har tryckt Stämmer på dem */
   vidaBekraftat?: boolean;
+  /** larmplatser finns (antal) och planeraren har godkänt dem; utan fältet finns inget larmplatssteg */
+  larm?: { antal: number; bekraftat: boolean };
   basvagTexter?: string[];
   /** "5 st · 599 m" — sidan räknar fram den ur de ritade basvägarna; utan den står texterna */
   basvagSammanfattning?: string | null;
@@ -55,7 +57,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     basvagKravs: false, basvagTimmar: null, skordare, skotare,
   };
   const ind: KlarIndata = {
-    avlaggAntal: f.avlaggAntal ?? 0, vidaAvlagg: f.vidaAvlagg ?? [], vidaAvlaggBekraftat: f.vidaBekraftat ?? false, basvagTexter: f.basvagTexter ?? [], basvagForvantad: f.basvagForvantad ?? false, basvagKravs: false, barighet: f.barighet ?? null, terrang: f.terrang ?? null, skotningsavstand: f.skotningsavstand ?? null,
+    avlaggAntal: f.avlaggAntal ?? 0, vidaAvlagg: f.vidaAvlagg ?? [], vidaAvlaggBekraftat: f.vidaBekraftat ?? false, larmplatser: f.larm, basvagTexter: f.basvagTexter ?? [], basvagForvantad: f.basvagForvantad ?? false, basvagKravs: false, barighet: f.barighet ?? null, terrang: f.terrang ?? null, skotningsavstand: f.skotningsavstand ?? null,
     skordare, skotare, prognos, prognosGodkandUnderlag: f.godkand ? prognosUnderlag(prognos) : null, harDu: f.harDu ?? {},
   };
   const ved = f.ved ?? { ...VED_TOM };
@@ -66,6 +68,7 @@ export function klarProps(f: KlarFixtur = {}, extra: Partial<KlarMedTraktenProps
     faktaRad: `Slutavverkning · Rp · ${prognos.areal != null ? String(prognos.areal).replace('.', ',') : '–'} ha · ${prognos.volym != null ? prognos.volym.toLocaleString('sv-SE') : '–'} m³fub`,
     klarSkickadAt: f.klarSkickadAt ?? null,
     vidaAvlagg: f.vidaAvlagg ?? [], vidaAvlaggBekraftat: f.vidaBekraftat ?? false, avlaggEgna: f.avlaggAntal ?? 0,
+    larmplats: f.larm ? { antal: f.larm.antal, bekraftat: f.larm.bekraftat, onBekrafta: () => {} } : undefined,
     basvag: { texter: ind.basvagTexter, kravs: false, timmar: '', sammanfattning: f.basvagSammanfattning ?? null },
     barighet: ind.barighet, terrang: ind.terrang, skotningsavstand: ind.skotningsavstand,
     skordare, skotare,

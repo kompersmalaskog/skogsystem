@@ -140,7 +140,7 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
   });
 
-  it('telefon, inget objekt valt: arket går att dra upp till nästan full höjd, men ned stänger det inte (inget att gå tillbaka till)', async () => {
+  it('telefon, inget objekt valt: arket går att dra upp till nästan full höjd, ned sänker det till en smal list men stänger aldrig (inget att gå tillbaka till)', async () => {
     sattBredd(390);
     await montera();
     const grepp = q('objekt-lista-grepp')!;
@@ -151,7 +151,12 @@ describe('utan valt objekt: kartan syns, aldrig en svart tom yta', () => {
     expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');
     await peka('pointerdown', 100); await peka('pointermove', 400); await peka('pointerup', 400);
     expect(q('objekt-lista')!.getAttribute('data-oppen')).toBe('1');
-    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('lag');      // ned sjunker arket till en smal list (kartan syns) — det stängs aldrig
+    await peka('pointerdown', 400); await peka('pointermove', 200); await peka('pointerup', 200);
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');     // upp igen
+    await peka('pointerdown', 100); await peka('pointermove', 400); await peka('pointerup', 400);
+    await peka('pointerdown', 400); await peka('pointermove', 400); await peka('pointerup', 400);
+    expect(q('objekt-lista')!.getAttribute('data-detent')).toBe('halv');     // tryck på greppet i lågt läge → halvt
   });
 
   it('kartan går att använda fritt (panorera, nyp, dubbeltryck): inget ligger som fångst över den, och dubbeltryck når kartan', async () => {

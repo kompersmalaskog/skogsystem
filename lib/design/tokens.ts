@@ -208,7 +208,7 @@ export const FARG = {
   /** Ett steg allvarligare än orange, för kategorier som måste kunna skiljas från orange bredvid (Avbrott: Störning → Reparation). */
   orangeMork: "#cc6600",
   rod:      "#ff453a",
-  /** Bara kalenderns markeringar (synk-avvikelse, rättad dag). Aldrig en fjärde larmfärg i text. */
+  /** Kalenderns markeringar (synk-avvikelse, rättad dag) och VIKTIGT-raden i en kommentar (⚠ gul, en nivå under fara/rött: "var uppmärksam", inte "stanna"; Martin 2026-11-23). Aldrig en fjärde larmfärg. */
   gul:      "#ffd60a",
   /** Två extra diagram-/palettfärger (t.ex. staplar i arbetsrapporten). INTE rollfärger —
    *  skördare/skotare färgas av rollFarg() (lila/turkos), se skogsystem-design-skillen. */
@@ -335,14 +335,15 @@ export const KNAPP = {
     color: FARG.text,
     ...TYP.listtitel,
   },
-  /** Grå text, 44 px träffyta, ingen ram. Undantagen. */
+  /** Liten blå text, 44 px träffyta, ingen ram. Undantagen ("Hoppa över", "Ändra", "Försök igen").
+   *  Blå som allt annat man kan trycka på (Apples regel: grå text går aldrig att trycka på, Martin 2026-11-25). */
   tertiar: {
     ...knappBas,
     display: "inline-flex",
     minHeight: TRAFFYTA.min,
     padding: 0,
     background: "none",
-    color: FARG.text2,
+    color: FARG.bla,
     ...TYP.meta,
   },
   /** Blå text. Bara "navigerar eller avbryter". */

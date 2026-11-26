@@ -12,6 +12,8 @@ import { maskinNamn, maskinKortNamn } from '@/lib/kalibrering/ordlista';
 import { filtreradSammanfattning } from '@/lib/kalibrering/kalender';
 import { idagManad } from '@/lib/kalibrering/datum';
 import { startMaskin } from '@/lib/kalibrering/laget';
+import { hamtaSenasteMatdon, type MatdonKoll } from '@/lib/kalibrering/matdon';
+import type { FeletResp } from '@/lib/kalibrering/felet';
 import { aktivaMaskinIds, artSnitt, filtreraKalib, rapportSnitt, rapportSedan, tradslagRader } from '@/lib/kalibrering/rapport';
 import {
   type AlleMaskin, type BedomningResp, type CalResponse, type DiagnosResp, type FaktKalibrering, type GreppResp, type GrovlekResp,
@@ -54,6 +56,9 @@ export function useKalibreringData(activeTab: Flik) {
   const [grovlekFelMap, setGrovlekFelMap] = useState<Record<string, string>>({});
   const [greppMap, setGreppMap] = useState<Record<string, GreppResp>>({});
   const [greppFelMap, setGreppFelMap] = useState<Record<string, string>>({});
+  // Läget › Var sitter felet? — per maskin, hämtas när Läget visas.
+  const [feletMap, setFeletMap] = useState<Record<string, FeletResp>>({});
+  const [feletFelMap, setFeletFelMap] = useState<Record<string, string>>({});
   const greppPagar = useRef<Set<string>>(new Set()); // maskiner vars Grepp-hämtning pågår
   // Objekt-fliken (maskinoberoende)
   const [objektData, setObjektData] = useState<ObjektData | null>(null);
@@ -65,6 +70,10 @@ export function useKalibreringData(activeTab: Flik) {
   const [nyMarkorDatum, setNyMarkorDatum] = useState('');
   const [nyMarkorText, setNyMarkorText] = useState('');
   const [markorSparar, setMarkorSparar] = useState(false);
+  // Klave och måttband: senaste kontrollen per maskin (null = aldrig). Läses i Läget.
+  const [matdonMap, setMatdonMap] = useState<Record<string, MatdonKoll | null>>({});
+  const [matdonFel, setMatdonFel] = useState<string | null>(null);
+  const [matdonSparar, setMatdonSparar] = useState(false);
 
   // Hämta alla skördare (även sålda) en gång vid mount — listan i maskinarket
   useEffect(() => {
@@ -131,6 +140,18 @@ export function useKalibreringData(activeTab: Flik) {
       })
       .catch(() => setGrovlekFelMap(prev => ({ ...prev, [maskin]: 'Grovlekarna kunde inte läsas.' })));
   }, [grovlekMap, grovlekFelMap]);
+
+  // Var sitter felet?: underlaget per stam för maskinen, en gång. Ett läsfel tar aldrig med sig domen — det är en egen del.
+  const laddaFelet = useCallback((maskin: string) => {
+    if (!maskin || feletMap[maskin] || feletFelMap[maskin]) return;
+    fetch(`/api/kalibrering/felet?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: FeletResp) => {
+        if (!data?.ok) throw new Error('svar utan felet');
+        setFeletMap(prev => ({ ...prev, [maskin]: data }));
+      })
+      .catch(() => setFeletFelMap(prev => ({ ...prev, [maskin]: 'Kunde inte läsa var felet sitter.' })));
+  }, [feletMap, feletFelMap]);
 
   // Greppet: servern läser bara cachen (cron-jobbet räknar om efter importen). `kvar` > 0 = några objekt ligger efter; vyn säger "Räknas om" och det som
   // redan är räknat visas. Vi frågar en gång per maskin — siffrorna kompletteras nästa gång vyn öppnas, ingen väntar på dem.
@@ -199,7 +220,8 @@ export function useKalibreringData(activeTab: Flik) {
 
   // === Kontroller: mättid och urval per kontroll (en maskin åt gången)
   useEffect(() => {
-    if (activeTab !== 'kontroller' || !effektiv || tiderMap[effektiv] || tiderFel) return;
+    // Läget läser urvalet också (raden "N slumpvalda").
+    if ((activeTab !== 'kontroller' && activeTab !== 'laget') || !effektiv || tiderMap[effektiv] || tiderFel) return;
     const maskin = effektiv;
     let cancelled = false;
     fetch(`/api/kalibrering/kontroller?maskin_id=${encodeURIComponent(maskin)}`, { cache: 'no-store' })
@@ -214,6 +236,47 @@ export function useKalibreringData(activeTab: Flik) {
   }, [activeTab, effektiv, tiderMap, tiderFel]);
   // Byter man maskin börjar felet om från noll.
   useEffect(() => { setTiderFel(null); }, [effektiv]);
+
+  // === Klave och måttband (Läget)
+  useEffect(() => {
+    if (activeTab !== 'laget' || !effektiv || effektiv in matdonMap || matdonFel) return;
+    const maskin = effektiv;
+    let cancelled = false;
+    hamtaSenasteMatdon(supabase, maskin)
+      .then(k => { if (!cancelled) setMatdonMap(prev => ({ ...prev, [maskin]: k })); })
+      .catch(() => { if (!cancelled) setMatdonFel('Kunde inte läsa när klaven kollades.'); });
+    return () => { cancelled = true; };
+  }, [activeTab, effektiv, matdonMap, matdonFel]);
+  useEffect(() => { setMatdonFel(null); }, [effektiv]);
+
+  /** "Båda stämmer" — en ny rad, tid och vem sätts av databasen. true = sparad. */
+  const sparaMatdon = useCallback(async (): Promise<boolean> => {
+    if (!effektiv) return false;
+    const maskin = effektiv;
+    setMatdonSparar(true);
+    const { data, error } = await supabase.from('kalibrering_matdon').insert({ maskin_id: maskin })
+      .select('id, kontrollerad_at, kontrollerad_av').single();
+    setMatdonSparar(false);
+    if (error || !data) return false;
+    const r = data as { id: string; kontrollerad_at: string; kontrollerad_av: string | null };
+    setMatdonMap(prev => ({ ...prev, [maskin]: { id: r.id, at: r.kontrollerad_at, av: r.kontrollerad_av } }));
+    return true;
+  }, [effektiv]);
+
+  /** Ångra den kontroll man just sparat. Läser sedan om den senaste. */
+  const angraMatdon = useCallback(async (id: string): Promise<boolean> => {
+    if (!effektiv) return false;
+    const maskin = effektiv;
+    const { error } = await supabase.from('kalibrering_matdon').delete().eq('id', id);
+    if (error) return false;
+    try {
+      const k = await hamtaSenasteMatdon(supabase, maskin);
+      setMatdonMap(prev => ({ ...prev, [maskin]: k }));
+    } catch {
+      setMatdonMap(prev => { const { [maskin]: _b, ...rest } = prev; return rest; });
+    }
+    return true;
+  }, [effektiv]);
 
   // === Objekt: lazy fetch (maskinoberoende, en gång)
   useEffect(() => {
@@ -304,6 +367,7 @@ export function useKalibreringData(activeTab: Flik) {
     setTradslagFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGrovlekFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setGreppFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
+    setFeletFelMap(prev => { const { [maskin]: _a, ...rest } = prev; return rest; });
     setObjektFel(null);
     setTiderFel(null);
   }, [effektiv]);
@@ -326,7 +390,9 @@ export function useKalibreringData(activeTab: Flik) {
     calManad, setCalManad, calData, calLoading, calError, filteredSammanfattning,
     objektData, objektFel, trData, trRader, tradslagFel: effektiv ? tradslagFelMap[effektiv] ?? null : null,
     tider, tiderFel,
+    matdon: effektiv && effektiv in matdonMap ? matdonMap[effektiv] : undefined, matdonFel, matdonSparar, sparaMatdon, angraMatdon,
     laddaGrovlek, grovlekData: effektiv ? grovlekMap[effektiv] ?? null : null, grovlekFel: effektiv ? grovlekFelMap[effektiv] ?? null : null,
+    laddaFelet, feletData: effektiv ? feletMap[effektiv] ?? null : null, feletFel: effektiv ? feletFelMap[effektiv] ?? null : null,
     laddaGrepp, greppData: effektiv ? greppMap[effektiv] ?? null : null, greppFel: effektiv ? greppFelMap[effektiv] ?? null : null,
     filteredKalib, speciesData, totalStockar, reportSedan,
   };

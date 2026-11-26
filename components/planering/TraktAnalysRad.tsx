@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { AVSTAND, FARG, IKON, TRAFFYTA, TYP, VIKT } from '@/lib/design/tokens';
+import { traktAnalysLank } from '@/lib/traktAnalys/lankar';
 
 export type KontrollLage = 'traff' | 'ingen' | 'osaker';
 
@@ -13,7 +14,7 @@ export interface Kontroll {
   type: string;
   label: string;
   lage: KontrollLage;
-  traffar: { name: string; details?: string | null }[];
+  traffar: { name: string; details?: string | null; warning?: string | null; url?: string | null }[];
 }
 
 export type AnalysStatus = 'laddar' | 'fel' | 'klar';
@@ -28,10 +29,21 @@ export function analysSammanfattning(kontroller: Kontroll[]): { ikon: '✓' | '�
   return { ikon: '✓', text: `Traktanalys: inget hittat · ${antal} kontroller`, farg: 'dam' };
 }
 
-export function TraktAnalysRad({ status, kontroller }: { status: AnalysStatus; kontroller: Kontroll[] }) {
+export function TraktAnalysRad({ status, kontroller, onForsokIgen, onOppnaLank }: {
+  status: AnalysStatus; kontroller: Kontroll[];
+  /** Analysen kunde inte köras: "Försök igen" (ersätter Kör igen i den gamla bottenpanelen). */
+  onForsokIgen?: () => void;
+  /** Öppnar en träffs länk (appens openExternal). Utan den ritas länken som en vanlig länk. */
+  onOppnaLank?: (url: string) => void;
+}) {
   const [alla, setAlla] = useState(false);
   if (status === 'laddar') return <div data-testid="traktanalys-rad" style={{ ...TYP.text, color: FARG.text2 }}>Traktanalys: analyserar…</div>;
-  if (status === 'fel') return <div data-testid="traktanalys-rad" style={{ ...TYP.text, color: FARG.orange }}>Traktanalys: kunde inte köras – försök igen.</div>;
+  if (status === 'fel') return (
+    <div data-testid="traktanalys-rad" style={{ display: 'flex', alignItems: 'center', gap: AVSTAND.s, minHeight: TRAFFYTA.min, ...TYP.text, color: FARG.orange }}>
+      <span style={{ flex: 1, minWidth: 0 }}>Traktanalys: kunde inte köras</span>
+      {onForsokIgen && <button type="button" data-testid="traktanalys-forsok-igen" onClick={onForsokIgen} className="press-dim" style={{ minHeight: TRAFFYTA.min, padding: `0 ${AVSTAND.s}px`, border: 'none', background: 'transparent', color: FARG.bla, cursor: 'pointer', fontFamily: 'inherit', ...TYP.text }}>Försök igen</button>}
+    </div>
+  );
   const sam = analysSammanfattning(kontroller);
   const farg = sam.farg === 'rod' ? FARG.rod : sam.farg === 'orange' ? FARG.orange : FARG.text;
   // Träffar och kontroller som inte gick att köra visas utfällda direkt; ett tryck på raden fäller ut resten.
@@ -56,11 +68,22 @@ export function TraktAnalysRad({ status, kontroller }: { status: AnalysStatus; k
                   <span style={{ flex: 1, color: FARG.text }}>{k.label}</span>
                   <span style={{ ...TYP.meta, color: k.lage === 'ingen' ? FARG.text2 : symFarg }}>{status}</span>
                 </div>
-                {k.lage === 'traff' && k.traffar.map((h, i) => (
-                  <div key={i} style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l }}>
-                    {h.name}{h.details ? <span style={{ color: FARG.text3 }}> · {h.details}</span> : null}
-                  </div>
-                ))}
+                {k.lage === 'traff' && k.traffar.map((h, i) => {
+                  const lank = traktAnalysLank(k.type, h.url);
+                  return (
+                    <div key={i} data-testid="traktanalys-traff" style={{ ...TYP.meta, color: FARG.text2, paddingLeft: AVSTAND.l, display: 'flex', flexDirection: 'column', gap: AVSTAND.xs }}>
+                      <div>{h.name}{h.details ? <span style={{ color: FARG.text3 }}> · {h.details}</span> : null}</div>
+                      {h.warning && <div data-testid="traktanalys-varning" style={{ color: FARG.orange }}>{h.warning}</div>}
+                      {lank && (
+                        <a href={lank.url} target="_blank" rel="noopener noreferrer" data-testid="traktanalys-lank"
+                          onClick={(e) => { if (onOppnaLank) { e.preventDefault(); onOppnaLank(lank.url); } }}
+                          style={{ display: 'inline-flex', alignItems: 'center', minHeight: TRAFFYTA.min, color: FARG.bla, textDecoration: 'none' }}>
+                          {lank.text}
+                        </a>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}

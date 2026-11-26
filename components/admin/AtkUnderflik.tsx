@@ -1,13 +1,16 @@
 "use client";
+import { utanMaskinkonton } from "@/lib/admin/utanMaskinkonton";
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { AVSTAND, FARG, RADIE, TYP } from "@/lib/design/tokens";
-import { Sektion, Stod, Kort, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Tomt, Etikett, Ikon } from "./ui";
+import { AVSTAND, FARG, RADIE, TRAFFYTA, TYP } from "@/lib/design/tokens";
+import Svarsrad from "@/components/design/Svarsrad";
+import { byggAtkVy, statusText, valDetalj, type AtkPerson } from "@/lib/admin/atkVy";
+import { Sektion, Lista, Rad, Sekundar, Primar, Besked, Fel, Laddar, Ikon } from "./ui";
 
 type CurrentUser = { id: string; namn?: string | null; roll: string };
 
-type Medarbetare = { id: string; namn: string | null };
+type Medarbetare = AtkPerson;
 type AtkVal = {
   id?: string;
   medarbetare_id: string;
@@ -21,11 +24,6 @@ type AtkVal = {
 
 const AKTUELL_PERIOD = String(new Date().getFullYear());
 
-const VAL_LABEL: Record<string, string> = {
-  ledig: "Ledig tid",
-  kontant: "Pengar",
-  pension: "Pension",
-};
 
 export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser }) {
   const sp = useSearchParams();
@@ -39,17 +37,19 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
   const [fel, setFel] = useState<string | null>(null);
   const [uppdaterar, setUppdaterar] = useState<string | null>(null);
   const [statusFel, setStatusFel] = useState<string | null>(null);
+  const [paminner, setPaminner] = useState(false);
+  const [paminnSvar, setPaminnSvar] = useState<{ fel: boolean; text: string } | null>(null);
   const högdaRef = useRef<HTMLDivElement>(null);
 
   const ladda = async () => {
     setLaddar(true); setFel(null);
     try {
       const [medRes, valRes] = await Promise.all([
-        supabase.from("medarbetare").select("id, namn").order("namn"),
+        supabase.from("medarbetare").select("id, namn, roll, foretagsledare, aktiv").order("namn"),
         supabase.from("atk_val").select("*").eq("period", period),
       ]);
       if (medRes.error) throw medRes.error;
-      setMedarbetare(medRes.data || []);
+      setMedarbetare(utanMaskinkonton(medRes.data));
       const map: Record<string, AtkVal> = {};
       for (const v of (valRes.data || [])) map[v.medarbetare_id] = v;
       setVal(map);
@@ -87,85 +87,105 @@ export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser
     await ladda();
   };
 
-  const utanVal = medarbetare.filter(m => !val[m.id]);
-  const medVal = medarbetare.filter(m => val[m.id]);
   const arAktuell = parseInt(period) >= parseInt(AKTUELL_PERIOD);
+  const vy = byggAtkVy(Number(period), new Date(), medarbetare, val);
+  const grupperat = vy.vantar.length + vy.valt.length > 0;
+
+  const paminnAlla = async () => {
+    setPaminner(true); setPaminnSvar(null);
+    try {
+      const res = await fetch("/api/atk/paminn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ period }) });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.ok) setPaminnSvar({ fel: true, text: j?.meddelande || "Kunde inte påminna. Försök igen." });
+      else if (j.koade === 0) setPaminnSvar({ fel: false, text: "Redan påmind för en stund sedan." });
+      else setPaminnSvar({ fel: false, text: `Påminnelse ${j.skickades ? "skickad" : "köad"} till ${j.koade}.` });
+    } catch {
+      setPaminnSvar({ fel: true, text: "Kunde inte påminna. Försök igen." });
+    } finally {
+      setPaminner(false);
+    }
+  };
+
+  const namn = (p: { namn: string | null; id: string }) => p.namn || "Namn saknas";
+  const markera = (id: string, barn: React.ReactNode) =>
+    id === förvaldMedId ? <div key={id} ref={högdaRef} style={{ background: FARG.tonad, borderRadius: RADIE.rad }}>{barn}</div> : <React.Fragment key={id}>{barn}</React.Fragment>;
 
   return (
     <>
-      {/* Periodväljare */}
-      <Kort style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${AVSTAND.s}px ${AVSTAND.l}px` }}>
-        <Sekundar smal onClick={() => setPeriod(String(parseInt(period) - 1))} style={{ width: 44, padding: 0 }}><Ikon namn="chevron_left" farg={FARG.text} /></Sekundar>
-        <span style={{ ...TYP.listtitel, color: FARG.text }}>ATK-period {period}</span>
-        <Sekundar smal onClick={() => setPeriod(String(parseInt(period) + 1))} disabled={arAktuell} style={{ width: 44, padding: 0 }}><Ikon namn="chevron_right" farg={FARG.text} /></Sekundar>
-      </Kort>
+      {/* Året: en tyst rad, inte ett kort — det byts sällan. */}
+      <div data-atk-ar="" style={{ display: "flex", alignItems: "center", gap: AVSTAND.xs, marginBottom: AVSTAND.s }}>
+        <button type="button" aria-label="Föregående år" onClick={() => setPeriod(String(parseInt(period) - 1))} style={arKnapp}><Ikon namn="chevron_left" farg={FARG.bla} /></button>
+        <span style={{ ...TYP.listtitel, color: FARG.text, minWidth: 48, textAlign: "center" }}>{period}</span>
+        <button type="button" aria-label="Nästa år" onClick={() => setPeriod(String(parseInt(period) + 1))} disabled={arAktuell} style={{ ...arKnapp, opacity: arAktuell ? 0.3 : 1 }}><Ikon namn="chevron_right" farg={FARG.bla} /></button>
+      </div>
 
       {laddar ? (
-        <div style={{ marginTop: AVSTAND.m }}><Laddar /></div>
+        <Laddar />
       ) : fel ? (
-        <div style={{ marginTop: AVSTAND.m }}><Fel onForsok={ladda}>{fel}</Fel></div>
+        <Fel onForsok={ladda}>{fel}</Fel>
       ) : (
         <>
+          <div data-svar="">
+            <Svarsrad rubrik={vy.svar} avvikelse={vy.kraverDig} rad={vy.under.join(" · ")} />
+          </div>
           {statusFel && <Besked>{statusFel}</Besked>}
 
-          {/* Saknar val */}
-          {utanVal.length > 0 && (
+          {vy.kanPaminna && (
+            <div data-atk-paminn="" style={{ marginBottom: AVSTAND.m }}>
+              <Primar onClick={paminnAlla} disabled={paminner} style={{ width: "100%" }}>Påminn alla {vy.inteValt.length}</Primar>
+              {paminnSvar && <p style={{ margin: `${AVSTAND.s}px 0 0`, ...TYP.meta, color: paminnSvar.fel ? FARG.rod : FARG.text2, textAlign: "center" }}>{paminnSvar.text}</p>}
+            </div>
+          )}
+
+          {/* Väntar på dig: pengar och pension som ska godkännas. Knapparna står på raden. */}
+          {vy.vantar.length > 0 && (
             <>
-              <Sektion>Saknar val ({utanVal.length})</Sektion>
+              <Sektion orange>Väntar på dig</Sektion>
               <Lista>
-                {utanVal.map((m, i) => (
-                  <Rad key={m.id} rubrik={m.namn || m.id.slice(0, 8)} sista={i === utanVal.length - 1} />
-                ))}
+                {vy.vantar.map(({ person, val: v }, i) => markera(person.id,
+                  <Rad attr={{ "data-atk-rad": "vantar" }} rubrik={namn(person)} detalj={valDetalj(v)} sista={i === vy.vantar.length - 1}>
+                    {v.id && (
+                      <div style={{ display: "flex", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
+                        <Primar onClick={() => sättStatus(v.id!, "godkand")} disabled={uppdaterar === v.id} style={{ flex: 1 }}>Godkänn</Primar>
+                        <Sekundar onClick={() => sättStatus(v.id!, "avslagen")} disabled={uppdaterar === v.id} style={{ flex: 1 }}>Avslå</Sekundar>
+                      </div>
+                    )}
+                  </Rad>))}
               </Lista>
-              <Stod>Förarna väljer pengar, ledig tid eller pension.</Stod>
             </>
           )}
 
-          {/* Har valt */}
-          {medVal.length > 0 && (
+          {/* Inte valt. Har ingen valt behövs ingen grupp: svaret ovanför säger redan vad listan är. */}
+          {vy.inteValt.length > 0 && (
             <>
-              <Sektion>Val gjorda ({medVal.length})</Sektion>
+              {grupperat && <Sektion>{vy.lage === "stangd" ? "Valde inte" : "Inte valt"}</Sektion>}
               <Lista>
-                {medVal.map((m, i) => {
-                  const v = val[m.id];
-                  const krävs_godkännande = v.val !== "ledig" && (v.status === "bekräftad" || !v.status);
-                  const är_förvald = m.id === förvaldMedId;
-                  return (
-                    <div key={m.id} ref={är_förvald ? högdaRef : undefined}
-                      style={{ padding: `${AVSTAND.m}px 0`, borderBottom: i === medVal.length - 1 ? "none" : `1px solid ${FARG.linje}`, background: är_förvald ? FARG.tonad : "transparent", borderRadius: är_förvald ? RADIE.rad : 0 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: AVSTAND.m, flexWrap: "wrap" }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ ...TYP.listtitel, color: FARG.text }}>{m.namn || m.id.slice(0, 8)}</div>
-                          <div style={{ ...TYP.meta, color: FARG.text2, marginTop: AVSTAND.xs }}>
-                            {[VAL_LABEL[v.val] || v.val, v.timmar != null && `${v.timmar} h`, v.belopp != null && `${v.belopp.toLocaleString("sv-SE")} kr`, v.datum_valt && `valt ${new Date(v.datum_valt).toLocaleDateString("sv-SE")}`].filter(Boolean).join(" · ")}
-                          </div>
-                        </div>
-                        <StatusEtikett status={v.status} />
-                      </div>
+                {vy.inteValt.map((p, i) => markera(p.id,
+                  <Rad attr={{ "data-atk-rad": "inte" }} rubrik={namn(p)} hoger={grupperat ? undefined : (vy.lage === "stangd" ? "Valde inte" : "Inte valt")} sista={i === vy.inteValt.length - 1} />))}
+              </Lista>
+            </>
+          )}
 
-                      {krävs_godkännande && v.id && (
-                        <div style={{ display: "flex", gap: AVSTAND.m, marginTop: AVSTAND.m }}>
-                          <Primar onClick={() => sättStatus(v.id!, "godkand")} disabled={uppdaterar === v.id} style={{ flex: 1 }}>Godkänn</Primar>
-                          <Sekundar onClick={() => sättStatus(v.id!, "avslagen")} disabled={uppdaterar === v.id} style={{ flex: 1 }}>Avslå</Sekundar>
-                        </div>
-                      )}
-                    </div>
-                  );
+          {vy.valt.length > 0 && (
+            <>
+              <Sektion>Valt</Sektion>
+              <Lista>
+                {vy.valt.map(({ person, val: v }, i) => {
+                  const st = statusText(v);
+                  return markera(person.id,
+                    <Rad attr={{ "data-atk-rad": "valt" }} rubrik={namn(person)} detalj={st || undefined} hoger={valDetalj(v)} sista={i === vy.valt.length - 1} />);
                 })}
               </Lista>
             </>
           )}
-
-          {medVal.length === 0 && utanVal.length === 0 && <Kort style={{ marginTop: AVSTAND.m }}><Tomt>Inga medarbetare.</Tomt></Kort>}
         </>
       )}
     </>
   );
 }
 
-function StatusEtikett({ status }: { status: string | null }) {
-  if (!status || status === "bekräftad") return <Etikett>Väntar</Etikett>;
-  if (status === "godkand") return <Etikett farg={FARG.gron}>Godkänd</Etikett>;
-  if (status === "avslagen") return <Etikett farg={FARG.rod}>Avslagen</Etikett>;
-  return <Etikett>{status}</Etikett>;
-}
+const arKnapp: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center", width: TRAFFYTA.min, height: TRAFFYTA.min,
+  padding: 0, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
+};
+

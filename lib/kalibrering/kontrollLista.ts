@@ -47,7 +47,7 @@ export const urvalText = (urval: string[]): string | null => {
 
 // === Väder ===
 /** −3 °C med riktigt minustecken, avrundat till heltal. */
-const grader = (c: number): string => { const r = Math.round(c); return `${r < 0 ? MINUS : ''}${Math.abs(r)} °C`; };
+export const grader = (c: number): string => { const r = Math.round(c); return `${r < 0 ? MINUS : ''}${Math.abs(r)} °C`; };
 
 /**
  * Vädret kort: "−3 °C, frost", "8 °C, uppehåll", "1 °C, 2,0 cm snö". Frost nämns när databasen säger det; snö går före regn; ingen nederbörd = uppehåll.
@@ -66,17 +66,25 @@ export const vaderKort = (w: VaderJson | undefined): string | null => {
 };
 
 /**
- * Vädret hämtas ur Open-Meteos arkiv (ERA5), som ligger ca 5 dygn efter. Importen försöker inte förrän kontrollen är 6 dygn gammal
- * (`VADER_ARKIV_FORDROJNING_DAGAR` i skogsmaskin_import_version_6.py — samma tal) och fyller sedan i det vid nästa import.
- * Under den tiden SAKNAS vädret inte — det har inte kommit än, och raden säger det.
+ * STRÄNG KYLA (Skogforsk, 2026-11-18): under ca −7 °C är virket fruset och maskinen mäter ofta annorlunda än en varm dag
+ * (barken och veden). Kontrollen är ändå riktig — men den ska inte jämföras rakt av med en varm dag. Gränsen ändras bara här.
  */
-export const VADER_FORDROJNING_DAGAR = 6;
+export const KALL_GRANS_C = -7;
+export const arKallt = (w: VaderJson | undefined): boolean => w?.temperature_c != null && w.temperature_c <= KALL_GRANS_C;
+export const KALL_TEXT = 'Under −7 °C mäter maskinen ofta annorlunda än en varm dag, för att virket är fruset.';
+
+/**
+ * Vädret hämtas av importen när kontrollens fil kommer in (2026-11-23: yngre kontroller ur Open-Meteos vanliga väder-API,
+ * äldre ur ERA5-arkivet — se `hamta_vader_vid_skord` i skogsmaskin_import_version_6.py). Saknas det idag eller igår har
+ * importen inte hunnit (eller tjänsten svarade inte) och nästa import fyller i det — det SAKNAS inte än.
+ */
+export const VADER_FORDROJNING_DAGAR = 2;
 const dagarMellan = (fran: string, till: string): number =>
   Math.round((Date.parse(`${till}T00:00:00Z`) - Date.parse(`${fran}T00:00:00Z`)) / 86_400_000);
 
-/** Texten när vädret inte finns: "Väder kommer om några dagar" för en ung kontroll, annars "Väder saknas". */
+/** Texten när vädret inte finns: "Väder kommer snart" för en kontroll från idag eller igår, annars "Väder saknas". */
 export const vaderUtanText = (dag: string, idag: string): string =>
-  dagarMellan(dag, idag) < VADER_FORDROJNING_DAGAR ? 'Väder kommer om några dagar' : 'Väder saknas';
+  dagarMellan(dag, idag) < VADER_FORDROJNING_DAGAR ? 'Väder kommer snart' : 'Väder saknas';
 
 // === Dag och klockslag ===
 /** "ons 21 okt" */
@@ -94,9 +102,11 @@ export type KontrollRad = {
   rad1: string;
   /** "Förvald" / "Slumpstam" — hur stammen valdes. null när filen inte säger. Står först på andra raden, före vädret. */
   urval: string | null;
-  /** Vädret kort, eller "Väder saknas" / "Väder kommer om några dagar" (ung kontroll, arkivet ligger efter). */
+  /** Vädret kort, eller "Väder saknas" / "Väder kommer snart" (kontroll från idag eller igår). */
   vader: string;
   vaderSaknas: boolean;
+  /** Under −7 °C (KALL_GRANS_C): vädret står i orange. */
+  kallt: boolean;
   /** Sorteringsnyckel: mättiden (svensk väggklocka) eller filens datum — nyast först. */
   sort: string;
   dag: string;
@@ -122,6 +132,7 @@ export const kontrollRad = (k: FaktKalibrering, tid: KontrollTid | undefined, id
     urval,
     vader: vader ?? vaderUtanText(dag, idag),
     vaderSaknas: vader == null,
+    kallt: arKallt(k.weather_at_harvest),
     sort: sista ? `${sista.dag}T${sista.klockslag}` : `${dag}T00:00`,
     dag,
   };
@@ -153,4 +164,26 @@ export const kontrollTider = (rader: StockTidRad[]): Record<string, KontrollTid>
     };
   }
   return ut;
+};
+
+// === Kontrollerna i fönstret (Läget) ===
+export type KontrollSammanfattning = {
+  antal: number;
+  /** Slumpvalda stammar, eller null när urvalet inte är läst. */
+  slump: number | null;
+  /** Kontroller i sträng kyla (KALL_GRANS_C). */
+  kalla: number;
+  /** Senaste kontrollens dag (YYYY-MM-DD), eller null. */
+  senaste: string | null;
+};
+
+/** Kontrollerna från `fran` (fönstrets första dag) och framåt. `tider` = urvalet per fil (null = inte läst). */
+export const kontrollSammanfattning = (alla: FaktKalibrering[], tider: Record<string, KontrollTid> | null, fran: string): KontrollSammanfattning => {
+  const i = alla.filter(k => k.datum.slice(0, 10) >= fran);
+  return {
+    antal: i.length,
+    slump: tider ? i.filter(k => (tider[k.filnamn]?.urval ?? []).includes(URVAL_SLUMP)).length : null,
+    kalla: i.filter(k => arKallt(k.weather_at_harvest)).length,
+    senaste: alla.reduce<string | null>((m, k) => (m == null || k.datum.slice(0, 10) > m ? k.datum.slice(0, 10) : m), null),
+  };
 };

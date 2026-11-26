@@ -24,6 +24,17 @@ describe('rutorna runt trakten', () => {
     expect(new Set(r).size).toBe(r.length);
   });
 
+  it('på en skärm med hög upplösning sparas flygfotot i 512 (adressen kartan begär) — de andra lagren oförändrade, och utan dpr gäller dagens', () => {
+    const ny = planeraRutor(TRAKT, MAX_RUTOR, 2), gammal = planeraRutor(TRAKT, MAX_RUTOR, 1);
+    expect(ny.length).toBe(gammal.length);
+    const flyg = (r: string[]) => r.filter((u) => u.includes('layer=ortofoto'));
+    expect(flyg(ny).length).toBeGreaterThan(0);
+    expect(flyg(ny).every((u) => u.endsWith('&s=512'))).toBe(true);
+    expect(flyg(gammal).some((u) => u.includes('&s='))).toBe(false);
+    expect(ny.filter((u) => !u.includes('layer=ortofoto'))).toEqual(gammal.filter((u) => !u.includes('layer=ortofoto')));
+    expect(planeraRutor(TRAKT)).toEqual(gammal);   // jsdom = DPR 1
+  });
+
   it('en stor trakt tar bort Flygfotots högsta zoom först, aldrig fler än taket', () => {
     const stor: Bbox = { vast: 15.70, ost: 15.76, syd: 56.80, nord: 56.83 };
     const r = planeraRutor(stor);
@@ -81,7 +92,7 @@ describe('vakter', () => {
     expect(sw).toContain(`const KART_CACHE = '${KART_CACHE}';`);
   });
   it('planeringssidans bakgrunder begär rutorna på EXAKT nedladdningens adresser', () => {
-    expect(sida).toContain('tiles: [KARTRUTA_MALL.satellite]');
+    expect(sida).toContain('tiles: [flygfotoMall()]');   // flygfotot: 256 eller 512 efter skärmen (lib/flygfotoRuta) — nedladdningen använder samma mall
     expect(sida).toContain('tiles: [KARTRUTA_MALL.lantmateriet]');
     expect(sida).toContain('tiles: [KARTRUTA_MALL.topographic]');
     const terrang = fs.readFileSync(path.resolve(__dirname, '../components/MapLibreMap.tsx'), 'utf8');

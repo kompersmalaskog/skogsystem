@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SKORDARSPAR_BREDD, SKORDARSPAR_STYRKA, STRAK_FARG,
-  dampatSpar, sparAlder, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR, SPAR_KANT_FARG, SPAR_KANT_FRAN_ZOOM, SPAR_KANT_FULL_ZOOM,
+  dampatSpar, sparBlekning, SPAR_DAMPAD_FARG, SPAR_BLEKNA_DAGAR, SPAR_KANT_FARG, SPAR_KANT_FRAN_ZOOM, SPAR_KANT_FULL_ZOOM,
   sparStil, rollFarg, ROLLFARG_SKORDARE, ROLLFARG_SKOTARE, HYTTSPAR_LINE_WIDTH, HYTTSPAR_CASING_WIDTH, HYTTSPAR_HIST_LINE_WIDTH, HYTTSPAR_HIST_CASING_WIDTH,
   SKORDARSPAR_LINJE_BREDD, SKORDARSPAR_LINJE_OPACITET, SKORDARSPAR_CASING_BREDD, SKORDARSPAR_CASING_OPACITET, type SparArt,
 } from './sparStil';
@@ -136,15 +136,6 @@ describe('spåren på planeringskartan: rollfärger, 3 / 2,5 px, dagens ~0,9, sm
       expect(JSON.stringify(dampatSpar(roll, art))).not.toContain('alder');
     }
     expect(sparBlekning(0.6, 0.2)).toEqual(['interpolate', ['linear'], ['coalesce', ['to-number', ['get', 'alder']], 0], 0, 0.6, 14, 0.2]);
-  });
-  it('sparAlder: dagar sedan, aldrig negativt; saknat eller trasigt datum är dagens (vi gissar inte att något är gammalt)', () => {
-    expect(sparAlder('2026-10-26', '2026-10-26')).toBe(0);
-    expect(sparAlder('2026-10-19', '2026-10-26')).toBe(7);
-    expect(sparAlder('2026-09-26', '2026-10-26')).toBe(30);
-    expect(sparAlder('2026-10-27', '2026-10-26')).toBe(0);
-    expect(sparAlder(null, '2026-10-26')).toBe(0);
-    expect(sparAlder('skräp', '2026-10-26')).toBe(0);
-    expect(sparAlder('2026-10-19T08:00:00Z', '2026-10-26')).toBe(7);
   });
 });
 

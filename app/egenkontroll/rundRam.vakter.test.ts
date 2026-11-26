@@ -43,3 +43,20 @@ describe('de sju avstegen från planeringsvyn', () => {
     }
   });
 });
+
+// RADEN "RUNDAN ÄR KLAR" delar spår med Ångra-kvittot och måste vara exakt lika hög — annars flyttar sig något när den ena ersätter den
+// andra, och det är rundvyns hårdaste regel som bryts (inget tryckbart får flytta sig under fingret). Höjden mäts i Chromium
+// (AvslutaRad.matt.test.tsx); den här vakten ser till att båda hämtar den ur SAMMA token, så en ändring på ett ställe inte glider förbi.
+describe('avslutsraden och Ångra-kvittot delar spår', () => {
+  it('båda bär minHeight: TRAFFYTA.primar', () => {
+    expect(las('app/egenkontroll/AvslutaRad.tsx')).toMatch(/minHeight:\s*TRAFFYTA\.primar/);
+    const sidan = las('app/egenkontroll/[objektId]/page.tsx');
+    const i = sidan.indexOf("data-testid=\"angra-kvitto\"");
+    expect(i, 'Ångra-kvittot hittades inte i rundvyn').toBeGreaterThan(0);
+    expect(sidan.slice(i, i + 600)).toMatch(/minHeight:\s*TRAFFYTA\.primar/);
+  });
+
+  it('raden ligger UTANFÖR dockan: RundDock känner inte till den', () => {
+    expect(las('app/egenkontroll/RundDock.tsx')).not.toMatch(/AvslutaRad/);
+  });
+});

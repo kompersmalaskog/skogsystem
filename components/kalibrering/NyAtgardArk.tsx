@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import Ark from '@/components/design/Ark';
 import Falt from '@/components/design/Falt';
-import { INAKTIV, KNAPP } from '@/lib/design/tokens';
+import { INAKTIV, KNAPP, TYP } from '@/lib/design/tokens';
 import type { KalibreringData } from '@/lib/hooks/useKalibreringData';
 import { idagStr } from '@/lib/kalibrering/datum';
 import { Lugn } from './delar';
@@ -23,6 +23,10 @@ export default function NyAtgardArk({ d, onStang }: { d: KalibreringData; onStan
       fot={<button type="button" onClick={spara} disabled={!kanSpara} style={{ ...KNAPP.primar, ...(kanSpara ? null : INAKTIV) }}>{d.markorSparar ? 'Sparar…' : 'Spara'}</button>}>
       <Falt etikett="Datum" typ="date" value={d.nyMarkorDatum} onChange={d.setNyMarkorDatum} />
       <Falt etikett="Vad gjorde du?" placeholder="t.ex. höjde trycket till 400 mm" value={d.nyMarkorText} onChange={d.setNyMarkorText} />
+      {/* Byte av mäthjul är en åtgärd: före/efter syns i Över tid som för allt annat (Skogforsk, 2026-11-18). */}
+      {!d.nyMarkorText.trim() && (
+        <button type="button" onClick={() => d.setNyMarkorText('Bytte mäthjul')} style={{ ...KNAPP.lank, ...TYP.meta }}>Bytte mäthjul</button>
+      )}
       {fel && <Lugn ikon="error">Det gick inte att spara. Försök igen.</Lugn>}
     </Ark>
   );

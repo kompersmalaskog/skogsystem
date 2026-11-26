@@ -342,3 +342,24 @@ describe('medMattVolym — volymen mäts på trakten (laser × uppmätt uttag)',
     expect(medMattVolym(d, null)).toBe(d)
   })
 })
+
+describe('korOrdning — påbörjad trakt först (Bondeskog 2026-11-23)', () => {
+  // Elefant 26: Brokamåla (195 h, inte börjad) låg före Bondeskog (15,5 h kvar, 215 av 610 m³ skotat) → Bondeskog klar i januari.
+  const m = maskin({ maskin_id: 'E' })
+  const brokamala = trakt({ objekt_id: 'BR', maskin_id: 'E', sortn: 1, timmar: 195, prognos_h: 195, volym: 4314, rest_volym: 4314 })
+  const bondeskog = trakt({ objekt_id: 'BO', maskin_id: 'E', sortn: 3, timmar: 15.5, prognos_h: 28, utfort_h: 12.5, utfort_volym: 215, volym: 610, rest_volym: 395 })
+
+  it('den påbörjade trakten räknas först, oavsett planerarens ordning', () => {
+    const p = raknaMaskin(m, [brokamala, bondeskog], '2026-11-30')
+    expect(p.rader.map(r => r.trakt.objekt_id)).toEqual(['BO', 'BR'])
+    expect(p.rader[0].till).toBe('2026-11-03')   // 15,5 h / 8 h per dag = 2 dagar
+  })
+
+  it('bland påbörjade och bland ej påbörjade gäller planerarens ordning', () => {
+    const a = trakt({ objekt_id: 'A', maskin_id: 'E', sortn: 2, utfort_h: 1 })
+    const b = trakt({ objekt_id: 'B', maskin_id: 'E', sortn: 1, utfort_volym: 10 })
+    const c = trakt({ objekt_id: 'C', maskin_id: 'E', sortn: 4 })
+    const d = trakt({ objekt_id: 'D', maskin_id: 'E', sortn: 3 })
+    expect(raknaMaskin(m, [a, c, b, d], '2026-11-30').rader.map(r => r.trakt.objekt_id)).toEqual(['B', 'A', 'D', 'C'])
+  })
+})

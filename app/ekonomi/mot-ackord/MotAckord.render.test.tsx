@@ -29,7 +29,17 @@ vi.mock('@/lib/ekonomi/objektJamforelse', async (orig) => ({
   hamtaObjektJamforelse: vi.fn(async () => data),
 }));
 
+// Mätningarna bredvid räkningen (körspår, lass, flyttar) läses ur databasen —
+// här är de svar testet bestämmer.
+let cyklerSvar = new Map<string, any>();
+let mattSvar: any = { tider: null, lass: null, flyttar: 0 };
+vi.mock('@/lib/ekonomi/lasVarfor', () => ({
+  lasCykler: vi.fn(async () => cyklerSvar),
+  lasSkogMatt: vi.fn(async () => mattSvar),
+}));
+
 import MotAckordClient from './MotAckordClient';
+import { skogRader, krText } from '@/lib/ekonomi/ackordVy';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -141,6 +151,95 @@ describe('Ackord — arken', () => {
     await montera();
     expect(text()).toContain('Inget att jämföra');
     expect(document.querySelectorAll('[data-rad]').length).toBe(0);
+  });
+});
+
+describe('Ackord — varför', () => {
+  const minusSkog = () => obj('b', 'Kvarnen', 0.3, [
+    { ...del('GIANT', 'skördare', 30000, 20000, 20), pris: { volymAckord: 500, grundKrPerM3: 60, tillaggKrPerM3: 0, avstandKr: 0, undantagKr: 0 } },
+    { ...del('WISENT', 'skotare', 24000, 40000, 40), pris: { volymAckord: 500, grundKrPerM3: 44, tillaggKrPerM3: 0, avstandKr: 2000, undantagKr: 0 } },
+  ]);
+  const medDetalj = (o: ObjektRad): ObjektRad => ({
+    ...o,
+    detalj: {
+      voNummer: 'b', avraknad: '2026-11-13', stammar: 0, tillagg: [{ etikett: 'Krönt', belopp: 1.5, mottagare: 'skordare' }],
+      avstand: { manuellM: 300, lassM: null, regel: { grundavstand_m: 200, kr_per_100m: 4 } },
+      skotadManuell: false, terrangKr: 0, dieselBas: 19.5, massa3mKr: 10,
+    },
+  });
+  const flush = async () => { await act(async () => { await new Promise(r => setTimeout(r, 0)); }); };
+
+  beforeEach(() => {
+    cyklerSvar = new Map();
+    mattSvar = { tider: null, lass: null, flyttar: 0 };
+    data = { ...data, rader: [data.rader[0], medDetalj(minusSkog())] };
+  });
+
+  it('listan: en grå orsaksrad bara på skogen som går minus', async () => {
+    await montera();
+    const rader = [...document.querySelectorAll('[data-rad="skog"]')].map(r => r.textContent!.replace(/\s/g, ' '));
+    expect(rader[0]).not.toContain('under –');
+    expect(rader[1]).toContain('Skotaren under – 13 m³/h, behöver 21');
+  });
+
+  it('talet överst i arket är talet i listan, för varje skog', async () => {
+    await montera();
+    // Listan är sorterad med mest pengar först — samma ordning som skogRader ger.
+    const facit = skogRader(data.rader);
+    for (let i = 0; i < facit.length; i++) {
+      const rad = document.querySelectorAll('[data-rad="skog"]')[i];
+      expect(rad.textContent!.replace(/\s/g, ' ')).toContain(krText(facit[i].kr).replace(/\s/g, ' '));
+      await tryck(rad);
+      await flush();
+      expect(document.querySelector('[data-skog-kr]')!.textContent!.replace(/\s/g, ' ').trim()).toBe(krText(facit[i].kr).replace(/\s/g, ' '));
+      await tryck([...document.querySelector('[role="dialog"]')!.querySelectorAll('button')].find(b => b.textContent === 'Klar')!);
+    }
+  });
+
+  it('utan körspår: det körda avståndet och tiden per lass visas inte, och flytten som saknas sägs', async () => {
+    await montera();
+    await tryck(document.querySelectorAll('[data-rad="skog"]')[1]);
+    await flush();
+    const ark = document.querySelector('[role="dialog"]')!;
+    const t = ark.textContent!.replace(/\s/g, ' ');
+    expect(t).not.toContain('kört');
+    expect(t).not.toContain('Per lass');
+    expect(t).not.toContain('Snittlass');
+    expect(t).toContain('Ingen flytt är registrerad hit');
+    expect(t).toContain('Dieselklausulen är inte räknad');
+    expect(ark.querySelector('[data-orange]')!.getAttribute('data-varfor')).toBe('takt:WISENT');
+    expect(ark.querySelectorAll('[data-maskinkort]').length).toBe(2);
+    expect(t).toContain('Gemensamt');
+  });
+
+  it('med körspår: avståndet visas som mått, aldrig som orsak — skotaren är den orange raden', async () => {
+    // Datan byggs fortfarande upp: körspårets mått står bredvid det räknade, men
+    // inga kronor räknas in i varför och inget "borde fått" sägs.
+    cyklerSvar = new Map([['b', { lass: 30, medCykel: 30, volym: 500, volymMedCykel: 500, cykelM: 1800, enkelVagM: 900, hemMedLassM: null, vidAvlaggetM: null, ytterstM: null, utan: {} }]]);
+    mattSvar = { tider: { lass: 30, lastaMin: 25, koraMin: 20, avlaggMin: 10, pausMin: 4, totalMin: 59 }, lass: { lass: 30, snittM3: 16.7, breddade: 0 }, flyttar: 1 };
+    await montera();
+    expect(document.querySelectorAll('[data-rad="skog"]')[1].textContent!.replace(/\s/g, ' ')).toContain('Skotaren under – 13 m³/h');
+    await tryck(document.querySelectorAll('[data-rad="skog"]')[1]);
+    await flush();
+    const ark = document.querySelector('[role="dialog"]')!;
+    expect(ark.querySelector('[data-orange]')!.getAttribute('data-varfor')).toMatch(/^takt:/);
+    const t = ark.textContent!.replace(/\s/g, ' ');
+    expect(t).toContain('halva körningen ca 900 m');
+    expect(t).toContain('Vilket mått som gäller är inte avgjort.');
+    expect(t).not.toContain('borde');
+    expect(t).toContain('Ett lass tar ca 59 min');
+    expect(t).toContain('lastar 25 · kör 20 · avlägg 10 · övrigt 4');
+    expect(t).toContain('Snittlass 16,7 m³ · kördes smal');
+    expect(t).not.toContain('Ingen flytt är registrerad hit');
+  });
+});
+
+describe('Ackord — bara admin', () => {
+  it('sidan skickar bort alla som inte är admin innan något ritas', async () => {
+    const { readFileSync } = await import('node:fs');
+    const sida = readFileSync('app/ekonomi/mot-ackord/page.tsx', 'utf8');
+    expect(sida).toMatch(/medarbetare\.roll !== "admin"\)\) \{\s*redirect\(/);
+    expect(sida.indexOf('redirect("/arbetsrapport")')).toBeLessThan(sida.indexOf('<MotAckordClient'));
   });
 });
 

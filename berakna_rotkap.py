@@ -56,6 +56,8 @@ def ladda(namn, fil):
 S = ladda('simrot', 'simulera_rotkap.py')      # hamta, las_prismatris, Produkt, BAS
 M = S.M
 
+import andringsvakt as AV                    # vilka objekt som ändrats sedan sist (migration 20261122180000)
+
 
 def rakna(tabell, filt):
     """Antal rader utan att hämta dem."""
@@ -335,8 +337,22 @@ def main():
     if not M.init_supabase():
         print('FEL: ingen Supabase-anslutning. Inget räknat.'); return 1
 
-    par = S.hamta('vy_sim_rotkap_par', 'objekt_id=not.is.null',
-                  'objekt_id,maskin_id,serier,filnamn', 'objekt_id.asc,maskin_id.asc')
+    # Ändringsvakten: databasen noterar vid skrivningen vilka objekt som fått nya/borttagna stockar, stammar eller serier.
+    # Förut lästes hela vy_sim_rotkap_par (1,8 s) och alla objekts stockantal (2,6 s) vid VARJE körning för att upptäcka det.
+    # Utan vakten (migrationen ej körd, läsfel) eller med --alla/objekt: som förut, allt.
+    vakt = AV.Vakt(M.SUPABASE_URL, M.SUPABASE_HEADERS)
+    plan = vakt.plan('rotkap', tvinga=alla or bool(bara))
+    if plan['lage'] == 'inget':
+        print('oförändrat sedan förra körningen (version %s) — inget räknas' % plan['version'])
+        return 0
+    if plan['lage'] == 'objekt':
+        par = []
+        for filt in AV.in_filter(plan['ids']):
+            par += S.hamta('vy_sim_rotkap_par', filt, 'objekt_id,maskin_id,serier,filnamn', 'objekt_id.asc,maskin_id.asc')
+        print('ändrade objekt sedan förra körningen: %d' % len(plan['ids']))
+    else:
+        par = S.hamta('vy_sim_rotkap_par', 'objekt_id=not.is.null',
+                      'objekt_id,maskin_id,serier,filnamn', 'objekt_id.asc,maskin_id.asc')
     per_objekt = collections.defaultdict(list)
     for p in par:
         per_objekt[p['objekt_id']].append(p)
@@ -388,6 +404,9 @@ def main():
           % (raknade, len(ids) - raknade, fel, time.time() - t0))
     io.open(os.path.join(HAR, '.rotkap_utfall.json'), 'w', encoding='utf-8').write(
         json.dumps(utfall, ensure_ascii=False, indent=1))
+    # Allt avstämt utan fel: anteckna versionen, så nästa körning bara tittar på det som ändras efter den.
+    if not fel and not bara:
+        vakt.notera('rotkap', plan['version'])
     return 1 if fel else 0
 
 

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildUppfoljningData, buildEmptyData, type UppfoljningObjekt } from '../lib/transform';
 import { byggAvvikelser } from '../lib/avvikelser';
+import { lasAllaSidor } from '../lib/lasAllaSidor';
+import { svenskIdag, dagarFore } from '../lib/datum';
 import type { UppfoljningData } from '../UppfoljningVy';
 
 export interface UseObjektUppfoljningResult {
@@ -46,18 +48,18 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         const idList = ids.map(id => `"${String(id).replace(/"/g, '')}"`).join(',');
 
         const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes, manuellRes] = await Promise.all([
-          supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
-          supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids),
+          lasAllaSidor((a, b) => supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids).order('id').range(a, b)),
+          lasAllaSidor((a, b) => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids).order('id').range(a, b)),
           // 'antal' fanns inte — kolumnen heter 'stockar'. PostgREST svarar 400 på
           // okänd kolumn, så HELA sortiment-fetchen föll och blev tyst tom lista.
           // Antalet används inte här (transform läser sortiment_id + volym_m3sub),
           // därför tas det bort istället för att döpas om.
-          supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub').in('objekt_id', ids),
+          lasAllaSidor((a, b) => supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub').in('objekt_id', ids).order('id').range(a, b)),
           supabase.from('dim_sortiment').select('sortiment_id, namn'),
           supabase.from('dim_tradslag').select('tradslag_id, namn'),
-          supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
-          stIds.length ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', stIds) : Promise.resolve({ data: [] }),
-          stIds.length ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').in('objekt_id', stIds) : Promise.resolve({ data: [] }),
+          lasAllaSidor((a, b) => supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids).order('id').range(a, b)),
+          stIds.length ? lasAllaSidor((a, b) => supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', stIds).order('id').range(a, b)) : Promise.resolve({ data: [], error: null }),
+          stIds.length ? lasAllaSidor((a, b) => supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').in('objekt_id', stIds).order('id').range(a, b)) : Promise.resolve({ data: [], error: null }),
           supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
           supabase.from('dim_maskin').select('maskin_id, maskin_typ, visningsnamn, modell'),
           // Manuellt skotarlager per (objekt, maskin) — hela objektet (datum_fran
@@ -70,12 +72,16 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
             .or(`objekt_id.in.(${idList}),avser_objekt_id.in.(${idList})`),
         ]);
 
-        // Sanity-guard: dessa fetchar är opaginerade (per objekt_id — typiskt < 500 rader).
-        // Exakt 1 000 rader = PostgREST-taket träffat, data trunkerat.
-        if ((tidRes.data?.length ?? 0)     === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_tid', ids)
-        if ((prodRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_produktion', ids)
-        if ((avbrottRes.data?.length ?? 0) === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_avbrott', ids)
-        if ((lassRes.data?.length ?? 0)    === 1000) console.warn('[useObjektUppfoljning] 1000-rader: fakt_lass', stIds)
+        // Maskinens egna rader läses sida för sida (lasAllaSidor). Går en av dem
+        // inte att läsa är HELA vyn ett fel — en halv eller tom produktionslista
+        // hade gett ett skördat-tal som ser rätt ut men är fel.
+        for (const [namn, res] of Object.entries({
+          fakt_tid: tidRes, fakt_produktion: prodRes, fakt_sortiment: sortRes,
+          fakt_avbrott: avbrottRes, fakt_lass: lassRes, fakt_lass_sortiment: lassSortRes,
+        })) {
+          const e = (res as { error?: { message?: string } | null })?.error;
+          if (e) throw new Error(`${namn} kunde inte läsas: ${e.message ?? e}`);
+        }
 
         // Ett fel får aldrig se ut som tom data. Varje `res.data || []` nedan gör
         // en misslyckad fetch till en tom lista — det var så det felstavade
@@ -99,8 +105,8 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         const hasStAvbrott = stMidFb ? avbrottRows.some((r: any) => r.maskin_id === stMidFb) : true;
         if (!hasSkAvbrott || !hasStAvbrott) {
           const fallbackQueries = [];
-          if (!hasSkAvbrott && skMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', skMidFb).limit(2000));
-          if (!hasStAvbrott && stMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', stMidFb).limit(2000));
+          if (!hasSkAvbrott && skMidFb) fallbackQueries.push(lasAllaSidor((a, b) => supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', skMidFb).order('id').range(a, b)));
+          if (!hasStAvbrott && stMidFb) fallbackQueries.push(lasAllaSidor((a, b) => supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', stMidFb).order('id').range(a, b)));
           const fallbackResults = await Promise.all(fallbackQueries);
           for (const res of fallbackResults) {
             if (res.data) avbrottRows = [...avbrottRows, ...res.data];
@@ -111,20 +117,17 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
         // Per-objekt-kvoter ur fakt_tid; volymgrunden hämtas SEPARAT ur
         // fakt_produktion (skördare) resp. fakt_lass (skotare) och möts
         // per objekt_id i JS — fakt_tid joinas ALDRIG med produktionen.
-        const refFran = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+        const refFran = dagarFore(svenskIdag(), 90);
         const refMaskiner = [skMidFb, stMidFb].filter(Boolean) as string[];
+        // Referensen (90 dagar) läses också sida för sida. Ett läsfel ger INGEN
+        // referens (inga avvikelser), aldrig en halv som ger fel trösklar.
         const hamtaAllt = async (bygg: (a: number, b: number) => any): Promise<any[]> => {
-          let alla: any[] = [];
-          let from = 0;
-          const sida = 1000;
-          while (true) {
-            const { data: rows } = await bygg(from, from + sida - 1);
-            if (!rows || rows.length === 0) break;
-            alla = alla.concat(rows);
-            if (rows.length < sida) break;
-            from += sida;
+          const r = await lasAllaSidor(bygg);
+          if (r.error) {
+            console.error('[useObjektUppfoljning] referensen kunde inte läsas:', r.error.message ?? r.error);
+            return [];
           }
-          return alla;
+          return r.data ?? [];
         };
         // Tillskriven omlastning: manuella rader vars avser_objekt_id pekar på ett
         // av de visade objekten OCH ar_omlastning=true. Arbetet ligger fysiskt
@@ -148,11 +151,11 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
             ? hamtaAllt((a, b) => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').eq('maskin_id', stMidFb).gte('datum', refFran).order('id').range(a, b))
             : Promise.resolve([] as any[]),
           omlObjektIds.length > 0
-            ? supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', omlObjektIds)
-            : Promise.resolve({ data: [] as any[] }),
+            ? lasAllaSidor((a, b) => supabase.from('fakt_lass').select('objekt_id, maskin_id, datum, volym_m3sub, korstracka_m').in('objekt_id', omlObjektIds).order('id').range(a, b))
+            : Promise.resolve({ data: [] as any[], error: null }),
           omlObjektIds.length > 0
-            ? supabase.from('fakt_tid').select('objekt_id, maskin_id, datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds)
-            : Promise.resolve({ data: [] as any[] }),
+            ? lasAllaSidor((a, b) => supabase.from('fakt_tid').select('objekt_id, maskin_id, datum, processing_sek, terrain_sek, other_work_sek, bransle_liter, kort_stopp_sek').in('objekt_id', omlObjektIds).order('id').range(a, b))
+            : Promise.resolve({ data: [] as any[], error: null }),
         ]);
 
         if (cancelled) return;

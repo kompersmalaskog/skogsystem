@@ -16,6 +16,15 @@ describe('klamning', () => {
   it('bakgrund: 0–100 i steg om 5, skräp ger standarden 85', () => {
     expect(klamStyrka(-5)).toBe(0); expect(klamStyrka(87)).toBe(85); expect(klamStyrka(500)).toBe(100); expect(klamStyrka(undefined)).toBe(KARTBAS_STANDARD_STYRKA); expect(KARTBAS_STANDARD_STYRKA).toBe(85);
   });
+  it('Flygfoto har Ljus på 120 och standard 120; övriga stannar på 100 och 85; ett sparat eget val behålls', () => {
+    expect(klamStyrka(120, 'satellite')).toBe(120); expect(klamStyrka(500, 'satellite')).toBe(120); expect(klamStyrka(115, 'satellite')).toBe(115);
+    expect(klamStyrka(120, 'lantmateriet')).toBe(100); expect(klamStyrka(undefined, 'satellite')).toBe(120); expect(klamStyrka(undefined, 'terrain')).toBe(85);
+    const d = new Map<string, string>(); const l = { getItem: (k: string) => d.get(k) ?? null, setItem: (k: string, v: string) => void d.set(k, v) };
+    expect(styrkaFor({}, 'satellite')).toBe(120);           // aldrig valt → Ljus
+    skrivStyrkor(l, { satellite: 85, terrain: 120 });       // ett gammalt val på 85 gäller; terrain kan aldrig över 100
+    const lasta = lasStyrkor(l);
+    expect(styrkaFor(lasta, 'satellite')).toBe(85); expect(lasta.terrain).toBe(100);
+  });
   it('lagrets eget värde (0–1) blir reglagets startvärde i procent, avrundat till steg', () => {
     expect(opacitetTillProcent(0.7)).toBe(70); expect(opacitetTillProcent(0.35)).toBe(35); expect(opacitetTillProcent(0.65)).toBe(65); expect(opacitetTillProcent(1)).toBe(100); expect(opacitetTillProcent(0.8)).toBe(80);
   });

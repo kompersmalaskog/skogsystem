@@ -70,6 +70,10 @@ export interface UppfoljningObjekt {
   skotareAvvikelse: { lass: string; tilldelad: string } | null;
   // Aktiv koppling till ett PÅGÅENDE risjobb (F3)
   risskotningPagar: boolean;
+  /** Summa lass (m³fub) på kopplade risjobb; null = inget kopplat risjobb med lass. */
+  risSkotatM3?: number | null;
+  /** Något kopplat risjobb gäller också andra trakter (lassen går inte att dela upp). */
+  risDelas?: boolean;
   externSkotning: boolean;
   externForetag: string;
   externPrisTyp: 'm3' | 'timme';
@@ -286,7 +290,7 @@ export function buildAvbrott(rows: any[], opts: { g15Split?: boolean } = {}): Av
   const { g15Split = true } = opts;
   const deduped = deduplicateAvbrott(rows);
   // G15-splitten gäller SKÖRDARE: DownTime under gränsen är samma fenomen som
-  // maskinens korta pauser och räknas in i "Korta pauser"-raden via
+  // maskinens korta pauser och räknas in i "Korta stopp"-raden via
   // kortaAvbrottTimmar() — inte här. SKOTARE saknar korta pauser-begreppet
   // (kort_stopp_sek = 0) — deras rader visas OFILTRERADE med riktiga kategorier
   // (g15Split: false). Se lib/g15.ts.
@@ -303,8 +307,8 @@ export function buildAvbrott(rows: any[], opts: { g15Split?: boolean } = {}): Av
     m.set(orsak, prev);
   });
   return Array.from(m.entries())
-    .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
-    .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
+    .map(([orsak, v]) => ({ orsak, typ: v.typ, sek: v.tid, antal: v.antal }))
+    .sort((a, b) => b.sek - a.sek);
 }
 
 // Korta pauser-hemflytt — BARA SKÖRDARE: DownTime under G15-gränsen är samma
@@ -747,6 +751,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
+    voNummer: obj.vo_nummer || null,
     skordat: Math.round(volSk),
     skotat: Math.round(volSt),
     skotarePerMaskin,
@@ -757,6 +762,8 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     grotSkotning: obj.grotSkotning,
     grotAnpassad: obj.grotAnpassad,
     grotHamtad: obj.grotHamtad,
+    risSkotatM3: obj.risSkotatM3 ?? null,
+    risDelas: obj.risDelas === true,
     externSkotning: obj.externSkotning,
     externForetag: obj.externForetag,
     externPrisTyp: obj.externPrisTyp,
@@ -773,6 +780,7 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareStart: obj.skordareStart,
     skordareSlut: obj.skordareSlut,
     skordareLastDate: obj.skordareLastDate,
+    sistaAvverkning: obj.sistaAvverkning,
     skotatArManuell: obj.skotatArManuell,
     skotareModell: obj.skotareModell,
     skotareStart: obj.skotareStart,
@@ -823,12 +831,12 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     // Avbrott — deduplicated totals from fakt_avbrott
     avbrottSkordare: buildAvbrott(skAvbrott),
     // Skördare: totalen räknar ENBART avbrott ≥ G15-gränsen — korta ingår i
-    // "Korta pauser"-raden ovan (kortaAvbrottTimmar).
-    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    // "Korta stopp"-raden ovan (kortaAvbrottTimmar).
+    avbrottSkordareSek: deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0),
     // Skotare: INGEN G15-split — alla DownTime i lista + total (skotare saknar
     // korta pauser-begreppet; se lib/g15.ts).
     avbrottSkotare: buildAvbrott(stAvbrott, { g15Split: false }),
-    avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    avbrottSkotareSek: deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0),
     // Skotarproduktion
     antalLass,
     snittlassM3: snittLass,
@@ -846,11 +854,12 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
     objektId: obj.skotareObjektId || obj.skordareObjektId || obj.vo_nummer || null,
-    volym: obj.volym, skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], skotareMaskiner: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning, grotAnpassad: obj.grotAnpassad, grotHamtad: obj.grotHamtad,
+    voNummer: obj.vo_nummer || null,
+    volym: obj.volym, skordat: 0, skotat: 0, skotarePerMaskin: [], omlastningArbete: [], skotareMaskiner: [], kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning, grotAnpassad: obj.grotAnpassad, grotHamtad: obj.grotHamtad, risSkotatM3: obj.risSkotatM3 ?? null, risDelas: obj.risDelas === true,
     externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
     maskiner: [],
     typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
-    skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate,
+    skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate, sistaAvverkning: obj.sistaAvverkning,
     skotatArManuell: obj.skotatArManuell,
     skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
     operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
@@ -863,8 +872,8 @@ export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
     skordareL: 0, skordareL_M3: 0, skordareL_G15h: 0,
     skotareL: 0, skotareL_M3: 0, skotareL_G15h: 0,
     dieselSkordare: [], dieselSkotare: [],
-    avbrottSkordare: [], avbrottSkordare_totalt: '0h',
-    avbrottSkotare: [], avbrottSkotareTotalt: '0h',
+    avbrottSkordare: [], avbrottSkordareSek: 0,
+    avbrottSkotare: [], avbrottSkotareSek: 0,
     antalLass: 0, snittlassM3: 0, lassG15h: 0, skotningsavstand: 0, lassPerDag: [],
     skordareBalG15h: 0, skotareBalG15h: 0,
   };

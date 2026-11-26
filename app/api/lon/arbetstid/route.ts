@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serverSupabase } from "@/lib/lonesystem/server";
-import { kravRoll, ADMIN_ROLLER } from "@/lib/auth/server";
+import { kravRoll, kravInloggad, ADMIN_ROLLER } from "@/lib/auth/server";
 import { beraknaArsovertid } from "@/lib/lonesystem/arsovertid";
 import { byggArbetstid, dataFranDatum, GRANSER, type ArbetstidDag, type ArbetstidExtra, type ArbetstidFlytt } from "@/lib/arbetstidsgranser";
 import { ymdLokal } from "@/lib/datumLokal";
@@ -17,6 +17,10 @@ export const dynamic = "force-dynamic";
  * rader. Läsningen är PAGINERAD (lib/lonesystem/allaRader) — PostgREST svarar högst 1000 rader per anrop, och 12 förare × ett halvår är mer än så.
  * Maskinflyttens körtid (flyttdag.total_tid_min, mätt starttid → "Kör hem") räknas i gränserna 4–6 — bara här, lönen läser den inte.
  * Läsfel som påverkar talen blir `varningar` (aldrig "ingen gräns nådd"); fel på själva arbetstiden är ett 500.
+ *
+ * `?mig=1` (Min tid, 2026-11-25): vilken inloggad medarbetare som helst får SINA EGNA gränser — samma räkning som admin
+ * ser, bara den egna raden. Föraren ska kunna se var han ligger mot 50 tim/månad, 250 tim/år och 48 tim/vecka i snitt.
+ * En företagsledare får inga gränser (`forare: []`, `foretagsledare: true`): lagen gäller inte.
  */
 
 const plusEnDag = (s: string, n: number) => { const [y, m, d] = s.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1, d + n)); return x.toISOString().slice(0, 10); };
@@ -27,9 +31,12 @@ const LAGENS_VILA: VilaTrosklar = {
   veckovila_krav_h: GRANSER.veckovilaH, veckovila_fonster_dagar: 7, kompensation_deadline_dagar: 14,
 };
 
-export async function GET(_req: NextRequest) {
-  const vakt = await kravRoll(ADMIN_ROLLER);
+export async function GET(req: NextRequest) {
+  const mig = req.nextUrl?.searchParams?.get("mig") === "1";
+  const vakt = mig ? await kravInloggad() : await kravRoll(ADMIN_ROLLER);
   if (!vakt.ok) return vakt.res;
+  const egenId = mig ? vakt.session.medarbetareId : null;
+  if (mig && !egenId) return NextResponse.json({ ok: false, meddelande: "Ingen medarbetare kopplad till inloggningen" }, { status: 404 });
   try {
     const tomDatum = ymdLokal(new Date());
     const ar = Number(tomDatum.slice(0, 4));
@@ -104,7 +111,9 @@ export async function GET(_req: NextRequest) {
     const baraLedareKor = kandaForare.length > 0 && kandaForare.every(id => ledare.has(id));
     if (oplacerade > 0 && !baraLedareKor) varningar.push(`${oplacerade} ${oplacerade === 1 ? "flyttdag kunde" : "flyttdagar kunde"} inte kopplas till en förare (saknar medarbetare och namnet matchar ingen) och ingår inte.`);
 
-    const forare = (medRes.data || []).map((m: any) => {
+    const egen = egenId ? ((medRes.data || []) as any[]).find(m => m.id === egenId) : null;
+    if (mig && egen?.foretagsledare === true) return NextResponse.json({ ok: true, ar, tomDatum, forare: [], foretagsledare: true, varningar: [] });
+    const forare = ((medRes.data || []) as any[]).filter(m => !mig || m.id === egenId).map((m: any) => {
       const sina = dagar.filter(d => d.medarbetare_id === m.id);
       const sinaExtra = extra.filter(e => e.medarbetare_id === m.id);
       const sinFlytt = flyttPerMed.get(m.id) || [];

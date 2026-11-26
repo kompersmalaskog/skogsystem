@@ -26,6 +26,9 @@ import {
   skogRader, klassRader, maskinRader, summa, ackordSvar, vantarText, perM3, klassText,
   type SkogRad, type KlassRad, type MaskinRad,
 } from '@/lib/ekonomi/ackordVy';
+import { skogVarfor, maskinVanligastOrsak, type SkogVarfor, type MaskinKort } from '@/lib/ekonomi/ackordVarfor';
+import { lasCykler, lasSkogMatt, type SkogMatt } from '@/lib/ekonomi/lasVarfor';
+import type { CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import { type PeriodType, getPeriodLabel } from '@/lib/ekonomi/period';
 import { getPeriodDates } from '@/lib/ekonomi/period';
 import { FORESTLINK_KR_PER_TIM } from '@/lib/ekonomi/forestlink';
@@ -36,7 +39,7 @@ import Sektion from '@/components/design/Sektion';
 import Rad from '@/components/design/Rad';
 import Ark from '@/components/design/Ark';
 import Flikkontroll from '@/components/design/Flikkontroll';
-import { FARG, TYP, TNUM, VIKT, AVSTAND } from '@/lib/design/tokens';
+import { FARG, TYP, TNUM, VIKT, AVSTAND, KOLUMN } from '@/lib/design/tokens';
 
 type Vy = 'skog' | 'klass' | 'maskin';
 const VYER: readonly (readonly [Vy, string])[] = [['skog', 'Skog'], ['klass', 'Klass'], ['maskin', 'Maskin']];
@@ -51,6 +54,25 @@ type Valt =
 const heltal = (n: number) => Math.round(n).toLocaleString('sv-SE');
 const kr = (n: number) => `${heltal(n)} kr`;
 const tim = (n: number) => n.toFixed(1).replace('.', ',');
+
+// Maskinerna bredvid varandra på datorn, under varandra i telefonen.
+const TVA_KOLUMNER_CSS = `.ack-tva{display:grid;grid-template-columns:minmax(0,1fr);column-gap:${AVSTAND.xl}px}@media(min-width:${KOLUMN.telefonMax}px){.ack-tva{grid-template-columns:repeat(2,minmax(0,1fr))}}`;
+
+// En maskin på en skog: +/- mot timpeng, ackordet, timpengen och per timme.
+function MaskinKortVy({ m }: { m: MaskinKort }) {
+  return (
+    <Sektion rubrik={`${m.namn} · ${m.roll}`} kort={false} not={m.noter.length ? <span style={{ color: FARG.orange }}>{m.noter.join(' · ')}</span> : undefined}>
+      <div data-maskinkort={m.maskin_id}>
+        <Rad titel="Mot timpeng" hoger={<Belopp kr={m.kr} />} />
+        <Rad titel="Ackord" under={<span>{m.ackordUttryck}{m.ackordRader.length > 1 && <><br />{m.ackordRader.map(r => `${r.titel.toLowerCase()} ${heltal(r.kr)}`).join(' · ')}</>}</span>} hoger={kr(m.ackord)} />
+        <Rad titel="Timpeng" under={m.timpeng.uttryck} hoger={kr(m.timpeng.kr)} />
+        <Rad titel="Per timme" sista
+          hoger={m.perTimme ? `${heltal(m.perTimme.ackord)} kr/h` : '—'}
+          hogerUnder={m.perTimme ? `${heltal(Math.abs(m.perTimme.diff))} kr ${m.perTimme.diff < 0 ? 'under' : 'över'} timpriset` : undefined} />
+      </div>
+    </Sektion>
+  );
+}
 
 /** Läs ?vy= ur adressen (Per klass leder hit med ?vy=klass). */
 export function vyUrAdress(search: string): Vy {
@@ -101,6 +123,10 @@ export default function MotAckordClient() {
   const [valt, setValt] = useState<Valt | null>(null);
   const [allaSiffror, setAllaSiffror] = useState(false); // nivå 3 i skogens ark
   const [merInfo, setMerInfo] = useState(false);
+  // Mätningarna bredvid räkningen: det körda avståndet för hela listan, och
+  // lass, tid per lass och flyttar när en skog öppnas. Aldrig en del av talen.
+  const [cykler, setCykler] = useState<Map<string, CykelSammanstallning>>(new Map());
+  const [skogMatt, setSkogMatt] = useState<Record<string, SkogMatt>>({});
 
   useEffect(() => { setVyState(vyUrAdress(window.location.search)); }, []);
   const setVy = (v: Vy) => {
@@ -123,6 +149,13 @@ export default function MotAckordClient() {
       setVantarNamn(data.vantarNamn);
       setTimpengAntal(data.timpengAntal);
       setMaskinNamnMap(data.maskinNamnMap);
+      setSkogMatt({});
+      // Det körda avståndet är ett tillägg: går det inte att läsa står listan
+      // kvar med sina tal, bara utan avståndet som orsak.
+      setCykler(await lasCykler(data.rader).catch(e => {
+        console.error('Ackord: körda avstånd kunde inte läsas', e);
+        return new Map<string, CykelSammanstallning>();
+      }));
     } catch (err: any) {
       console.error('Ackord: fetch error', err);
       setError(err?.message || String(err));
@@ -147,6 +180,22 @@ export default function MotAckordClient() {
   const total = summa(skogar);
   const svar = ackordSvar(total);
   const periodText = getPeriodLabel(period, periodOffset);
+
+  const varforFor = (o: ObjektRad): SkogVarfor => {
+    const m = skogMatt[o.objekt_id];
+    return skogVarfor(o, maskinNamn, {
+      cykel: cykler.get(o.objekt_id) ?? null,
+      tider: m?.tider ?? null, lass: m?.lass ?? null,
+      flyttar: m ? m.flyttar : 'laser',
+    });
+  };
+  const varforPerSkog = new Map(objektRader.map(o => [o.objekt_id, varforFor(o)] as const));
+  const oppnaSkog = (rad: SkogRad) => {
+    setValt({ typ: 'skog', rad });
+    const o = rad.objekt;
+    if (skogMatt[o.objekt_id]) return;
+    lasSkogMatt(o).then(m => setSkogMatt(alla => ({ ...alla, [o.objekt_id]: m })));
+  };
 
   const klassTimmar = (k: KlassRad) => k.skogar.reduce((s, r) => s + r.objekt.maskiner.reduce((t, d) => t + d.timmar, 0), 0);
 
@@ -203,8 +252,8 @@ export default function MotAckordClient() {
               <Sektion rubrik={VY_RUBRIK[vy]} not={vy === 'skog' ? 'Grönt åt höger = mer än per timme. Rött åt vänster = mindre.' : undefined}>
                 {vy === 'skog' && skogar.map((r, i) => (
                   <Rad key={r.nyckel} titel={r.namn} hoger={<Belopp kr={r.kr} />}
-                    under={radUnder(r.kr, r.andel, r.objekt.egenSkotning ? 'egen skotning' : null)}
-                    onTryck={() => setValt({ typ: 'skog', rad: r })} sista={i === skogar.length - 1}
+                    under={radUnder(r.kr, r.andel, [r.objekt.egenSkotning ? 'egen skotning' : null, varforPerSkog.get(r.nyckel)?.orsak].filter(Boolean).join(' · ') || null)}
+                    onTryck={() => oppnaSkog(r)} sista={i === skogar.length - 1}
                     attr={{ 'data-rad': 'skog' }} />
                 ))}
                 {vy === 'klass' && klasser.map((r, i) => (
@@ -215,7 +264,7 @@ export default function MotAckordClient() {
                 ))}
                 {vy === 'maskin' && maskiner.map((r, i) => (
                   <Rad key={r.nyckel} titel={r.namn} hoger={<Belopp kr={r.kr} />}
-                    under={radUnder(r.kr, r.andel, `${r.roll}${r.timmar < OSAKER_TIM ? ' · få timmar, osäkert' : ''}`)}
+                    under={radUnder(r.kr, r.andel, [r.roll, r.timmar < OSAKER_TIM ? 'få timmar, osäkert' : null, maskinVanligastOrsak(r, varforPerSkog)].filter(Boolean).join(' · '))}
                     onTryck={() => setValt({ typ: 'maskin', rad: r })} sista={i === maskiner.length - 1}
                     attr={{ 'data-rad': 'maskin' }} />
                 ))}
@@ -249,18 +298,44 @@ export default function MotAckordClient() {
 
       {valt?.typ === 'skog' && (() => {
         const o = valt.rad.objekt;
-        const delar = maskinDiffRader(o);
+        const v = varforPerSkog.get(o.objekt_id) ?? varforFor(o);
+        const laser = !skogMatt[o.objekt_id];
         return (
-          <Ark rubrik={o.namn} stang="Klar" onStang={stang}>
-            <p style={{ margin: 0, ...TYP.rubrik }}><Belopp kr={delar.summa} /></p>
-            <p style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.xl}px`, ...TYP.meta, color: FARG.text2 }}>
-              än per timme · {heltal(o.volym)} m³{o.egenSkotning ? ' · egen skotning – markägaren skotar själv' : ''}
+          <Ark rubrik={o.namn} stang="Klar" onStang={stang} bred>
+            <style>{TVA_KOLUMNER_CSS}</style>
+            <p style={{ margin: 0, ...TYP.rubrik }} data-skog-kr=""><Belopp kr={v.kr} /></p>
+            <p style={{ margin: `${AVSTAND.xs}px 0 ${AVSTAND.xl}px`, ...TYP.meta, ...TNUM, color: FARG.text2 }}>
+              än per timme · ackord {kr(v.ackord)} mot timpeng {kr(v.timpeng)} · {heltal(o.volym)} m³fub{o.egenSkotning ? ' · egen skotning – markägaren skotar själv' : ''}
             </p>
-            <Sektion rubrik="Varje maskin" kort={false}>
-              {delar.rader.map((d, i) => (
-                <Rad key={d.maskin_id} titel={maskinNamn(d.maskin_id)} under={d.roll} hoger={<Belopp kr={d.diff} />} sista={i === delar.rader.length - 1} />
-              ))}
-            </Sektion>
+
+            <div className="ack-tva">
+              {v.maskiner.map(m => <MaskinKortVy key={m.maskin_id} m={m} />)}
+            </div>
+
+            <div className="ack-tva">
+              <Sektion rubrik="Varför" kort={false}>
+                {v.varfor.map((r, i) => (
+                  <Rad key={r.nyckel} titel={r.orange ? <span style={{ color: FARG.orange }}>{r.titel}</span> : r.titel} under={r.under}
+                    sista={i === v.varfor.length - 1} attr={{ 'data-varfor': r.nyckel, ...(r.orange ? { 'data-orange': '' } : {}) }} />
+                ))}
+              </Sektion>
+              <div>
+                {v.gemensamt.length > 0 && (
+                  <Sektion rubrik="Gemensamt" kort={false} not="Tilläggen ingår i maskinernas tal ovan. Här står vad de är.">
+                    {v.gemensamt.map((g, i) => (
+                      <Rad key={g.etikett} titel={g.etikett} under={`${g.krPerM3 < 0 ? '−' : '+'}${Math.abs(g.krPerM3).toFixed(2).replace('.', ',')} kr/m³fub · ${g.till}`}
+                        hoger={kr(g.kr)} sista={i === v.gemensamt.length - 1} />
+                    ))}
+                  </Sektion>
+                )}
+                <Sektion rubrik="Inte med än" kort={false} not={laser ? 'Läser lass, körspår och flyttar …' : undefined}>
+                  {v.inteMed.map((r, i) => (
+                    <Rad key={r.titel} titel={<span style={{ color: FARG.orange }}>{r.titel}</span>} under={r.under} sista={i === v.inteMed.length - 1}
+                      attr={{ 'data-inte-med': '' }} />
+                  ))}
+                </Sektion>
+              </div>
+            </div>
 
             <Sektion rubrik="Siffrorna" kort={false}>
               <Rad titel={allaSiffror ? 'Dölj siffrorna' : 'Visa alla siffror'} onTryck={() => setAllaSiffror(v => !v)} pil={!allaSiffror} sista />
@@ -314,7 +389,7 @@ export default function MotAckordClient() {
           </Sektion>
           <Sektion rubrik="Skogarna" kort={false}>
             {valt.rad.skogar.map((s, i) => (
-              <Rad key={s.nyckel} titel={s.namn} hoger={<Belopp kr={s.kr} />} onTryck={() => setValt({ typ: 'skog', rad: s })} sista={i === valt.rad.skogar.length - 1} />
+              <Rad key={s.nyckel} titel={s.namn} hoger={<Belopp kr={s.kr} />} onTryck={() => oppnaSkog(s)} sista={i === valt.rad.skogar.length - 1} />
             ))}
           </Sektion>
         </Ark>
@@ -335,7 +410,8 @@ export default function MotAckordClient() {
               const skog = skogar.find(x => x.nyckel === s.objekt.objekt_id);
               return (
                 <Rad key={s.objekt.objekt_id} titel={s.objekt.namn} hoger={<Belopp kr={s.kr} />}
-                  onTryck={skog ? () => setValt({ typ: 'skog', rad: skog }) : undefined} sista={i === valt.rad.skogar.length - 1} />
+                  under={varforPerSkog.get(s.objekt.objekt_id)?.maskinOrsak[valt.rad.maskin_id] === 'avstand' ? 'längre skotningsavstånd än räknat' : s.kr < 0 ? 'för få m³ per timme' : undefined}
+                  onTryck={skog ? () => oppnaSkog(skog) : undefined} sista={i === valt.rad.skogar.length - 1} />
               );
             })}
           </Sektion>

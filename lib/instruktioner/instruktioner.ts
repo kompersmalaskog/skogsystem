@@ -24,7 +24,7 @@ import { innehallHash } from '../larm/larm';
 import { vidaSlag } from '../larm/objekt';
 import { byggTraktKort } from '../traktGeometri';
 import { vidaNycklar } from '../vidaNycklar';
-import { aldreKommentar, forfattarText, kommentarerForNyckel, markerNyckel, type KommentarVy } from '../kartkommentar';
+import { aldreKommentar, forfattarText, kommentarerForNyckel, markerNyckel, rensaViktigt, type KommentarVy } from '../kartkommentar';
 import { forstaPunkt, rensaVidaNamn, type BrickaGrupp } from '../ytaNamn';
 
 /** Punkter och linjer räknas som "inne" inom så här många meter (ut först vid +UT_MARGINAL_M, så GPS-brus vid kanten inte ger flimmer). */
@@ -36,7 +36,10 @@ export type InstruktionKalla = 'vida' | 'egen' | 'aldre' | 'planering';
 export interface Instruktion {
   /** Stabil referens för "sett": `vida:<nyckel>` (Vidas text), kommentarens id (kartkommentar) eller `aldre:<nyckel>`. */
   ref: string;
+  /** Övrigt: den fria texten. Kan vara tom när kommentaren bara har en Viktigt-rad. */
   text: string;
+  /** Viktigt-raden (gul, överst i rutan). Ändras den gäller ett gammalt "sett" inte längre (den ingår i hashen). */
+  viktigt?: string | null;
   /** Hash av texten — ändras texten gäller ett gammalt "sett" inte längre. */
   hash: string;
   kalla: InstruktionKalla;
@@ -99,7 +102,7 @@ function vidaNarvaro(g: any, pos: LatLon | null): Narvaro {
   return { slag: 'avstand', avstandM: null };
 }
 
-function ordning(i: Instruktion): number { return i.kalla === 'vida' ? 0 : i.kalla === 'aldre' ? 1 : i.kalla === 'planering' ? 2 : 3; }
+function ordning(i: Instruktion): number { return i.viktigt ? -1 : i.kalla === 'vida' ? 0 : i.kalla === 'aldre' ? 1 : i.kalla === 'planering' ? 2 : 3; }
 
 /** Vidas text först, sedan våra kommentarer i den ordning de skrevs (äldre kommentarer före nya). */
 export const sorteraInstruktioner = (l: readonly Instruktion[]): Instruktion[] => {
@@ -111,11 +114,13 @@ export const sorteraInstruktioner = (l: readonly Instruktion[]): Instruktion[] =
 function egnaInstruktioner(rader: readonly KommentarVy[], objektId: string, nyckel: string, aldreText: string | null | undefined, nu?: Date): Instruktion[] {
   const lista: KommentarVy[] = [...(aldreKommentar(objektId, nyckel, aldreText) ? [aldreKommentar(objektId, nyckel, aldreText)!] : []), ...kommentarerForNyckel(rader, nyckel)];
   return lista
-    .filter((r) => r.text.trim())
+    .filter((r) => r.text.trim() || rensaViktigt(r.viktigt))
     .map((r) => ({
       ref: r.aldre ? `aldre:${nyckel}` : r.id,
       text: r.text.trim(),
-      hash: hashText(r.text),
+      viktigt: rensaViktigt(r.viktigt),
+      // Viktigt ingår i hashen bara när den finns, så en kommentar utan Viktigt behåller sin hash (och därmed sitt "sett").
+      hash: hashText(rensaViktigt(r.viktigt) ? `${rensaViktigt(r.viktigt)}\n${r.text}` : r.text),
       kalla: r.aldre ? ('aldre' as const) : ('egen' as const),
       forfattare: r.aldre ? null : forfattarText(r.namn, r.skapad_at, nu),
       vantar: r.vantar,
@@ -348,7 +353,7 @@ export function paminnelseAttVisa(state: InstruktionState, omraden: readonly Ins
     const kvarMs = Math.max(0, PAMINNELSE_FULL_MS - (nu - start));
     return {
       nyckel: o.nyckel, namn: o.namn, avlagg: o.avlagg, bricka: o.bricka ?? o.namn, typ: o.typ ?? '', brickaGrupp: o.brickaGrupp ?? 'ovrigt',
-      text: forstaPunkt(o.instruktioner[0].text), instruktioner: o.instruktioner, fas: kvarMs > 0 ? 'full' : 'bricka', kvarMs,
+      text: o.instruktioner[0].viktigt || forstaPunkt(o.instruktioner[0].text), instruktioner: o.instruktioner, fas: kvarMs > 0 ? 'full' : 'bricka', kvarMs,
     };
   }
   return null;

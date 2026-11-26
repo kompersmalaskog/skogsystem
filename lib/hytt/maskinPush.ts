@@ -51,3 +51,23 @@ export async function skickaBesokTillMaskiner(sb: SupabaseClient, skicka: PushSk
   if (doda.length) await sb.from('push_subscriptions').delete().in('id', doda);
   return { ok: true, maskiner: maskiner.length, prenumerationer: subs.length, skickade };
 }
+
+/**
+ * En färdig notis till EN maskins prenumerationer (push_subscriptions.maskin_id). Används av vädret (lib/kalibrering/vaderServer). Döda prenumerationer (410/404) tas bort.
+ * Kastar vid läsfel så anroparen kan säga det; en enskild prenumeration som faller stoppar inte de andra.
+ */
+export async function skickaTillMaskin(sb: SupabaseClient, skicka: PushSkick, maskinId: string, notis: HyttNotis): Promise<number> {
+  const s = await sb.from('push_subscriptions').select('id, subscription').eq('maskin_id', maskinId);
+  if (s.error) throw new Error(`push_subscriptions: ${s.error.message}`);
+  let skickade = 0;
+  const doda: string[] = [];
+  for (const sub of (s.data ?? []) as { id: string; subscription: unknown }[]) {
+    try { await skicka(sub.subscription, JSON.stringify({ hyttNotis: notis } satisfies MaskinPushPayload)); skickade++; }
+    catch (e) {
+      const kod = (e as { statusCode?: number } | null)?.statusCode;
+      if (kod === 410 || kod === 404) doda.push(sub.id);
+    }
+  }
+  if (doda.length) await sb.from('push_subscriptions').delete().in('id', doda);
+  return skickade;
+}

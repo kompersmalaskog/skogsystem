@@ -6,7 +6,10 @@
 // klar.test.ts kör TS-räkningen mot ett svar ur prod: de två ska ge samma datum.
 //
 // Regler (samma som i SQL):
-//  · trakterna på en maskin i ordning (`sortn`, sätts i SQL ur objekt.ordning, ar/manad, namn);
+//  · trakterna på en maskin i ordning (`sortn`, sätts i SQL ur objekt.ordning, ar/manad, namn) — MEN en PÅBÖRJAD trakt (maskinrollen har
+//    redan kört där: utfört G15 eller volym > 0) går före allt som inte är påbörjat (`korOrdning`, 2026-11-23, Martin: Bondeskog låg trea i
+//    Elefantens kö bakom Brokamåla, fast Elefanten stod på Bondeskog → klar i januari i stället för om några dagar). AVSTEG FRÅN SQL:en:
+//    helikopter_ny_klar räknar fortfarande på sortn ensam; dess klar_datum/efter_manad läses men visas ingenstans — appens räkning gäller;
 //  · dagar för en trakt = kvarvarande timmar / maskinens G15 per arbetsdag — eller, för maskin med manuell datakälla, kvarvarande volym / snittakt;
 //  · trakt n börjar på dag floor(kumulativt före)+1 och slutar på dag ceil(kumulativt efter), räknat på maskinens lediga dagar (avrundat till 6 decimaler);
 //  · saknas prognos (eller volym/takt för den manuella) på någon trakt: maskinen har inget datum (null) — aldrig en gissning.
@@ -241,8 +244,18 @@ export type MaskinPlan = {
 }
 
 /** Maskinens kö: `trakter` är de som ligger på maskinen (i valfri ordning). */
+/** Har maskinrollen redan kört på trakten? Då är det den maskinen står på — den går först i kön. */
+export const arPaborjad = (t: KlarTrakt): boolean => (t.utfort_h ?? 0) > 0 || (t.utfort_volym ?? 0) > 0
+
+/** Körordningen i en maskins kö: påbörjade trakter först, sedan planerarens ordning (`sortn`). EN regel för klar-datum och Tavlan. */
+export function korOrdning(a: KlarTrakt, b: KlarTrakt): number {
+  const pa = arPaborjad(a), pb = arPaborjad(b)
+  if (pa !== pb) return pa ? -1 : 1
+  return a.sortn - b.sortn
+}
+
 export function raknaMaskin(m: KlarMaskin, trakter: KlarTrakt[], sistaArbetsdag: string): MaskinPlan {
-  const ordnade = trakter.filter(t => arKvar(m, t)).sort((a, b) => a.sortn - b.sortn || (a.roll < b.roll ? -1 : a.roll > b.roll ? 1 : 0))
+  const ordnade = trakter.filter(t => arKvar(m, t)).sort((a, b) => korOrdning(a, b) || (a.roll < b.roll ? -1 : a.roll > b.roll ? 1 : 0))
   const saknar = ordnade.some(t => dagarBehov(m, t) == null)
   // Som i SQL: summan av oavrundade dagar avrundas till 6 decimaler; "före" = avrundad summa − traktens egna dagar.
   let summa = 0

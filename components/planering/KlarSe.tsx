@@ -70,6 +70,7 @@ export default function KlarSe({ p, onOppna, utanPadding = false }: { p: KlarMed
   const extern = p.status.prognos.lage === 'extern';
   const post = (id: string) => p.status.poster.find((x) => x.id === id)!;
   const avl = post('avlagg'); const bas = post('basvag');
+  const larm = p.larmplats ? p.status.poster.find((x) => x.id === 'larmplats') ?? null : null;
   const besvarade = HAR_DU_FRAGOR.filter((f) => p.harDu[f.id]);
   const senaste = besvarade.map((f) => p.harDu[f.id]!).sort((a, b) => (a.at < b.at ? 1 : -1))[0];
   const harDuHoger = `${besvarade.length} av ${HAR_DU_FRAGOR.length}${senaste ? ` · ${[p.avNamn(senaste.av), datum(senaste.at)].filter(Boolean).join(' ')}` : ''}`;
@@ -121,6 +122,11 @@ export default function KlarSe({ p, onOppna, utanPadding = false }: { p: KlarMed
         <TryckRad testid="klar-se-avlagg" onTryck={() => onOppna('avlagg')}>
           <span style={{ color: avl.kvar ? FARG.orange : FARG.text }}>{avlaggRadText(avl.kvar, (p.vidaAvlagg ?? []).length, p.avlaggEgna ?? 0)}</span>
         </TryckRad>
+        {larm && (
+          <TryckRad testid="klar-se-larmplats" onTryck={() => onOppna('larmplats')}>
+            <span style={{ color: larm.kvar ? FARG.orange : FARG.text }}>{larm.kvar ? ((p.larmplats?.antal ?? 0) === 0 ? 'Larmplats saknas' : 'Larmplats · titta och godkänn') : `Larmplats · ${larm.varde}`}</span>
+          </TryckRad>
+        )}
         <TryckRad testid="klar-se-basvag" onTryck={() => onOppna('basvag')}>
           {bas.kvar ? <span style={{ color: FARG.orange }}>Basväg saknas</span> : p.basvag.texter.length > 0 ? `Basväg ${p.basvag.sammanfattning ?? bas.varde}` : 'Ingen basväg'}
         </TryckRad>

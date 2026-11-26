@@ -32,3 +32,10 @@ export const avlaggsradLedig = (a: { ledigtUtanInstruktion: boolean; instruktion
  */
 export const riskKortLedigt = (a: { harOlasta: boolean; larmVisas: boolean; lossningVisas: boolean; besokVisas: boolean }): boolean =>
   a.harOlasta && !a.larmVisas && !a.lossningVisas && !a.besokVisas;
+
+/**
+ * VÄDERKORTET i hytten (components/planering/VaderKortHytt): vädret har slagit om sedan maskinen slutade förra arbetsdagen. Information, ingen fara — det väntar på
+ * fara, lossning, besök och riskerna. Instruktionerna väntar på det (det kommer bara på morgonen och tas bort med ett tryck).
+ */
+export const vaderKortLedigt = (a: { harKort: boolean; larmVisas: boolean; lossningVisas: boolean; besokVisas: boolean; riskVisas: boolean }): boolean =>
+  a.harKort && !a.larmVisas && !a.lossningVisas && !a.besokVisas && !a.riskVisas;

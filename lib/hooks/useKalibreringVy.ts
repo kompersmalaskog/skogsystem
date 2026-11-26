@@ -6,11 +6,11 @@
 import { useState } from 'react';
 import type { LagetSteg } from '@/lib/kalibrering/diagnos';
 
-/** Över tid: fyra vinklar. Träff (träffar den rätt?), Spridning (flaxar den?), Per grovlek (var sitter felen?) och Greppet (släpper det oftare? — ersätter tryckmätaren). */
-export type TidMatt = 'traff' | 'sprid' | 'grovlek' | 'grepp';
+/** Över tid: tre flikar. Kurvor (träffar den rätt, flaxar den?), Per grovlek (var sitter felen? + frosten) och Greppet (släpper det oftare?). */
+export type TidMatt = 'kurvor' | 'grovlek' | 'grepp';
 
 export function useKalibreringVy() {
-  const [tidMatt, setTidMatt] = useState<TidMatt>('traff');
+  const [tidMatt, setTidMatt] = useState<TidMatt>('kurvor');
   const [lagetSteg, setLagetSteg] = useState<LagetSteg>('kvartal'); // Över tid: tidssteg (kvartal → grova når underlag)
   const [grovlekTradslag, setGrovlekTradslag] = useState<string | null>(null); // Per grovlek: null = alla trädslag
   const [objektQ, setObjektQ] = useState('');
