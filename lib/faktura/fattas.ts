@@ -11,14 +11,15 @@
 //   skotavstand_manuell     ifylld på 2 av 14   (han har fakturerat 4–20 kr/m³)
 //   sortiment_grupper_manuell  ifylld på 2 av 14
 //
-// Utan dem räknar appen tyst för lågt. Skälviken, trakten som ska faktureras
-// 2026-11-16, är det skarpa fallet: 1 725 m³ skördat och TVÅ lass med
-// körsträcka som tillsammans bär 40 m³. Avståndet summeras per lass på
-// LASSETS egen volym (lib/ekonomi/acord skotAvstandKr) och delas sedan på hela
-// trakten, så tillägget blir 1 680 kr = 0,97 kr/m³ — mot ~40 kr/m³ om de 858
-// och 1 538 m lassen visar gäller trakten. Ca 67 000 kr som aldrig syns.
+// Utan dem räknar appen tyst för lågt.
 //
-// LASSENS TÄCKNING ÄR DÄRFÖR DET SOM AVGÖR, inte om lass finns.
+// TÄCKNINGEN DRAR INTE LÄNGRE NER TALET (2026-11-25): priset sätts en gång på
+// traktens volym ur lassens volymviktade avstånd, så ett omätt lass räknas
+// inte som 0 m — det räknas inte alls (lib/faktura/lassAvstand). Men ett snitt
+// ur två lass av 85 är ett svagt underlag för en hel trakt, och det är därför
+// posten står kvar: den säger hur mycket av trakten talet vilar på.
+//
+// LASSENS TÄCKNING ÄR DET SOM AVGÖR, inte om lass finns.
 // Uppmätt på de tolv klara ackordtrakterna: Åbogen 0 %, Skälviken 2 %,
 // Mölleryd 19 %, Brokamåla 53 %, Stänkelsmåla 67 % — och sedan Östra-Hoka
 // 90 %, Kämpamåla 99 %, Räveboda 99 %, Bågskyttebanan 100 %, Bromåla 100 %,
@@ -51,7 +52,7 @@ export type FattasIndata = {
     lassVolym: number;
     /** Antal lass med körsträcka. */
     lassAntal: number;
-    /** Kronor appen räknat fram, summerat per lass. */
+    /** Kronor appen räknat fram — traktens avstånd × traktens volym. */
     kronor: number;
   };
   sortiment: {
@@ -154,8 +155,8 @@ function avstandPost(d: FattasIndata): FattasPost | null {
     nyckel: 'avstand',
     rubrik: `Skotningsavståndet bygger på ${procent} % av volymen`,
     text: `${d.avstand.lassAntal === 1 ? 'Ett lass' : `${d.avstand.lassAntal} lass`} `
-      + `med körsträcka bär ${vol(d.avstand.lassVolym)} av ${vol(d.volymM3fub)}. `
-      + 'Tillägget räknas bara på de lassen. Skriv in avståndet enkel väg om '
+      + `med mätt sträcka bär ${vol(d.avstand.lassVolym)} av ${vol(d.volymM3fub)}. `
+      + 'Snittet ur dem gäller hela trakten. Skriv in avståndet enkel väg om '
       + 'det inte stämmer.',
     varde: `${kr2(krPerM3)} kr/m³fub · ${tal(d.avstand.kronor)} kr`,
     ark: 'avstand',

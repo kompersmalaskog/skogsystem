@@ -12,6 +12,8 @@ const m = vi.hoisted(() => ({
   render: vi.fn(),
   getDocument: vi.fn(),
   delaFil: vi.fn(),
+  laddaNerFil: vi.fn(),
+  kanSparaFil: vi.fn(),
   datan: [] as Uint8Array[],
 }))
 vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
@@ -21,7 +23,7 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
     return m.getDocument(arg)
   },
 }))
-vi.mock('../_lib/veckolageDela', () => ({ delaFil: m.delaFil }))
+vi.mock('../_lib/veckolageDela', () => ({ delaFil: m.delaFil, laddaNerFil: m.laddaNerFil, kanSparaFil: m.kanSparaFil }))
 
 import PdfForhandsvisning from './PdfForhandsvisning'
 
@@ -42,7 +44,8 @@ const knapp = (t: string) => Array.from(cont.querySelectorAll('button')).find(b 
 const PDF = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52]) // "%PDF-1.4"
 
 beforeEach(() => {
-  m.destroy.mockReset(); m.render.mockReset(); m.getDocument.mockReset(); m.delaFil.mockReset(); m.datan.length = 0
+  m.destroy.mockReset(); m.render.mockReset(); m.getDocument.mockReset(); m.delaFil.mockReset()
+  m.laddaNerFil.mockReset(); m.kanSparaFil.mockReset(); m.kanSparaFil.mockReturnValue(true); m.datan.length = 0
   m.render.mockReturnValue({ promise: Promise.resolve() })
   m.getDocument.mockReturnValue({
     promise: Promise.resolve({
@@ -81,6 +84,39 @@ describe('PdfForhandsvisning', () => {
     // pdf.js fick en kopia (den skickar bufferten till sin worker och tömmer den).
     expect(m.datan[0]).not.toBe(PDF)
     expect(m.datan[0]).toEqual(PDF)
+  })
+
+  it('Spara lägger den riktiga PDF-filen på enheten — utan att gå via delningen', async () => {
+    await monter(<PdfForhandsvisning skapa={async () => PDF} filnamn="skotningsrapport-11280797" titel="Skotningsrapport" onStang={() => {}} />)
+    await tick()
+    expect(knapp('Spara')!.disabled).toBe(false)
+    await act(async () => { knapp('Spara')!.click() })
+    expect(m.laddaNerFil).toHaveBeenCalledTimes(1)
+    const [blob, namn] = m.laddaNerFil.mock.calls[0] as [Blob, string]
+    expect(namn).toBe('skotningsrapport-11280797.pdf')
+    expect(blob.type).toBe('application/pdf')
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(PDF)
+    // Delningens ark sparar ingen fil på Windows/iOS — Spara ska inte öppna det.
+    expect(m.delaFil).not.toHaveBeenCalled()
+  })
+
+  it('Spara är avstängd tills PDF:en finns, och gör inget om den trycks ändå', async () => {
+    let klar!: (b: Uint8Array) => void
+    await monter(<PdfForhandsvisning skapa={() => new Promise<Uint8Array>(r => { klar = r })} filnamn="x" titel="x" onStang={() => {}} />)
+    expect(knapp('Spara')!.disabled).toBe(true)
+    await act(async () => { knapp('Spara')!.click() })
+    expect(m.laddaNerFil).not.toHaveBeenCalled()
+    await act(async () => { klar(PDF) })
+    await tick()
+    expect(knapp('Spara')!.disabled).toBe(false)
+  })
+
+  it('där en nedladdning inte ger någon fil (iOS i installerad PWA) finns ingen Spara-knapp — bara Dela', async () => {
+    m.kanSparaFil.mockReturnValue(false)
+    await monter(<PdfForhandsvisning skapa={async () => PDF} filnamn="x" titel="x" onStang={() => {}} />)
+    await tick()
+    expect(knapp('Spara')).toBeUndefined()
+    expect(knapp('Dela')!.disabled).toBe(false)
   })
 
   it('bakåt och Esc stänger; pdf.js-dokumentet förstörs när vyn stängs', async () => {

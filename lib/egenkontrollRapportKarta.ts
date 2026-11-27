@@ -9,6 +9,7 @@ import { FARG_FARA, FARG_NATUR, GRUPPER, linjeFarg, symbolFarg, ytaDef } from '.
 import { SYMBOL_TYPER, symbolDef, symbolDefTyp } from './symboler';
 import { ROLLFARG_SKORDARE, ROLLFARG_SKOTARE } from './sparStil';
 import { DIKE } from './kartstil';
+import { BLOTT_FARG } from './ritadKarta/lager';
 
 export type KartMarkering =
   /** `backvag` = vägen är en backväg (lib/backvag): dubbla tvärstreck ritas i den änden. Sätts bara på en väg (basväg, stickväg). */
@@ -85,6 +86,45 @@ export function markeringsStil(slag: KartMarkering['slag'], typ: string): Marker
   const s = id === 'default' ? undefined : SYMBOLER[id];
   return s ? { nyckel: `symbol:${id}`, ...s, bredd: 1, streck: null } : { nyckel: 'symbol:ovrigt', etikett: 'Övrig symbol', farg: NEUTRAL, bredd: 1, streck: null };
 }
+
+/** Blött-lagrets blå som hex — samma värde som kartan i hytten (`BLOTT_FARG`, rgb). */
+const BLOTT_HEX = `#${BLOTT_FARG.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
+/** Blött och brant: fyra slag, i den ordning de står i teckenförklaringen. */
+export type MarkSlag = 'fuktigt' | 'blott' | 'brant' | 'mycket_brant';
+
+/**
+ * Markens stil på papperet — APPENS EGET SPRÅK, både färg och mönster: blött
+ * är lagrets blå (`BLOTT_FARG`, lib/ritadKarta/lager) i VÅGRÄTA streck som
+ * myren på en orienteringskarta, brant är faro-gruppens röd (`GRUPPER.fara`)
+ * i SNEDSTRECK — precis som föraren ser dem i hytten. Graderingen ligger i
+ * tätheten: glest = fuktigt / lite brant, tätt = blött / mycket brant.
+ *
+ * MÖNSTRET ÄR INTE PYNT. Första försöket ritade marken som en dämpad yta (en
+ * bana per slag, ingen streckning). Då gick den inte att skilja från
+ * skotarens spår, som är turkost: två blå fält bredvid varandra på samma
+ * karta, det ena "här är blött" och det andra "här körde vi". Uppmätt på
+ * Bondeskogs renderade PDF. Mönstret skiljer dem åt i FORM, inte bara i färg,
+ * och därmed också i svartvit utskrift. Etiketten står i teckenförklaringen,
+ * så färgen aldrig bär ensam.
+ *
+ * Ändra inga värden här utan att rendera en riktig trakt och titta.
+ */
+export const MARK_STIL: Record<MarkSlag, {
+  farg: string; etikett: string; ord: 'blott' | 'brant';
+  /** Mönstret: blött vågrätt som myren, brant snedstreckat — som i appen. */
+  lutning: 'vagrat' | 'sned';
+  /** Avstånd mellan strecken i pt: glest = fuktigt/lite brant, tätt = blött/mycket brant. */
+  avstand: number;
+  tjocklek: number;
+  /** Svag fyllning under strecken så fältet syns även där strecken är glesa. */
+  fyllning: number;
+}> = {
+  fuktigt: { farg: BLOTT_HEX, etikett: 'Fuktig mark', ord: 'blott', lutning: 'vagrat', avstand: 5, tjocklek: 0.8, fyllning: 0.08 },
+  blott: { farg: BLOTT_HEX, etikett: 'Blöt mark', ord: 'blott', lutning: 'vagrat', avstand: 2.5, tjocklek: 1, fyllning: 0.14 },
+  brant: { farg: GRUPPER.fara.farg, etikett: 'Brant', ord: 'brant', lutning: 'sned', avstand: 5, tjocklek: 0.8, fyllning: 0.07 },
+  mycket_brant: { farg: GRUPPER.fara.farg, etikett: 'Mycket brant', ord: 'brant', lutning: 'sned', avstand: 2.5, tjocklek: 1, fyllning: 0.12 },
+};
 
 /** Stammolnets, traktgransens och hyttsparets fasta stilar. */
 export const STAMMOLN_FARG = '#d32f2f';

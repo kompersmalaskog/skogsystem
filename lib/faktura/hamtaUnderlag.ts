@@ -23,7 +23,7 @@ import { lasLassCykel } from '@/lib/faktura/lasAppLass';
 import { cykelTillAvstandsLass, sammanstallCykel,
          type CykelSammanstallning } from '@/lib/faktura/lassCykel';
 import {
-  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg, skotAvstandKr,
+  isValidOn, lookupAcordPris, traktTillagg, sortimentTillagg,
 } from '@/lib/ekonomi/acord';
 import { kostnadsstalleFor, harKrockandeKostnadsstalle } from '@/lib/ekonomi/kostnadsstalle';
 import { medForestlink } from '@/lib/ekonomi/forestlink';
@@ -79,22 +79,27 @@ export type Granskningsunderlag = {
     kronor: number;
     /**
      * Ett lass per post, längst först — så granskningen kan visa HUR talet
-     * blev till. `avstandM` är ENKEL VÄG (korstracka_m halverad), alltså det
-     * avstånd priset räknades på.
+     * blev till. `avstandM` är ENKEL VÄG: appens lass bär avståndet till
+     * virket (`ytterstM`), Optis bär halva körsträckan (se lassCykel).
+     *
+     * INGA KRONOR PER LASS. Priset sätts en gång på traktens avstånd och
+     * volym (lib/faktura/lassAvstand), så ett lass har inget eget belopp —
+     * ett utslaget sådant hade varit en uppfunnen siffra.
      */
-    lass: { avstandM: number; volym: number; kronor: number; kalla: Lasskalla }[];
+    lass: { avstandM: number; volym: number; kalla: Lasskalla }[];
     /** Vilka källor tillägget vilar på ('app', 'opti'). Tom = inga lass. */
     kallor: Lasskalla[];
     /**
-     * Appens lasscykler ur hyttspåret, sammanställda — de TRE talen som
+     * Appens lasscykler ur hyttspåret, sammanställda — de FYRA talen som
      * granskningen visar. null när trakten inte har några app-lass, eller när
      * cykeln inte gick att läsa (migrationen inte körd).
      *
-     * `enkelVagM` är det som blivit pris; `hemMedLassM` är vad maskinen körde
-     * MED virket, och `vidAvlaggetM` är landningsarbetet. De skiljer sig
-     * kraftigt på en trakt som Skälviken (739 / 660 / 250 m), och Martins
-     * handinskrivna avstånd på Brokamåla kan inte avgöra vilket Vida menar —
-     * se lib/faktura/lassCykel.
+     * `ytterstM` är det priset räknas på (avståndet UT till virket, beslut
+     * Martin 2026-11-25 — facit är de två fakturor Vida betalat). De andra
+     * tre är samma körning mätt på andra sätt och står som jämförelse:
+     * `enkelVagM` halva cykeln (739 m där avståndet ut är 414), `hemMedLassM`
+     * körningen efter vändpunkten och `vidAvlaggetM` landningsarbetet. Se
+     * lib/faktura/lassCykel.
      */
     cykel: CykelSammanstallning | null;
     /** Prislistans villkor. null = ingen sats gäller uppslagsdagen. */
@@ -273,7 +278,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   const optiLass = optiTillAvstandsLass(lass);
   // Appens cykler → lass med avståndet som enkel väg. Lass utan cykel följer
   // med med `avstandM: null`: de kördes, så de väger när källorna jämförs,
-  // men bär 0 kr.
+  // men räknas inte i traktens avståndssnitt.
   const appLass = cykelTillAvstandsLass(appCykel.rader);
   // SÄGS ALLTID när cykeln inte gick att läsa. Tystnaden går åt FEL håll:
   // utan appens lass bär Optis avståndet ensamma, och Optis lass är ofta de
@@ -304,12 +309,7 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
   // Lassen var för sig, för granskningen. Längst först — det är det avståndet
   // som förklarar tillägget.
   const lassRader = barande
-    .map(l => ({
-      avstandM: l.avstandM!,
-      volym: l.volym,
-      kronor: skotAvstandKr(l.datum, l.avstandM!, l.volym, avstList as any),
-      kalla: l.kalla,
-    }))
+    .map(l => ({ avstandM: l.avstandM!, volym: l.volym, kalla: l.kalla }))
     .sort((a, b) => b.avstandM - a.avstandM);
   const avstConf = giltiga(avstRes.data)[0] as any ?? null;
   const kallor = kallorIOrd(valdaLass);
@@ -321,9 +321,11 @@ export async function hamtaVoUnderlag(sb: SB, voNummer: string): Promise<HamtatU
         niva: 'info',
         text: kallor.length > 1
           ? 'Avståndet räknas ur både appens lass och Optis filer — per maskin '
-            + 'och dag används den källa som har mest volym, aldrig båda.'
-          : 'Avståndet räknas ur appens lass (GPS-spåret sedan förra lossningen), '
-            + 'inte ur Optis filer.',
+            + 'och dag används den källa som har mest volym, aldrig båda. '
+            + 'Appens lass bär avståndet till virket, Optis halva körsträckan '
+            + '(Opti mäter inte var virket låg), så ett Opti-lass drar talet uppåt.'
+          : 'Avståndet räknas ur appens lass: längsta avståndet från avlägget '
+            + 'under varje lass, volymviktat över trakten.',
       });
     }
   } else {

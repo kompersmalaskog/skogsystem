@@ -20,8 +20,32 @@ function hex(h: string): [number, number, number] {
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
 }
 
-export async function skapaArbetsmiljoPdf(dok: Dokument): Promise<Uint8Array> {
-  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+/**
+ * En karta i dokumentet. Ritningen kommer från ANROPAREN — `Dokument` är en
+ * ren datatyp och ska aldrig bära pdf-lib-typer. Så kan fakturans
+ * skotningsrapport rita sin vektorkarta (`ritaKarta` i egenkontrollens ritare)
+ * utan att arbetsmiljön behöver veta vad en karta är.
+ *
+ * `rita` får rutan i pt. null = inget att rita (då hoppas rutan över).
+ *
+ * En karta på EGEN SIDA fanns här en kort tid (skotningsrapporten 2026-11-25)
+ * och är borta: den rapporten har en egen tvåkolumnsritare, eftersom kartan
+ * ska stå BREDVID sin tabell. Behöver ett dokument en helsidekarta igen är
+ * det en egen ändring — en oanvänd flagga i en delad ritare ruttnar.
+ */
+export type PdfKarta = {
+  hojd: number;
+  rita: (a: {
+    sida: unknown;
+    lib: unknown;
+    fonter: { normal: unknown; fet: unknown };
+    ruta: { x: number; top: number; b: number; h: number };
+  }) => void;
+};
+
+export async function skapaArbetsmiljoPdf(dok: Dokument, karta?: PdfKarta): Promise<Uint8Array> {
+  const pdfLib = await import('pdf-lib');
+  const { PDFDocument, StandardFonts, rgb } = pdfLib;
   type Farg = ReturnType<typeof rgb>;
   const pdf = await PDFDocument.create();
   pdf.setTitle(sanera(dok.titel));
@@ -78,6 +102,13 @@ export async function skapaArbetsmiljoPdf(dok: Dokument): Promise<Uint8Array> {
   sida.drawRectangle({ x: MARG, y: A4.h - y - svarH, width: B, height: svarH, color: F.kort });
   svarRader.forEach((r, i) => text(r, MARG + 12, y + 10 + i * STEG.svar * 1.3, STEG.svar, fet, tonFarg(dok.svarTon)));
   y += svarH + 22;
+
+  // ── Kartan (valfri) ───────────────────────────────────────────────────────────────────────────────────────────────
+  if (karta) {
+    plats(karta.hojd + 8);
+    karta.rita({ sida, lib: pdfLib, fonter: { normal, fet }, ruta: { x: MARG, top: y, b: B, h: karta.hojd } });
+    y += karta.hojd + 18;
+  }
 
   // ── Avsnitt ───────────────────────────────────────────────────────────────────────────────────────────────────────
   for (const s of dok.sektioner) {

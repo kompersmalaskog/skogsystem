@@ -114,6 +114,9 @@ describe('kartbild_bounds skrivs aldrig för att "lösa" objekt som saknar dem',
     'lib/trakt/kartbildVarning.ts',
     // Skotarlänken läser kolumnen och skickar den till beslutaOrigo/objektStartKamera (som objektöversikten). Skriver den aldrig.
     'lib/skotarlank/server.ts',
+    // Skotningsrapporten: läser kolumnen (select) och ger den till beslutaOrigo/origoPerMarkering för att
+    // avgöra om planerarens hänsyn får ritas på kartan. Skriver den aldrig.
+    'lib/faktura/lasSkotningsrapport.ts',
   ];
 
   it('inga andra filer (app, components, lib, scripts, supabase) nämner kartbild_bounds än de granskade', () => {

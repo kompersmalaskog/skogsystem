@@ -53,8 +53,9 @@ const M = [
     "  if (d.sortiment.manuellt) return null;", "", F],
   ["timpeng får avstånd och terräng (frågor som inte hör till avtalsformen)",
     "  const ackord = !d.timpeng;", "  const ackord = true;", F],
+  // Fältet hette `var` och pekade på /redigering tills 2026-11-16; nu `ark`.
   ["ingen sats i prislistan hittar på ett värde i stället för null",
-    "      varde: null,\n      var: 'granskning',", "      varde: '0 kr',\n      var: 'granskning',", F],
+    "      varde: null,\n      ark: 'sortiment',", "      varde: '0 kr',\n      ark: 'sortiment',", F],
   ["kontraktsnummer frågas aldrig (Anders Ingemarsson syns inte)",
     "  if (!d.kontraktsnummer) {", "  if (false) {", F],
 

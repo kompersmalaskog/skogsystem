@@ -29,16 +29,19 @@ const rad = (o: Partial<LassCykel> = {}): LassCykel => ({
 });
 
 describe('cykeln → lass som bär tillägg', () => {
-  it('avståndet är HALVA cykeln', () => {
-    const [l] = cykelTillAvstandsLass([rad({ cykelM: 1477 })]);
-    expect(l.avstandM).toBeCloseTo(738.5, 1);
+  it('avståndet är UT TILL VIRKET, inte halva cykeln', () => {
+    // Beslut Martin 2026-11-25: tillägget betalar transporten mellan virket
+    // och avlägget. Halva cykeln (738,5) räknar in sortering vid avlägget och
+    // körning mellan högarna, som är betalda i kubikpriset.
+    const [l] = cykelTillAvstandsLass([rad({ cykelM: 1477, ytterstM: 416 })]);
+    expect(l.avstandM).toBe(416);
   });
 
-  it('halveras EN gång, aldrig två', () => {
-    // 1477 ÷ 2 = 738,5. Två halveringar hade gett 369,25 — nästan precis
-    // fågelvägen (377), så felet hade sett rimligt ut. Därför det här testet.
-    const [l] = cykelTillAvstandsLass([rad({ cykelM: 1477 })]);
-    expect(l.avstandM).toBeGreaterThan(700);
+  it('halveras INTE — talet är redan enkel väg', () => {
+    // Fågelvägen från avlägget till den yttersta punkten är enkel väg i sig.
+    // En halvering här hade gett 208 m, under grundavståndet, alltså 0 kr.
+    const [l] = cykelTillAvstandsLass([rad({ cykelM: 1477, ytterstM: 416 })]);
+    expect(l.avstandM).toBeGreaterThan(400);
   });
 
   it('lass utan cykel bär 0 kr men räknas som lass', () => {
@@ -53,10 +56,10 @@ describe('cykeln → lass som bär tillägg', () => {
     expect(valjLassKalla(lass)).toHaveLength(2);
   });
 
-  it('ett lass märkt ok men utan cykel bär ändå 0 kr', () => {
+  it('ett lass märkt ok men utan mätt avstånd bär ändå 0 kr', () => {
     // Skulle SQL:en någon gång svara ok med null (den gör det inte), är noll
     // kronor rätt svar — aldrig NaN eller 0 meter.
-    const [l] = cykelTillAvstandsLass([rad({ skal: 'ok', cykelM: null })]);
+    const [l] = cykelTillAvstandsLass([rad({ skal: 'ok', cykelM: null, ytterstM: null })]);
     expect(l.avstandM).toBeNull();
     expect(skotAvstandKr('2026-11-02', l.avstandM ?? 0, l.volym, PRIS)).toBe(0);
   });
@@ -160,21 +163,13 @@ describe('sammanställningen för granskningen', () => {
 });
 
 describe('priset', () => {
-  it('Skälviken: 739 m ger 24 kr/m³fub, 383 m gav 8', () => {
-    // Det är skillnaden den här ändringen gör. 1 725 m³fub × 16 kr = 27 600 kr.
+  it('Skälviken: 414 m ger 12 kr/m³fub, halva cykeln 739 hade gett 24', () => {
+    // FACIT: Martin satt 450 m för hand och Vida betalade 12 kr/m³fub.
+    // 414 (det mätta avståndet ut) ligger i samma prissteg. Halva cykeln hade
+    // dubblat tillägget mot det han fakturerade.
+    expect(skotAvstandKr('2026-11-02', 414, 1, PRIS)).toBe(12);
+    expect(skotAvstandKr('2026-11-02', 450, 1, PRIS)).toBe(12);
     expect(skotAvstandKr('2026-11-02', 739, 1, PRIS)).toBe(24);
-    expect(skotAvstandKr('2026-11-02', 383, 1, PRIS)).toBe(8);
-  });
-
-  it('priset räknas per lass på lassets egen volym, inte på snittet', () => {
-    const lass = cykelTillAvstandsLass([
-      rad({ lassId: 'A', cykelM: 1400, volym: 20 }),
-      rad({ lassId: 'B', cykelM: 400, volym: 20 }),
-    ]);
-    const kr = lass.reduce((s, l) => s + skotAvstandKr('2026-11-02', l.avstandM ?? 0, l.volym, PRIS), 0);
-    // 700 m → 20 kr/m³ × 20 = 400; 200 m → 0 kr. Snittet (450 m → 12 kr) hade
-    // gett 480 kr på samma volym.
-    expect(kr).toBe(400);
   });
 });
 

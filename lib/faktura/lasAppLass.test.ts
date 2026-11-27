@@ -44,11 +44,14 @@ describe('appens lass för en trakt', () => {
     expect(anrop[0].args.p_vo).toEqual(['X', 'Y']);
   });
 
-  it('avståndet är HALVA cykeln — enkel väg', async () => {
-    const { sb } = fejk([rad({ cykel_m: 1477 })]);
+  it('avståndet är UT TILL VIRKET, inte halva cykeln', async () => {
+    // Beslut Martin 2026-11-25: tillägget betalar transporten mellan virket
+    // och avlägget. Halva cykeln (738,5) bär också sortering vid avlägget och
+    // körning mellan högarna, som ligger i kubikpriset.
+    const { sb } = fejk([rad({ cykel_m: 1477, ytterst_m: 416 })]);
     const r = await lasAppLass(sb as any, ['X']);
     expect(r).toHaveLength(1);
-    expect(r[0].avstandM).toBeCloseTo(738.5, 1);
+    expect(r[0].avstandM).toBe(416);
     expect(r[0].volym).toBe(20);
     expect(r[0].kalla).toBe('app');
     expect(r[0].maskinId).toBe('A130743');
@@ -70,8 +73,16 @@ describe('appens lass för en trakt', () => {
     }
   });
 
-  it('cykel 0 är ingen cykel', async () => {
-    const { sb } = fejk([rad({ cykel_m: 0 })]);
+  it('cykel 0 är ingen cykel — raden säger emot sig själv', async () => {
+    // `ytterst_m` och `cykel_m` räknas ur samma punkter, så det här kan inte
+    // uppstå i verkligheten. Skulle det göra det är spåret trasigt, och då är
+    // 0 kr rätt svar — inte ett avstånd ur en rad som motsäger sig själv.
+    const { sb } = fejk([rad({ cykel_m: 0, ytterst_m: 350 })]);
+    expect((await lasAppLass(sb as any, ['X']))[0].avstandM).toBeNull();
+  });
+
+  it('avstånd 0 är inget avstånd', async () => {
+    const { sb } = fejk([rad({ ytterst_m: 0 })]);
     expect((await lasAppLass(sb as any, ['X']))[0].avstandM).toBeNull();
   });
 
@@ -152,10 +163,26 @@ describe('källvakter: hur det är kopplat', () => {
     expect(HAMTA).toMatch(/avstandsTillagg\(\{\s*opti: optiLass, app: appLass/);
     const AVST = readFileSync('lib/faktura/lassAvstand.ts', 'utf8');
     expect(AVST).toContain('valjLassKalla([...p.opti, ...p.app])');
-    // Loopen som summerar kronor går över de VALDA lassen, inte över båda.
-    expect(AVST).toMatch(/for \(const l of barande\)/);
-    expect(AVST).not.toMatch(/for \(const l of \[\.\.\.p\.opti/);
+    // Snittet räknas på de VALDA lassen med sträcka, aldrig över båda källorna.
+    expect(AVST).toMatch(/const barande = lassMedStracka\(valda\)/);
+    expect(AVST).not.toMatch(/\[\.\.\.p\.opti, \.\.\.p\.app\](?!\))/);
     expect(HAMTA).not.toMatch(/for \(const l of \[\.\.\.optiLass/);
+  });
+
+  it('PRISET SÄTTS EN GÅNG — ingen loop som summerar kronor per lass', () => {
+    // Beslut Martin 2026-11-25: ett avstånd per trakt, ett pris, traktens
+    // volym. Per-lass-prissättning gav Skälviken 7,52 kr/m³fub i stället för
+    // 12, eftersom 15 av 85 lass saknar mätt cykel och bar 0 kr.
+    const AVST = readFileSync('lib/faktura/lassAvstand.ts', 'utf8');
+    const utanKommentar = AVST.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Exakt ETT anrop till stegregeln, och det på traktens volym.
+    expect(utanKommentar.match(/skotAvstandKr\(/g) ?? []).toHaveLength(1);
+    expect(utanKommentar).toMatch(/skotAvstandKr\(p\.uppslag, avstandM, p\.skordadVolym/);
+    // Ingen summering av kronor per lass någonstans.
+    expect(utanKommentar).not.toMatch(/reduce\([^)]*skotAvstandKr/);
+    expect(utanKommentar).not.toMatch(/for \(const l of barande\)/);
+    // Och inga kronor per lass i underlaget heller.
+    expect(HAMTA.replace(/\/\/[^\n]*/g, '')).not.toMatch(/skotAvstandKr\(/);
   });
 
   it('halveringen sker på ETT ställe, aldrig med en egen division', () => {

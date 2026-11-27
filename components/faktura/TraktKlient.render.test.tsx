@@ -147,9 +147,11 @@ describe('Skälviken: kortet säger vad som fattas', () => {
     // Stegaren står på jämna hundra ur lassens volymviktade snitt (1 198 m).
     expect(t).toContain('1 200');
     expect(t).toContain('meter enkel väg');
-    // Frågan Martin ställde ska stå på skärmen, inte bara i koden.
-    expect(t).toContain('ut och tillbaka');
-    expect(t).toContain('räknar enkel väg');
+    // Vad talet ÄR ska stå på skärmen, inte bara i koden: avståndet ut till
+    // virket, och att landningsarbetet inte ligger i det (Martin 2026-11-25).
+    expect(t).toContain('enkel väg från avlägget');
+    expect(t).toContain('kubikpriset');
+    expect(t).not.toContain('halveras');
     // Lassen var för sig, längst först.
     expect(t).toContain('1 538 m');
     expect(t).toContain('858 m');
@@ -269,7 +271,7 @@ describe('skotningsavståndet syns i METER, inte bara i kronor', () => {
       (e.querySelector('[data-avstand-rad]') as HTMLElement).closest('button')!.click();
     });
     await act(async () => { await Promise.resolve(); });
-    expect(text(e)).toContain('ut och tillbaka');
+    expect(text(e)).toContain('enkel väg från avlägget');
   });
 
   it('TRE tal bestämmer priset och alla tre har en rad', async () => {
@@ -349,5 +351,45 @@ describe('lättare sida — text som inte sa något är borta', () => {
     };
     expect(storlek('57,00')).toBeGreaterThan(storlek('98 339 kr'));
     expect(storlek('57,50')).toBeGreaterThan(storlek('99 201 kr'));
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// SKOTNINGSRAPPORTEN (Martin 2026-11-25: "kan vi göra det till pdf så jag kan
+// skicka det till inköparna"). Raden finns BARA när det finns ett avstånd att
+// rapportera — en rapport utan tal är ingen rapport.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('raden till inköparen', () => {
+  it('står på en trakt som har ett skotningsavstånd', async () => {
+    const e = await rita();
+    const r = e.querySelector('[data-skotningsrapport]') as HTMLElement;
+    expect(r).toBeTruthy();
+    expect(text(r)).toContain('Skotningsrapport');
+    expect(text(r)).toContain('Avståndet, kartan över körningen');
+    // Hela raden är en knapp — den öppnar ett ark på fakturan, ingen länk bort.
+    expect(r.closest('button')).toBeTruthy();
+    expect(r.closest('a')).toBeNull();
+  });
+
+  // En rapport utan tal är ingen rapport: finns varken handsatt eller mätt
+  // avstånd (en timpengtrakt, eller en trakt utan lass) ska raden inte stå.
+  it('står INTE på en trakt utan skotningsavstånd', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => {
+        const s = svar();
+        const r = s.resultat[0] as Record<string, unknown>;
+        const g = r.granskning as Record<string, unknown>;
+        r.granskning = {
+          ...g,
+          avstand: { ...(g.avstand as object), manuellt: null, lassAntal: 0, lassVolym: 0, lass: [], cykel: null },
+        };
+        return s;
+      },
+    })));
+    await act(async () => { root!.render(<TraktKlient vo="11271860" manuellt={null} />); });
+    await act(async () => { await Promise.resolve(); });
+    expect(el!.querySelector('[data-skotningsrapport]')).toBeNull();
   });
 });

@@ -24,10 +24,17 @@ const FOT_Y = A4.h - MARG;
 /** Flygfotots upplösning: 2 px per punkt (~144 dpi) — skarpt på skärm och utskrift, en JPEG på några hundra kB. */
 const FOTO_PX_PER_PT = 2;
 
-/** Standardfonterna klarar WinAnsi (å ä ö ³ · – …). Minustecken → bindestreck, hårt mellanslag → mellanslag, resten utanför → '?'. */
+/** Standardfonterna klarar WinAnsi (å ä ö · – …). Minustecken → bindestreck, hårt mellanslag → mellanslag, ²/³ → 2/3 (se nedan), resten utanför → '?'. */
 export function sanera(s: string): string {
   return s
     .replace(/−/g, '-')
+    // ² och ³ FINNS i WinAnsi och i teckenintervallet nedan, men pdf-lib ritar
+    // dem inte med StandardFonts.Helvetica: texten hamnar i filen (pdftotext
+    // läser "m³fub") medan glyfen blir ett tomrum på papperet. Uppmätt
+    // 2026-11-25 — markägarrapporten har därmed skrivit "1 746 m fub" till
+    // markägare sedan den byggdes. Skriv dem som vanliga siffror i stället.
+    .replace(/³/g, '3')
+    .replace(/²/g, '2')
     .replace(/[  ]/g, ' ')
     .replace(/[^ -ÿ–—‘’“”…]/g, '?');
 }

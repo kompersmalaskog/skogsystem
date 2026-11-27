@@ -55,7 +55,10 @@ export type VidaGrans =
   | { typ: 'fel'; meddelande?: string }
   // ringar: traktgränsens yttre ringar ([lng,lat][]), för lagret "Vidas traktgräns" i lagermenyn (PR 8a). Origobeslutet läser bara `gran`.
   // linjer: Vidas linjer (_typ 'linje': kraftledning, basväg) som GeoJSON-features, för Objektöversiktens karta.
-  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][]; linjer?: unknown[] };
+  // ytor/punkter: Vidas ÖVRIGA features — hänsynsytor, nyckelbiotoper, fornlämningar (ytor) och tilläggspunkter (avlägg, larmkoordinat).
+  //   Läsningen av objekt_geometri är gjord ändå (6,8 MB för hela tabellen), så en anropare som behöver dem ska slippa läsa om.
+  //   De klassas av anroparen med `klassaTraktFeature` (lib/traktGeometri) — den här filen känner inga kategorier.
+  | { typ: 'ok'; gran: Gran; ringar?: [number, number][][]; linjer?: unknown[]; ytor?: unknown[]; punkter?: unknown[] };
 
 export type OrigoSkal =
   | 'saknar_position'   // varken kartbild_bounds eller lat/lng
@@ -295,6 +298,19 @@ export async function lasVidaGrans(klient: SupabaseClient, objektId: string): Pr
   const rader = (data ?? []) as { geometri?: { features?: unknown[] } | null }[];
   const features = rader.flatMap((r) => (Array.isArray(r?.geometri?.features) ? (r.geometri!.features as unknown[]) : []));
   const gran = traktGrans({ features });
-  const linjer = features.filter((f) => (f as { properties?: { _typ?: unknown } } | null)?.properties?._typ === 'linje');
-  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer } : { typ: 'saknas' };
+  const typAv = (f: unknown) => String((f as { properties?: { _typ?: unknown } } | null)?.properties?._typ ?? '');
+  const lagerAv = (f: unknown) => String((f as { properties?: { _lager?: unknown } } | null)?.properties?._lager ?? '');
+  const linjer = features.filter((f) => typAv(f) === 'linje');
+  const punkter = features.filter((f) => typAv(f) === 'punkt');
+  // Allt utom traktgränsen och det som redan ges som linje eller punkt: hänsynsytor, nyckelbiotoper,
+  // fornlämningar, skogsbruksplan, fastighetsgränser. Anroparen klassar dem.
+  //
+  // TRAKTGRÄNSEN IDENTIFIERAS PÅ `_lager`, aldrig på `_typ`: importen sätter `_typ='okänt'` för
+  // referenslagren (se lib/traktGeometri), och samma lager kan bära olika `_typ` i prod —
+  // L_RAA_POLY_101 har 85 features med 'fornlämning' och 66 med 'okänt' (läst 2026-11-25). Saknas
+  // `_typ` helt hamnade traktdelen själv bland ytorna. Samma jämförelse som `traktGrans` gör.
+  const ytor = features.filter(
+    (f) => typAv(f) !== 'linje' && typAv(f) !== 'punkt' && lagerAv(f) !== 'L_TRAKTDEL',
+  );
+  return gran ? { typ: 'ok', gran, ringar: traktgransRingar({ features: features as never }), linjer, ytor, punkter } : { typ: 'saknas' };
 }
