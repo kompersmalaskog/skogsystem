@@ -27,10 +27,12 @@ export function KorvyKvitto({ text, ton, onAngra, smal }: { text: string; ton: '
         aria-live="polite"
         data-testid="korvy-kvitto"
         data-ton={ton}
+        className={fel ? undefined : 'glas'}
         style={{
           pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: AVSTAND.s, maxWidth: 520, boxSizing: 'border-box', minHeight: HOJD_PX,
           padding: onAngra ? `0 ${AVSTAND.s}px 0 ${AVSTAND.l}px` : `0 ${AVSTAND.l}px`, borderRadius: RADIE.sheet,
-          background: fel ? FARG.orange : FARG.kort, color: fel ? FARG.bg : FARG.text, border: fel ? 'none' : `1px solid ${FARG.linje}`,
+          ...(fel ? { background: FARG.orange, border: 'none' } : null),   // felkvittot är orange och täckt — bara det vanliga kvittot är glas
+          color: fel ? FARG.bg : FARG.text,
           fontFamily: 'inherit', ...TYP.listtitel,
         }}
       >

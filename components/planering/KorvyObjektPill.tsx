@@ -139,11 +139,12 @@ export function KorvyObjektPill({
   return (
     <div
       data-testid="korvy-objektpill"
+      className="glas"
       style={{
         pointerEvents: 'auto', flex: smal ? '1 1 auto' : '0 1 auto', minWidth: 0, maxWidth: smal ? 'none' : 'calc(100% - 120px)', display: 'flex', alignItems: 'stretch',
-        minHeight: PILL_HOJD_PX, borderRadius: PILL_HOJD_PX / 2, overflow: 'hidden', background: FARG.kort, color: FARG.text,
+        minHeight: PILL_HOJD_PX, borderRadius: PILL_HOJD_PX / 2, overflow: 'hidden', color: FARG.text,
         flexDirection: kvar && smal ? 'column' : 'row',
-        border: orangeKant ? `1px solid ${FARG.orange}` : `1px solid ${FARG.linje}`,
+        ...(orangeKant ? { border: `1px solid ${FARG.orange}` } : null),   // "Visa som": orange kant går före glasets
       }}
     >
       {kvar ? <div style={{ display: 'flex', alignItems: 'stretch', minWidth: 0, flex: '1 1 auto' }}>{rad}</div> : rad}

@@ -216,6 +216,56 @@ export const FARG = {
   diagram2: "#f0b24c",
 } as const;
 
+// ---------------------------------------------------------------------------
+// Glas — de flytande kartkontrollerna (pillen, hem, ⓘ, Centrera, +, nedre listerna).
+// ---------------------------------------------------------------------------
+
+/**
+ * Glas: halvgenomskinlig mörk yta med suddig karta bakom, tunn ljus kant, mjuk skugga (iOS-kontroll ovanpå en karta; Martin 2026-11-27).
+ * Alla flytande KONTROLLER på kartan tar stilen ur klassen `.glas` (GLAS_CSS) — aldrig egna `backdropFilter`/`rgba` i en vy.
+ * `fast` är den solida varianten med SAMMA form, kant och skugga: används där suddig bakgrund inte stöds, när datorn är svag, vid
+ * "minska genomskinlighet" och i maskinläget (lib/glasLage). Larm-, besöks- och varningskort är INTE glas (de bär färgad kant och ska vara täckta).
+ */
+export const GLAS = {
+  /** Glasets fyllning. 0,78 (var 0,72) — med blur ligger bakgrunden kvar som färg, så en tätare yta håller texten läsbar mot flygfoto och ljus karta. */
+  fyll: "rgba(20,20,22,0.78)",
+  /** Solid variant: samma mörka ton, ingen genomskinlighet. */
+  fast: FARG.kort,
+  /** Tunn ljus kant (ca 10 % vitt). */
+  kant: "rgba(255,255,255,0.10)",
+  /** Mjuk skugga som lyfter kontrollen från kartan. */
+  skugga: "0 4px 20px rgba(0,0,0,0.35)",
+  /** Det som suddar kartan bakom. Saturate ger iOS-glasets färgglöd utan att ljusa partier tar över. */
+  sudd: "blur(20px) saturate(140%)",
+} as const;
+
+/**
+ * Klassen `.glas` — fast bakgrund som standard, glas där webbläsaren kan sudda. Läget styrs av `body[data-glas="solid"]` (lib/glasLage:
+ * maskinläge, svag dator) och av "minska genomskinlighet". Ingen vy skriver bakgrund, kant, skugga eller blur själv på ett element med klassen.
+ */
+export const GLAS_CSS = `
+  .glas {
+    background: ${GLAS.fast};
+    border: 1px solid ${GLAS.kant};
+    box-shadow: ${GLAS.skugga};
+  }
+  @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    body:not([data-glas="solid"]) .glas {
+      background: ${GLAS.fyll};
+      -webkit-backdrop-filter: ${GLAS.sudd};
+      backdrop-filter: ${GLAS.sudd};
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    body .glas {
+      background: ${GLAS.fast} !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+  }
+`;
+
+
 /** SORTIMENT — hur virket är fördelat (timmer, kubb, massaved, övrigt). En ljushetsskala:
  *  MÖRKAST = MEST VÄRT. Egen axel, skild från status (grönt/orange/rött säger om något är bra eller
  *  dåligt) och från rollfärgerna (skördare/skotare). Mörkgrön betyder alltså "mest värt", aldrig "ok".

@@ -47,9 +47,10 @@ export function LinjeRedList({ lage, onVal, onAngra, kanAngra, onKlar, smal, med
     >
       <div
         role="status"
+        className="glas"
         style={{
           pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, boxSizing: 'border-box',
-          padding: AVSTAND.s, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
+          padding: AVSTAND.s, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
         }}
       >
         <div data-testid="linjered-tips" style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel, color: meddelande ? FARG.orange : FARG.text }}>{meddelande || LINJERED_TIPS[lage]}</div>

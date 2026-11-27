@@ -52,9 +52,10 @@ export function KorvyNertillList({ text, knappar, testid, smal, z = 600, stapla 
       >
         <div
           role="status"
+          className="glas"
           style={{
             pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, boxSizing: 'border-box',
-            padding: AVSTAND.s, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
+            padding: AVSTAND.s, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
           }}
         >
           <div style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel }}>{text}</div>

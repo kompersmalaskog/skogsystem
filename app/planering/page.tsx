@@ -222,6 +222,8 @@ import { LinjeTypLista } from '../../components/planering/LinjeTypLista'
 import { LANGTRYCK_MS, LANGTRYCK_RORELSE_PX } from '../../lib/langtryck'
 import { ritaEtikett, etikettBildId, ETIKETT_PIXELRATIO } from '../../lib/figurEtikettBild'
 import { FARG, FONT, DELFARG, TYP, RADIE, AVSTAND, IKON, TRAFFYTA, KNAPP, VIKT } from '../../lib/design/tokens'
+import GlasStil from '../../components/design/GlasStil'
+import { useGlasLage } from '../../lib/glasLage'
 import { avgorMaskindatorStart, rollAvMaskintyp, implicitJa, arMaskinlage, visaForarlista } from '../../lib/maskindatorStart'
 import { stegaAvstamning, NYTT_AVSTAMNINGSMINNE, type AvstamningsMinne } from '../../lib/objektAvstamning'
 import { hamtaKandidatSvar, startaKandidatLaddning } from '../../lib/objektKandidater'
@@ -3316,6 +3318,7 @@ export default function PlannerPage() {
   // (förarlista + maskindator-flöde) oavsett inloggad roll; rollen styr bara rättigheter. Se [[visaForarlista]].
   // En enhet med vald maskin ÄR en maskindator (även om serial-GPS:en tappats) — startsidan skickar den hit i maskinläge.
   const maskinlage = arMaskinlage(serialGpsAktiv, !!testlage, enhetMaskinId);
+  useGlasLage(maskinlage);   // glas eller solid på kartans kontroller (lib/glasLage): maskinläget är solid tills glas är mätt på hytthårdvara
   // Enhetens roll ur MASKINREGISTRET (aldrig tilldelningsfält, aldrig en tyst reserv). null = okänd → ingen körvy öppnas på gissning.
   const enhetRoll = enhetMaskinId ? rollForMaskin(dimMaskiner, enhetMaskinId) : null;
   const enhetRollRef = useRef(enhetRoll);
@@ -14173,6 +14176,8 @@ export default function PlannerPage() {
       WebkitTouchCallout: 'none',
       WebkitTapHighlightColor: 'transparent',
     }}>
+      {/* === GLAS på kartans flytande kontroller (klassen .glas, lib/design/tokens GLAS) === */}
+      <GlasStil />
       {/* === APPLE PRESS-FEEDBACK === */}
       <style>{`
         .press-scale { transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1); }
@@ -14230,15 +14235,11 @@ export default function PlannerPage() {
               width: '44px',
               height: '44px',
               borderRadius: '22px',
-              background: 'rgba(20,20,22,0.72)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               textDecoration: 'none',
               flexShrink: 0,
-              border: '1px solid rgba(255,255,255,0.08)',
               padding: 0,
               cursor: 'pointer',
             };
@@ -14251,17 +14252,17 @@ export default function PlannerPage() {
             // Kom man hit från Översikten ("Visa på kartan" i Min plan) står "‹ Översikt" först — tillbaka till samma plan och trakt
             // (Martin 2026-11-06: "när jag hamnar på kartan ska jag kunna back och komma till översikten igen").
             const tillbaka = tillbakaOversikt ? (
-              <Link href={tillbakaOversikt} data-testid="tillbaka-oversikt" className="press-scale"
+              <Link href={tillbakaOversikt} data-testid="tillbaka-oversikt" className="press-scale glas"
                 style={{ ...hemStil, width: 'auto', padding: `0 ${AVSTAND.m}px`, color: FARG.text, ...TYP.listtitel }}>
                 ‹ Översikt
               </Link>
             ) : null;
             return <>{tillbaka}{maskinlage ? (
-              <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
+              <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale glas" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
                 {hemIkon}
               </button>
             ) : (
-              <Link href="/" aria-label="Hem" className="press-scale" style={hemStil}>
+              <Link href="/" aria-label="Hem" className="press-scale glas" style={hemStil}>
                 {hemIkon}
               </Link>
             )}</>;
@@ -14299,6 +14300,7 @@ export default function PlannerPage() {
             role="button"
             tabIndex={0}
             data-testid="objekt-pill"
+            className="glas"
             aria-label={objektListaVal ? 'Byt objekt' : undefined}
             aria-haspopup={objektListaVal ? 'dialog' : undefined}
             aria-expanded={objektListaVal ? objektListaOppen : undefined}
@@ -14312,10 +14314,7 @@ export default function PlannerPage() {
             maxWidth: 'calc(100% - 120px)',
             padding: '10px 18px',
             borderRadius: '22px',
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: visarSomForare ? '1px solid #ff9f0a' : '1px solid rgba(255,255,255,0.08)',
+            ...(visarSomForare ? { border: '1px solid #ff9f0a' } : null),   // "Visa som": orange kant går före glasets
             color: '#fff',
             fontSize: '15px',
             fontWeight: '600',
@@ -14373,15 +14372,15 @@ export default function PlannerPage() {
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad (körvy på telefon: pillen får hela bredden i stället) */}
           {objektListaVal || skotarKorvy || instruktionerAktiv ? (
             /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
-            <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale"
+            <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale glas"
               onClick={() => {
                 setObjektListaOppen(false);
                 // Oplanerad trakt med något kvar: ⓘ öppnar direkt "Klar med trakten?" (GÖRA) — informationskortet nås därifrån via "Om trakten".
                 if (!traktOversiktOpen && klarGaller && klarDataKlart && valtObjekt?.status === 'oplanerad' && klarStatus.antalKvar > 0) setInfoStartVy('klar');
                 setTraktOversiktOpen(o => !o);
               }}
-              style={{ pointerEvents: 'auto', width: '44px', height: '44px', borderRadius: '22px', background: 'rgba(20,20,22,0.72)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, cursor: 'pointer' }}>
+              style={{ pointerEvents: 'auto', width: '44px', height: '44px', borderRadius: '22px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: 0, cursor: 'pointer' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11 V16.5" /><circle cx="12" cy="7.8" r="0.6" fill="#fff" /></svg>
             </button>
           ) : (
@@ -15593,7 +15592,7 @@ export default function PlannerPage() {
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); } }}
           aria-label={plusOppen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusOppen}
-          className="press-dim"
+          className="press-dim glas"
           style={{
             position: 'fixed',
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
@@ -15601,10 +15600,6 @@ export default function PlannerPage() {
             width: '44px',
             height: '44px',
             borderRadius: '50%',
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.08)',
             color: '#fff',
             cursor: 'pointer',
             display: 'flex',
@@ -16795,14 +16790,12 @@ export default function PlannerPage() {
       {/* === GPS ACCURACY TEXT (vänster nere) === */}
       {/* Gå-läget har noggrannheten i panelen överst — en GPS-text, inte två. */}
       {isTracking && !stickvagMode && gpsAccuracy != null && (
-        <div style={{
+        <div className="glas" style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
           left: '15px',
           padding: '4px 10px',
           borderRadius: '8px',
-          background: 'rgba(0,0,0,0.6)',
-          backdropFilter: 'blur(8px)',
           color: gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a',
           fontSize: '13px',
           fontWeight: '600',
