@@ -14258,11 +14258,11 @@ export default function PlannerPage() {
               </Link>
             ) : null;
             return <>{tillbaka}{maskinlage ? (
-              <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale glas" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
+              <button type="button" aria-label="Meny" aria-haspopup="dialog" data-testid="hem-maskinmeny" className="press-scale glas glas-ikon" onClick={() => setMaskinMenyOppen(true)} style={hemStil}>
                 {hemIkon}
               </button>
             ) : (
-              <Link href="/" aria-label="Hem" className="press-scale glas" style={hemStil}>
+              <Link href="/" aria-label="Hem" className="press-scale glas glas-ikon" style={hemStil}>
                 {hemIkon}
               </Link>
             )}</>;
@@ -14372,7 +14372,7 @@ export default function PlannerPage() {
           {/* Platshållare där nödlägesknappen satt — håller objekt-pillen centrerad (körvy på telefon: pillen får hela bredden i stället) */}
           {objektListaVal || skotarKorvy || instruktionerAktiv ? (
             /* Objektinfon (traktöversikten) hade pillen som enda ingång — nu bär pillen "byt objekt", så infon får en egen knapp på platshållarens plats. */
-            <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale glas"
+            <button type="button" data-testid="objektinfo-knapp" aria-label="Objektinfo" aria-expanded={traktOversiktOpen} className="press-scale glas glas-ikon"
               onClick={() => {
                 setObjektListaOppen(false);
                 // Oplanerad trakt med något kvar: ⓘ öppnar direkt "Klar med trakten?" (GÖRA) — informationskortet nås därifrån via "Om trakten".
@@ -15592,7 +15592,7 @@ export default function PlannerPage() {
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); if (plusRadOppen) { setPlusRadOppen(false); setLangtryckPunkt(null); setPlusArkStart(null); } else { setPlusArkStart(null); setPlusRadOppen(true); } }}
           aria-label={plusOppen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusOppen}
-          className="press-dim glas"
+          className="press-dim glas glas-ikon"
           style={{
             position: 'fixed',
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
