@@ -221,33 +221,52 @@ export const FARG = {
 // ---------------------------------------------------------------------------
 
 /**
- * Glas: halvgenomskinlig mörk yta med suddig karta bakom, tunn ljus kant, mjuk skugga (iOS-kontroll ovanpå en karta; Martin 2026-11-27).
- * Alla flytande KONTROLLER på kartan tar stilen ur klassen `.glas` (GLAS_CSS) — aldrig egna `backdropFilter`/`rgba` i en vy.
+ * Glas: FROSTAT som iOS — kartan skimrar igenom, suddad och färgmättad, bakom en lätt mörk hinna (Martin 2026-11-27, efter att #1285:s tätare
+ * variant inte syntes mot flygfoto: de hade redan blur och 0,72 → 0,78 ändrade inget man ser). Alla flytande KONTROLLER på kartan tar stilen
+ * ur klassen `.glas` (GLAS_CSS) — aldrig egna `backdropFilter`/`rgba` i en vy.
  * `fast` är den solida varianten med SAMMA form, kant och skugga: används där suddig bakgrund inte stöds, när datorn är svag, vid
  * "minska genomskinlighet" och i maskinläget (lib/glasLage). Larm-, besöks- och varningskort är INTE glas (de bär färgad kant och ska vara täckta).
+ * Tätheten (`fyll`) är det man skruvar på om kontrasten inte räcker (sekundärtext ≥ 4,5 mot flygfoto, hygge, åker och ljus karta, mätt utan textskuggan).
  */
 export const GLAS = {
-  /** Glasets fyllning. 0,78 (var 0,72) — med blur ligger bakgrunden kvar som färg, så en tätare yta håller texten läsbar mot flygfoto och ljus karta. */
-  fyll: "rgba(20,20,22,0.78)",
+  /** Glasets fyllning. Önskat 0,42 (kartan skimrar), men sekundärtexten (vitt 75 %) når då bara 2,0–5,1 mot flygfoto/hygge/åker/ljus karta. Trappat 0,42 → 0,48 → 0,55 → 0,62 → 0,70 → 0,75 → 0,76: först 0,76 ger ≥ 4,5 överallt (min 4,66, ljus karta). */
+  fyll: "rgba(40,40,44,0.76)",
   /** Solid variant: samma mörka ton, ingen genomskinlighet. */
   fast: FARG.kort,
-  /** Tunn ljus kant (ca 10 % vitt). */
-  kant: "rgba(255,255,255,0.10)",
-  /** Mjuk skugga som lyfter kontrollen från kartan. */
+  /** Tunn ljus kant (0,5 px, 18 % vitt). */
+  kantBredd: "0.5px",
+  kant: "rgba(255,255,255,0.18)",
+  /** Ljus högdager i överkanten (iOS-glasets lyft) + mjuk skugga under. */
+  hogdager: "inset 0 0.5px 0 rgba(255,255,255,0.35)",
   skugga: "0 4px 20px rgba(0,0,0,0.35)",
-  /** Det som suddar kartan bakom. Saturate ger iOS-glasets färgglöd utan att ljusa partier tar över. */
-  sudd: "blur(20px) saturate(140%)",
+  /** Det som suddar kartan bakom. Saturate ger färgglöden som gör glaset levande. */
+  sudd: "blur(28px) saturate(180%)",
+  /** Svag skugga under text i glaset så den släpper från en ljus bakgrund. */
+  textSkugga: "0 1px 2px rgba(0,0,0,0.35)",
+  /** Sekundärtext i glaset: vitt, inte grått (grått tappar mot en genomskinlig yta). */
+  text2: "rgba(255,255,255,0.75)",
 } as const;
+
+/** Inline-färgerna som räknas som sekundärtext i glas (FARG.text2 och det vita 65 %-värdet), i båda skrivsätten (serverns hex, webbläsarens rgb). */
+const GLAS_SEKUNDAR = [
+  '[style*="#8e8e93"]', '[style*="rgb(142, 142, 147)"]',
+  '[style*="rgba(255,255,255,0.65)"]', '[style*="rgba(255, 255, 255, 0.65)"]',
+].map((x) => `.glas ${x}`).join(', ');
 
 /**
  * Klassen `.glas` — fast bakgrund som standard, glas där webbläsaren kan sudda. Läget styrs av `body[data-glas="solid"]` (lib/glasLage:
  * maskinläge, svag dator) och av "minska genomskinlighet". Ingen vy skriver bakgrund, kant, skugga eller blur själv på ett element med klassen.
+ * Textskuggan och sekundärfärgen gäller också i den solida varianten (samma läsning oavsett läge).
  */
 export const GLAS_CSS = `
   .glas {
     background: ${GLAS.fast};
-    border: 1px solid ${GLAS.kant};
-    box-shadow: ${GLAS.skugga};
+    border: ${GLAS.kantBredd} solid ${GLAS.kant};
+    box-shadow: ${GLAS.hogdager}, ${GLAS.skugga};
+    text-shadow: ${GLAS.textSkugga};
+  }
+  ${GLAS_SEKUNDAR} {
+    color: ${GLAS.text2} !important;
   }
   @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
     body:not([data-glas="solid"]) .glas {

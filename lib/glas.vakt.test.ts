@@ -8,20 +8,34 @@ const las = (f: string) => fs.readFileSync(path.join(ROT, f), 'utf8');
 
 describe('GLAS — EN stil för kartans flytande kontroller (tokens)', () => {
   it('glas: mörk, halvgenomskinlig, tunn ljus kant (≈10 % vitt), mjuk skugga, blur', () => {
-    expect(GLAS.fyll).toMatch(/^rgba\(20,20,22,0\.(7\d|8\d)\)$/);
-    expect(GLAS.kant).toBe('rgba(255,255,255,0.10)');
+    expect(GLAS.fyll).toMatch(/^rgba\(40,40,44,0\.\d+\)$/);
+    expect(GLAS.kantBredd).toBe('0.5px');
+    expect(GLAS.kant).toBe('rgba(255,255,255,0.18)');
+    expect(GLAS.hogdager).toBe('inset 0 0.5px 0 rgba(255,255,255,0.35)');
     expect(GLAS.skugga).toMatch(/rgba\(0,0,0,0\.\d+\)/);
-    expect(GLAS.sudd).toMatch(/blur\(\d+px\)/);
+    expect(GLAS.sudd).toBe('blur(28px) saturate(180%)');
+    expect(GLAS.textSkugga).toBe('0 1px 2px rgba(0,0,0,0.35)');
+    expect(GLAS.text2).toBe('rgba(255,255,255,0.75)');
   });
   it('klassen: solid är grundvärdet, glas kommer först inom @supports och bara när body inte är solid', () => {
     const css = GLAS_CSS.replace(/\s+/g, ' ');
     const grund = css.slice(0, css.indexOf('@supports'));
     expect(grund).toContain(`background: ${GLAS.fast}`);
-    expect(grund).toContain(`border: 1px solid ${GLAS.kant}`);
-    expect(grund).toContain(`box-shadow: ${GLAS.skugga}`);
+    expect(grund).toContain(`border: ${GLAS.kantBredd} solid ${GLAS.kant}`);
+    expect(grund).toContain(`box-shadow: ${GLAS.hogdager}, ${GLAS.skugga}`);
+    expect(grund).toContain(`text-shadow: ${GLAS.textSkugga}`);
     expect(grund).not.toContain('backdrop-filter');
     expect(css).toMatch(/@supports \(\(-webkit-backdrop-filter: blur\(1px\)\) or \(backdrop-filter: blur\(1px\)\)\)/);
     expect(css).toContain('body:not([data-glas="solid"]) .glas');
+  });
+  it('sekundärtext i glaset är vitt 75 % (båda skrivsätten av FARG.text2 och det vita 65 %-värdet)', () => {
+    const css = GLAS_CSS.replace(/\s+/g, ' ');
+    for (const v of ['#8e8e93', 'rgb(142, 142, 147)', 'rgba(255,255,255,0.65)', 'rgba(255, 255, 255, 0.65)']) expect(css).toContain(`.glas [style*="${v}"]`);
+    expect(css).toMatch(/color: rgba\(255,255,255,0\.75\) !important/);
+  });
+  it('tätheten är inte lägre än den som mätts ge kontrast ≥ 4,5 (0,76 — mät om i PR-kontrollen innan den sänks)', () => {
+    const alfa = Number(GLAS.fyll.match(/,([\d.]+)\)$/)![1]);
+    expect(alfa).toBeGreaterThanOrEqual(0.76);
   });
   it('minska genomskinlighet ger solid med samma form, kant och skugga (bara bakgrund och blur byts)', () => {
     const css = GLAS_CSS.replace(/\s+/g, ' ');
