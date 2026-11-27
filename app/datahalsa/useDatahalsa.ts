@@ -421,11 +421,14 @@ export function useDatahalsa(): Datahalsa {
     // → objekt.lat/lng → objekt.larmkoordinat. Saknas alla tre kan km inte
     // beräknas och dagen blir tyst 0 i lönen.
     ;(async () => {
+      // ordercol måste vara UNIK i tabellen (stabil sidindelning). dim_objekt har
+      // ingen kolumn id — dess nyckel är objekt_id; en .order('id') där gav
+      // "column dim_objekt.id does not exist" och hela koordinatkontrollen föll.
       const sidor = async (tabell: string, kol: string, ordercol: string) => {
         const rows: any[] = []; let fran = 0
         while (true) {
           const { data, error } = await supabase.from(tabell).select(kol)
-            .order(ordercol, { ascending: true }).order('id').range(fran, fran + 999)
+            .order(ordercol, { ascending: true }).range(fran, fran + 999)
           if (error) return { rows: [] as any[], fel: error.message }
           rows.push(...(data || []))
           if (!data || data.length < 1000) break
@@ -438,11 +441,11 @@ export function useDatahalsa(): Datahalsa {
       const cutoff = franGolv(new Date(Date.now() - 60 * 86400_000).toISOString().slice(0, 10))
       const [dimR, objR, medR, arbR, aoR] = await Promise.all([
         sidor('dim_objekt', 'objekt_id, object_name, objektnr, latitude, longitude, kraver_koordinat', 'objekt_id'),
-        sidor('objekt', 'vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng', 'vo_nummer'),
+        sidor('objekt', 'vo_nummer, lat, lng, larmkoordinat_lat, larmkoordinat_lng', 'id'),
         supabase.from('medarbetare').select('id, namn'),
         supabase.from('arbetsdag').select('id, medarbetare_id, datum, objekt_id')
           .gte('datum', cutoff).order('datum', { ascending: false }),
-        sidor('arbetsdag_objekt', 'arbetsdag_id, objekt_id', 'arbetsdag_id'),
+        sidor('arbetsdag_objekt', 'arbetsdag_id, objekt_id', 'id'),
       ])
       if (avbruten) return
       const fel = dimR.fel || objR.fel || medR.error?.message || arbR.error?.message || aoR.fel || null
