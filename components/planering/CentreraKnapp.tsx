@@ -7,6 +7,7 @@ import React, { useRef } from 'react';
 import { skapaLangtryck } from '@/lib/langtryck';
 import { ZOOM_HALL_MS } from '@/lib/korvyZoom';
 import { AVSTAND, FARG, RADIE, TYP } from '@/lib/design/tokens';
+import GlasStil from '@/components/design/GlasStil';
 
 export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe-area-inset-bottom, 0px) + 76px)' }: {
   synlig: boolean;
@@ -29,6 +30,8 @@ export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe
       }
     : {};
   return (
+    <>
+    <GlasStil />
     <button
       type="button"
       data-testid="centrera-knapp"
@@ -37,7 +40,7 @@ export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe
       tabIndex={synlig ? 0 : -1}
       {...hall}
       onClick={() => { if (!synlig) return; if (onHall && lt.slukKlick()) return; onTryck(); }}
-      className="press-scale"
+      className="press-scale glas"
       style={{
         position: 'fixed',
         bottom,   // standard: rakt ovanför +-knappen
@@ -45,10 +48,6 @@ export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe
         width: '44px',
         height: '44px',
         borderRadius: '50%',
-        background: 'rgba(20,20,22,0.72)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.08)',
         color: '#fff',
         cursor: synlig ? 'pointer' : 'default',
         display: 'flex',
@@ -69,6 +68,7 @@ export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe
         <line x1="18" y1="12" x2="22" y2="12" />
       </svg>
     </button>
+    </>
   );
 }
 

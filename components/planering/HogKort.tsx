@@ -79,10 +79,10 @@ export function HogKort({ titel, under, grupper, decimaler = 1, val, smal, testi
         position: 'fixed', left: AVSTAND.s, right: smal ? AVSTAND.s : PLUS_ZON_PX, zIndex: 600, display: 'flex', justifyContent: 'center', pointerEvents: 'none',
         bottom: smal ? `calc(${PLUS_OVER_PX}px + env(safe-area-inset-bottom, 0px))` : medSafeBotten(AVSTAND.l + AVSTAND.xs),
       }}>
-      <div role="status"
+      <div role="status" className="glas"
         style={{
           pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.m, width: '100%', maxWidth: 560, boxSizing: 'border-box',
-          padding: AVSTAND.l, background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
+          padding: AVSTAND.l, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit',
         }}>
         <div>
           <div data-testid={`${testid}-titel`} style={{ ...TYP.titel }}>{titel}</div>

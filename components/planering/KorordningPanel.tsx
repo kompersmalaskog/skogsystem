@@ -47,8 +47,8 @@ export function KorordningPanel({ rader, forslag, smal, onKlar, onBorjaOm, onGod
       style={{ position: 'fixed', left: AVSTAND.s, right: smal ? AVSTAND.s : PLUS_ZON_PX, zIndex: 600, display: 'flex', justifyContent: 'center', pointerEvents: 'none',
         bottom: smal ? `calc(${PLUS_OVER_PX}px + env(safe-area-inset-bottom, 0px))` : medSafeBotten(AVSTAND.l + AVSTAND.xs) }}
     >
-      <div role="status" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, boxSizing: 'border-box', padding: AVSTAND.s,
-        background: FARG.kort, border: `1px solid ${FARG.linje}`, borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit' }}>
+      <div role="status" className="glas" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: AVSTAND.s, width: '100%', maxWidth: 560, boxSizing: 'border-box', padding: AVSTAND.s,
+        borderRadius: RADIE.sheet, color: FARG.text, fontFamily: 'inherit' }}>
         <div style={{ padding: `${AVSTAND.xs}px ${AVSTAND.s}px 0`, ...TYP.listtitel }}>
           {forslag ? `Förslag ur dina körriktningspilar · ${forslag.rader.length} ${forslag.rader.length === 1 ? 'väg' : 'vägar'}`
             : rader.length === 0 ? 'Körordning · tryck på vägarna i den ordning de ska köras'
