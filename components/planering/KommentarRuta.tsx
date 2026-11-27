@@ -18,7 +18,7 @@ import { arNumrerad, kommentarPunkter, vidaMeningar } from '@/lib/kommentarPunkt
  */
 export function ViktigtRad({ text, kompakt = false }: { text: string; kompakt?: boolean }) {
   return (
-    <div data-testid="viktigt-rad" role="note" style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, color: FARG.gul, overflowWrap: 'anywhere' }}>
+    <div data-testid="viktigt-rad" role="note" style={{ display: 'flex', alignItems: 'flex-start', gap: AVSTAND.s, color: FARG.orange, overflowWrap: 'anywhere' }}>
       <span className="material-symbols-outlined" aria-hidden style={{ fontSize: kompakt ? IKON.rad : IKON.rad + AVSTAND.xs, flexShrink: 0, marginTop: AVSTAND.xs / 2, fontVariationSettings: "'FILL' 1" }}>warning</span>
       <span data-testid="viktigt-text" style={{ ...(kompakt ? TYP.listtitel : TYP.rubrik), fontWeight: VIKT.fet }}>{text}</span>
     </div>

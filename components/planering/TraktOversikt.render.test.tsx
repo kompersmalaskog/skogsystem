@@ -241,7 +241,7 @@ describe('Hela trakten — Viktigt', () => {
   const viktig = (id: string, typ: string, namn: string, viktigt: string, text = '', slag: KartMarkering['slag'] = 'zon'): KartMarkering =>
     ({ ...mark(id, typ, namn, '', slag), kommentarer: [{ id: 'kk' + id, text, viktigt, forfattare: 'Martin · idag 08:00' }] });
 
-  it('en egen sektion "Viktigt" står direkt efter Fara och före "Gäller hela trakten"; gul rubrik, raden gul med ⚠, Övrigt under', async () => {
+  it('en egen sektion "Viktigt" står direkt efter Fara och före "Gäller hela trakten"; orange rubrik, raden orange med ⚠, Övrigt under', async () => {
     await montera(<TraktOversikt {...props({ faror: ['Kraftledning'], markeringar: [viktig('9', 'protected', 'Hänsynsyta', 'Kör inte över bäcken', 'Bron håller inte.')] })} />);
     const ordning = [...q('oversikt-innehall')!.children].map((e) => e.getAttribute('data-testid'));
     expect(ordning.indexOf('oversikt-viktigt')).toBeGreaterThan(ordning.indexOf('oversikt-faror'));
@@ -273,7 +273,7 @@ describe('Hela trakten — Viktigt', () => {
     expect(oppna).toHaveBeenCalledWith(expect.objectContaining({ id: '9' }));
   });
 
-  it('en fara med Viktigt står kvar under Fara (med Viktigt i gult överst på raden), inte i Viktigt-sektionen', async () => {
+  it('en fara med Viktigt står kvar under Fara (med Viktigt i orange överst på raden), inte i Viktigt-sektionen', async () => {
     const fara = viktig('7', 'powerline', 'El-ledning', 'Ledningen hänger lågt', '', 'symbol');
     await montera(<TraktOversikt {...props({ markeringar: [fara] })} />);
     expect(q('oversikt-viktigt')).toBeNull();

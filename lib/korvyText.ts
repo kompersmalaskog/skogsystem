@@ -1,10 +1,10 @@
 // Lugnare körvy — texten på kartan visas bara NÄRA maskinen (Martin 2026-11-23, Brokamåla 1:5: runt 100 saker, Stefan i Giant tycker att texten gör kartan rörig).
 //
 // Etiketter som "Hänsyn 3", områdesnummer och avläggsnummer visas bara inom TEXT_RADIE_M (100 m) från maskinen. Längre bort syns form och färg, inte text.
-// Faror, kultur och Viktigt-etiketter syns ALLTID (de är aldrig med i listan nedan eller har ett undantag):
+// Faror och kultur syns ALLTID (de är aldrig med i listan nedan eller har ett undantag):
 //   • faror: markers-korvy-label (namnet under symbolen) — filtrerar inte på avstånd längre
 //   • kultur: Vidas fornlämningsyta (trakt-raa-label) och egna kulturytor (zone-label, bara zoneType i KULTUR_ZONTYPER) — alltid
-//   • Viktigt: viktigt-etikett — inte med här
+//   (Viktigt är ingen etikett längre: en kommentar med Viktigt ger en orange pratbubbla, lib/kommentarTecken — ingen text på kartan.)
 // Bara etiketter. Symbolerna, linjer, ytor, traktgräns och bakgrund rörs inte. Körvyn bara (page.tsx kopplar in det när körvyn är igång; planeringsvyn orörd).
 //
 // Mekanik: lagrens ursprungliga filter (som kan vara ett fokus-filter) lindas in i ['all', original, ['any', undantag, ['within', cirkel]]] — cirkeln är 100 m
@@ -27,8 +27,8 @@ export const NARA_TEXTLAGER: ReadonlyArray<{ id: string; undantag?: any[] }> = [
 
 /** Etikettlagrens ID — för tester och källvakter. */
 export const NARA_TEXTLAGER_ID: readonly string[] = NARA_TEXTLAGER.map((l) => l.id);
-/** Lager med text som aldrig begränsas (faror, kultur, Viktigt) — källvakten kräver att de inte står i NARA_TEXTLAGER. */
-export const ALLTID_TEXTLAGER: readonly string[] = ['markers-korvy-label', 'trakt-raa-label', 'viktigt-etikett'];
+/** Lager med text som aldrig begränsas (faror, kultur) — källvakten kräver att de inte står i NARA_TEXTLAGER. */
+export const ALLTID_TEXTLAGER: readonly string[] = ['markers-korvy-label', 'trakt-raa-label'];
 
 /** Filtret för ett lager: originalet OCH (undantaget ELLER inom cirkeln). */
 export function naraFilter(original: any[] | null | undefined, cirkel: any, undantag?: any[]): any[] {
