@@ -231,8 +231,10 @@ export const FARG = {
 export const GLAS = {
   /** Glasets fyllning. Önskat 0,42 (kartan skimrar), men sekundärtexten (vitt 75 %) når då bara 2,0–5,1 mot flygfoto/hygge/åker/ljus karta. Trappat 0,42 → 0,48 → 0,55 → 0,62 → 0,70 → 0,75 → 0,76: först 0,76 ger ≥ 4,5 överallt (min 4,66, ljus karta). */
   fyll: "rgba(40,40,44,0.76)",
-  /** Ikonvariant: RENA ikonknappar (runda, utan text: hem, ⓘ, Centrera, +) tar klassen `glas-ikon` och får klarare glas — en vit ikon behöver bara 3:1, inte textens 4,5:1. Önskat 0,42 gav ikonen 2,7–2,8 mot ljus karta/hygge; 0,48 ger 3,18/3,23 (första steget ≥ 3). */
-  fyllIkon: "rgba(40,40,44,0.48)",
+  /** Ikonvariant: RENA ikonknappar (runda, utan text: hem, ⓘ, Centrera, +) tar klassen `glas-ikon`. Önskat 0,42 gav ikonen 2,7–2,8 mot ljus karta/hygge; 0,48 räckte för 3:1 men knappen syntes knappt mot flygfoto (Martin, Aramo) — därför 0,58: ikonen ≥ 3:1 mot skog, hygge och ljus karta och knappen syns som en egen yta. */
+  fyllIkon: "rgba(40,40,44,0.58)",
+  /** Svag skugga under ikonen (SVG:n inne i `glas-ikon`), som textskuggan. */
+  ikonSkugga: "drop-shadow(0 1px 2px rgba(0,0,0,0.35))",
   /** Solid variant: samma mörka ton, ingen genomskinlighet. */
   fast: FARG.kort,
   /** Tunn ljus kant (0,5 px, 18 % vitt). */
@@ -279,6 +281,9 @@ export const GLAS_CSS = `
     body:not([data-glas="solid"]) .glas.glas-ikon {
       background: ${GLAS.fyllIkon};
     }
+  }
+  .glas.glas-ikon svg {
+    filter: ${GLAS.ikonSkugga};
   }
   @media (prefers-reduced-transparency: reduce) {
     body .glas {

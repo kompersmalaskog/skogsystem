@@ -18,7 +18,9 @@ describe('GLAS — EN stil för kartans flytande kontroller (tokens)', () => {
     expect(GLAS.textSkugga).toBe('0 1px 2px rgba(0,0,0,0.35)');
     expect(GLAS.text2).toBe('rgba(255,255,255,0.75)');
     expect(GLAS.fyllIkon).toMatch(/^rgba\(40,40,44,0\.\d+\)$/);
-    expect(sattAlfa(GLAS.fyllIkon)).toBeGreaterThanOrEqual(0.48);
+    expect(sattAlfa(GLAS.fyllIkon)).toBeGreaterThanOrEqual(0.55);
+    expect(sattAlfa(GLAS.fyllIkon)).toBeLessThanOrEqual(0.6);
+    expect(GLAS.ikonSkugga).toBe('drop-shadow(0 1px 2px rgba(0,0,0,0.35))');
     expect(sattAlfa(GLAS.fyllIkon)).toBeLessThan(sattAlfa(GLAS.fyll));
   });
   it('klassen: solid är grundvärdet, glas kommer först inom @supports och bara när body inte är solid', () => {
@@ -44,6 +46,7 @@ describe('GLAS — EN stil för kartans flytande kontroller (tokens)', () => {
   it('ikonvariant: .glas.glas-ikon har klarare glas bara i glasläget (inte i grundvärdet och inte vid minska genomskinlighet)', () => {
     const css = GLAS_CSS.replace(/\s+/g, ' ');
     expect(css).toContain(`body:not([data-glas="solid"]) .glas.glas-ikon { background: ${GLAS.fyllIkon}; }`);
+    expect(css).toContain(`.glas.glas-ikon svg { filter: ${GLAS.ikonSkugga}; }`);
     expect(css.slice(0, css.indexOf('@supports'))).not.toContain('glas-ikon');
     expect(css.slice(css.indexOf('@media (prefers-reduced-transparency'))).not.toContain('glas-ikon');
   });
