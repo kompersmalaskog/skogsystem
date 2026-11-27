@@ -19,23 +19,27 @@ import {
   type KartMarkering, type MarkSlag,
 } from './egenkontrollRapportKarta';
 import { DIKE, LEGEND, STRECK_RANDAD } from './kartstil';
-import { BAND_BREDD_M, BAND_KANT_M, MITTLINJE_FARG, STRAK_FARG, UTE_FARG } from './sparStil';
+import { BAND_BREDD_M, BAND_KANT_M, ROLLFARG_SKOTARE, STRAK_FARG } from './sparStil';
 
 type PdfLib = typeof import('pdf-lib');
 
 /**
- * Minsta bandbredd (pt) som rymmer en vit mittlinje. Under den ritas ingen —
- * se skälet vid ritningen. Hör ihop med golvet 1,5 pt: mittlinjen ska aldrig
- * kunna äta den lila kärnan.
+ * Skotarens linje (pt) ovanpå stråket, och den mörka kanten under den.
+ *
+ * TUNN MED FÖRSTÄRKNING. Skotaren kör varje stickväg fem till tio gånger, och
+ * ritas hennes spår lika brett som skördarens blir det ett fält i stället för
+ * ett mönster — hela stickvägsbilden försvinner (uppmätt på Bondeskog: 37,8 km
+ * mot skördarens 6,8 på samma stråk). En tunn linje ovanpå det lila bandet
+ * säger var hon var utan att äta bilden.
+ *
+ * KANTEN ÄR INTE PYNT. Turkos mot vitt papper har kontrasten 1,72:1 — lila har
+ * 3,52:1, alltså dubbelt. I hytten ligger turkosen på mörkt flygfoto, här på
+ * ett vitt ark. Utan den mörka kanten (17:1) försvinner hennes linje överallt
+ * där den lämnar det lila bandet, och det är just de bitarna — körningen
+ * utanför stråket — som inköparen ska kunna se.
  */
-const MITTLINJE_MIN_KARNA_PT = 2.2;
-
-/**
- * Golv (pt) för skotarens VITA band. Bredare än det lilas (1,5) eftersom ett
- * vitt band på vitt papper bara syns genom sin kant, och kanten behöver plats.
- * Se skälet vid ritningen.
- */
-const UTE_GOLV_PT = 2.6;
+const SKOTARE_LINJE_PT = 0.9;
+const SKOTARE_KANT_PT = 0.45;
 
 /**
  * Finaste skala bandet ritas i: 4 m blir aldrig bredare än ~6,5 pt. Se skälet
@@ -47,16 +51,12 @@ export type KartLager = {
   granser: LatLng[][];
   stammar: LatLng[];
   /**
-   * Körspåren. `klar`/`ute` används bara med `appstil` och gör kartan till den
-   * som står i hytten (se `AppStil`): en bit av SKÖRDARENS stråk där skotaren
-   * kört (`klar`) får en vit mittlinje i det lila, och skotarens spår UTANFÖR
-   * stråket (`ute`) ritas som ett eget ljust band. Delningen görs av
-   * `lib/korsparKlart` (delaKlart/delaUtanfor) — samma funktioner som kartan
-   * i maskinen, inte en kopia.
+   * Körspåren. MED `appstil` ritas de i appens egna rollfärger: skördarens
+   * stråk som ett lila band i meter, skotarens körning som en tunn turkos
+   * linje ovanpå. Ingen delning behövs — var skotaren kört utanför stråket
+   * syns av att turkosen ligger utanför det lila.
    */
-  hyttspar?: (RapportModell['karta']['hyttspar'] extends (infer P)[] | undefined
-    ? P & { klar?: boolean; ute?: boolean }
-    : never)[];
+  hyttspar?: RapportModell['karta']['hyttspar'];
   markeringar?: KartMarkering[];
   /** Noteringarna (PR 9a): ord pa kartan. Linjer/punkter over planens vagar och hyttsparet, etiketterna overst. */
   noteringar?: KartNotering[];
@@ -239,15 +239,19 @@ export function ritaKarta(
   //    en fördel, för där skotaren kört många gånger lägger sig linjerna till
   //    ett tydligare band. Tätheten säger alltså hur mycket som körts där.
   //
-  //    MED `appstil` är det kartan i hytten, med dess TRE TILLSTÅND: skördarens
-  //    stråk som ett LILA band i meter (`STRAK_FARG` ur lib/sparStil), en VIT
-  //    MITTLINJE i det lila där skotaren kört i stråket (`klar`), och skotarens
-  //    körning UTANFÖR stråket som ett eget ljust band (`ute`, `UTE_FARG`).
-  //    Samma färger som skärmen i maskinen — ingen egen palett. Bandet ritas
-  //    ytterkanten först, kärnan ovanpå; där skotaren kört fram och tillbaka på
-  //    samma stickväg lägger sig banden över varandra till en stickväg, precis
-  //    som i hytten. På papper får det vita bandet en MÖRK kant: appens vita
-  //    syns mot en svart skärm, inte mot ett vitt ark.
+  //    MED `appstil` är det appens rollfärger: skördarens stråk som ett LILA
+  //    band i meter (`STRAK_FARG`), skotarens körning som en tunn TURKOS linje
+  //    ovanpå (`ROLLFARG_SKOTARE`). Bandet ritas ytterkanten först, kärnan
+  //    ovanpå; där skotaren kört fram och tillbaka på samma stickväg lägger
+  //    sig banden över varandra till en stickväg, precis som i hytten.
+  //
+  //    HYTTENS VITA MITTLINJE RITAS INTE (Martin 2026-11-27). Appens sätt att
+  //    visa skotaren inne i stråket är en vit strimma i det lila, och den
+  //    försvinner vid rapportens utzoomning — kärnan ligger på sitt golv och en
+  //    strimma på 30 % av den äter hela den lila kärnan. Appen gör samma sak
+  //    när man zoomar ut. Följden var att skotaren, som rapporten HANDLAR om,
+  //    bara syntes som ett par vita fläckar vid avlägget. Turkosen är hennes
+  //    färg i resten av appen, så det här är appens språk — inte en ny palett.
   //
   // Skalan KLAMPAS i båda ändar. Utan tak sväljer bandet en liten trakt:
   // uppmätt vid 110 dpi blev ett 4 m-band 8 px på en 267 m-trakt (bra), 24 px
@@ -257,9 +261,14 @@ export function ritaKarta(
   // blev som den blev. Taket är därför valt för LÄSBARHET, inte för trohet.
   const skala = Math.max(pr.meterPerPt, BAND_MIN_METER_PER_PT);
   const bandPt = (m: number, golv: number) => Math.max(golv, m / skala);
-  for (const h of l.hyttspar ?? []) {
-    const appVitt = opts.appstil && h.ute;
-    const farg = hex(lib, opts.appstil ? (h.ute ? UTE_FARG : STRAK_FARG) : HYTTSPAR_FARG[h.roll]);
+  // Skotaren ritas SIST av spåren, så hennes linje ligger ovanpå det lila
+  // bandet och inte under det.
+  const sparOrdning = [...(l.hyttspar ?? [])].sort(
+    (a, b) => Number(a.roll === 'skotare') - Number(b.roll === 'skotare'),
+  );
+  for (const h of sparOrdning) {
+    const appSkotare = !!opts.appstil && h.roll === 'skotare';
+    const farg = hex(lib, opts.appstil ? (appSkotare ? ROLLFARG_SKOTARE : STRAK_FARG) : HYTTSPAR_FARG[h.roll]);
     for (const linje of h.linjer) {
       if (linje.length < 2) continue;
       const d = bana(linje, false);
@@ -272,31 +281,15 @@ export function ritaKarta(
         // försvann. Höj dem inte utan att rendera en trakt där skotaren kört
         // överallt och titta.
         const kant = bandPt(BAND_KANT_M, 2.4), karna = bandPt(BAND_BREDD_M, 1.5);
-        if (appVitt) {
-          // VITT PÅ VITT PAPPER BÄRS AV KANTEN, och därför har det vita bandet
-          // ett EGET, bredare golv. Uppmätt på Skälviken vid 110 dpi: med
-          // samma golv som det lila (1,5 pt) och en kant på +0,8 pt blev hela
-          // skotarspåret 7 ritade pixlar — alltså osynligt. En trakt där
-          // skördaren saknar hyttspår (Edestad) hade då fått en tom karta fast
-          // vi kört 38 km. Kanten är smal men HELT mörk, inte en bred svag
-          // halo: med 2,4 pt / 55 % såg bitarna ut som grå smutsfläckar bredvid
-          // det lila.
-          const vitKarna = Math.max(UTE_GOLV_PT, karna);
-          sida.drawSvgPath(d, { ...SVG, borderColor: grå(55), borderWidth: vitKarna + 1.4, borderOpacity: 1, borderLineCap: lib.LineCapStyle.Round });
-          sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: vitKarna, borderOpacity: 1, borderLineCap: lib.LineCapStyle.Round });
+        if (appSkotare) {
+          // Den mörka kanten först, turkosen ovanpå. Kanten är smal men HELT
+          // mörk — en bred svag halo prövades på den vita varianten och lästes
+          // som en grå smutsfläck bredvid det lila.
+          sida.drawSvgPath(d, { ...SVG, borderColor: grå(25), borderWidth: SKOTARE_LINJE_PT + SKOTARE_KANT_PT * 2, borderOpacity: 1, borderLineCap: lib.LineCapStyle.Round });
+          sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: SKOTARE_LINJE_PT, borderOpacity: 1, borderLineCap: lib.LineCapStyle.Round });
         } else {
           sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: kant, borderOpacity: 0.45, borderLineCap: lib.LineCapStyle.Round });
           sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: karna, borderOpacity: 0.95, borderLineCap: lib.LineCapStyle.Round });
-          // Den vita mittlinjen: här har skotaren kört i skördarens stråk.
-          // Mittlinjen ritas BARA när bandet är brett nog att rymma den.
-          // Uppmätt på Bondeskog: utzoomad till avlägget ligger kärnan på sitt
-          // golv (1,5 pt), och en mittlinje på 30 % av den (0,45 pt) äter med
-          // antialiasingen hela den lila kärnan — stråket läses då som VITT
-          // med lila kontur, tvärtemot hytten. Appen gör samma sak: mittlinjen
-          // är meterbaserad och försvinner när man zoomar ut.
-          if (h.klar && karna >= MITTLINJE_MIN_KARNA_PT) {
-            sida.drawSvgPath(d, { ...SVG, borderColor: hex(lib, MITTLINJE_FARG), borderWidth: karna * 0.3, borderOpacity: 1, borderLineCap: lib.LineCapStyle.Round });
-          }
         }
       } else {
         sida.drawSvgPath(d, { ...SVG, borderColor: farg, borderWidth: 0.7, borderOpacity: 0.3, ...(h.roll === 'skotare' ? { borderDashArray: [3, 1.5] } : {}) });

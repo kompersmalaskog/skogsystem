@@ -108,6 +108,7 @@ export default function SkotningsrapportArk({ d, onStang }: { d: Trakt; onStang:
             // ritas, så tabellen mäter från det inköparen ser på kartan.
             virke: underlag.virke,
             avlagg: underlag.karta.avlagg.map(a => ({ ...a.plats, namn: a.namn })),
+            korde: underlag.korde,
             // Teckenförklaringen får bara nämna det som ritas — hänsynen och
             // marken kommer därför ur kartans egen läsning, inte ur en lista.
             kartinnehall: {

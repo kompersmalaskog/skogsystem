@@ -426,7 +426,7 @@ describe('PDF:en', () => {
   // det är i resten av appen". Kartan på rapporten och kartan i hytten ska
   // betyda samma sak — annars måste den som läser rapporten lära sig ett andra
   // språk. Mätt i den renderade PDF:ens egna pixlar, inte i koden.
-  it('KARTAN RITAS SOM I APPEN: snitselgräns i rött och gult, skördarens stråk lila, skotarens körning vit', async () => {
+  it('KARTAN RITAS SOM I APPEN: snitselgräns i rött och gult, skördarens stråk lila, skotarens körning turkos', async () => {
     const ruta = { x0: KART_KOL.x0, x1: KART_KOL.x1, y0: 0.28, y1: 0.52 };
     const pdf = await bygg(SKALVIKEN, KARTA);
     // Traktgränsen: BÅDA snitselfärgerna, inte en svart streckad linje.
@@ -445,6 +445,10 @@ describe('PDF:en', () => {
     const rakt = [[{ lat: lat0 - 0.0008, lng: lng0 }, { lat: lat0 - 0.0008, lng: lng0 + 0.0020 }]];
     const lilaF = (r: number, gg: number, b: number) => r > 140 && b > 190 && gg < 140;
     const lila = (b: Uint8Array) => ritat(b, ruta, 1, 250, lilaF).ritade;
+    // ROLLFARG_SKOTARE #64d2ff: blått och grönt högt, rött lågt — skilt från
+    // det lila (som har högt rött) och från den blå marken (som har lågt grönt).
+    const turkosF = (r: number, gg: number, b: number) => b > 200 && gg > 150 && r < 170;
+    const turkos = (b: Uint8Array) => ritat(b, ruta, 1, 250, turkosF).ritade;
     const mörk = (b: Uint8Array) => ritat(b, ruta, 1, 250, (r, gg, bb) => r < 110 && gg < 110 && bb < 110).ritade;
 
     const utan = await bygg(SKALVIKEN, { ...KARTA, korspar: [] });
@@ -457,22 +461,39 @@ describe('PDF:en', () => {
     expect(tjockast(medSkordare, 0.28, 0.52, lilaF)).toBeGreaterThan(2);
     expect(lila(medSkordare)).toBeGreaterThan(lila(utan) + 120);
 
-    // 2. SKOTAREN UTANFÖR stråket ritas som ett eget vitt band med mörk kant —
-    //    aldrig lila. (Utan skördarspår ligger hela skotarspåret utanför.)
-    //    Mätt som ALLT RITAT, inte som mörka pixlar: kanten är smal och dess
-    //    kantpixlar blandas ljusare än 110 vid 110 dpi. Med det lilas golv och
-    //    en kant på +0,8 pt gav hela spåret 7 ritade pixlar — osynligt, och en
-    //    trakt utan skördarhyttspår (Edestad) hade fått en tom karta. Nu 219.
+    // 2. SKOTAREN ritas TURKOS — hennes färg i resten av appen — och aldrig
+    //    lila. Hyttens vita band/mittlinje är borta (Martin 2026-11-27): den
+    //    vita strimman ritas aldrig vid rapportens utzoomning, så det enda som
+    //    syntes av skotaren var ett par fläckar vid avlägget — på en rapport
+    //    som HANDLAR om henne.
     const baraSkotare = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt });
-    const allt = (b: Uint8Array) => ritat(b, ruta, 1, 235).ritade;
+    expect(turkos(baraSkotare)).toBeGreaterThan(turkos(utan) + 60);
     expect(lila(baraSkotare)).toBeLessThan(lila(utan) + 20);
-    expect(allt(baraSkotare)).toBeGreaterThan(allt(utan) + 120);
+    //    TUNN: en linje, inte ett band. Skotaren kör varje stickväg fem till tio
+    //    gånger, och ett band lika brett som skördarens gör mönstret till ett
+    //    fält (Bondeskog: 37,8 km mot skördarens 6,8 på samma stråk).
+    expect(tjockast(baraSkotare, 0.28, 0.52, turkosF)).toBeLessThan(5);
 
-    // 3. SKOTAREN I stråket: den vita mittlinjen äter mitten av det lila bandet,
-    //    så samma stråk ger FÄRRE lila pixlar när skotaren följt det. Så ser
-    //    hytten ut — lila band med vit strimma. Mäts på en INZOOMAD trakt:
-    //    mittlinjen ritas bara när bandet är brett nog att rymma den, och på
-    //    Skälvikens karta (avlägget långt bort) ligger kärnan på sitt golv.
+    // 3. SKOTAREN LIGGER ÖVANPÅ STRÅKET. Ritas hon under bandet försvinner hon
+    //    helt där hon följt det — alltså nästan överallt (98 % på Bondeskog).
+    const bada = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt, skordarspar: rakt });
+    expect(turkos(bada)).toBeGreaterThan(turkos(baraSkotare) * 0.8);
+
+    // 3b. OCH BÅDA SYNS PÅ ETT RIKTIGT SPÅR. Mäts på fixturens egen körning med
+    //     skördarstråket som en glesare kopia — så ser det ut i verkligheten:
+    //     maskinerna följer samma stickvägar men går isär en meter här och där,
+    //     och då bär bilden båda färgerna. (På en syntetisk linje där de ligger
+    //     exakt på varandra vinner turkosen, och det är rätt: hon körde där.)
+    const riktigt = {
+      ...KARTA,
+      skordarspar: KARTA.korspar.map(l => l.filter((_, i) => i % 4 === 0)).filter(l => l.length > 1),
+    };
+    const parSpar = await bygg(SKALVIKEN, riktigt);
+    expect(turkos(parSpar)).toBeGreaterThan(300);
+    expect(lila(parSpar)).toBeGreaterThan(300);
+
+    // 3c. INZOOMAT — där den gamla mittlinjen faktiskt ritades — ska samma sak
+    //     gälla: turkos syns, bandet lever.
     const liten = (d: number) => [[{ lat: lat0, lng: lng0 }, { lat: lat0, lng: lng0 + d }, { lat: lat0 - d / 2, lng: lng0 + d }, { lat: lat0 - d / 2, lng: lng0 }, { lat: lat0, lng: lng0 }]];
     const litetSpar = (d: number) => [[{ lat: lat0 - d / 4, lng: lng0 + d * 0.1 }, { lat: lat0 - d / 4, lng: lng0 + d * 0.9 }]];
     const inzoomad = (d: number, extra: Partial<RapportKarta>) => bygg(SKALVIKEN, {
@@ -480,17 +501,9 @@ describe('PDF:en', () => {
     });
     const D = 0.0008;
     const bara = await inzoomad(D, { skordarspar: litetSpar(D) });
-    const bada = await inzoomad(D, { skordarspar: litetSpar(D), korspar: litetSpar(D) });
-    expect(lila(bada)).toBeLessThan(lila(bara) - 60);
-
-    // 3b. MEN UTZOOMAT RITAS INGEN MITTLINJE — appen gör likadant (den är
-    //     meterbaserad och försvinner när man zoomar ut). Uppmätt på Bondeskog:
-    //     med mittlinjen alltid på låg kärnan på sitt golv och den vita
-    //     strimman åt hela det lila — stråken läste som VITA med lila kontur,
-    //     och lila gick från 11 839 till 6 079 px. Samma stråk ska ge samma
-    //     mängd lila med och utan skotare när bandet är för smalt.
-    const badaUtzoomad = await bygg(SKALVIKEN, { ...KARTA, korspar: rakt, skordarspar: rakt });
-    expect(lila(badaUtzoomad)).toBeGreaterThan(lila(medSkordare) - 20);
+    const badaIn = await inzoomad(D, { skordarspar: litetSpar(D), korspar: litetSpar(D) });
+    expect(turkos(badaIn)).toBeGreaterThan(60);
+    expect(lila(badaIn)).toBeGreaterThan(lila(bara) * 0.7);
 
     // TAKET: bandet får inte svälja en liten trakt. Bredden räknas i meter, och
     // utan tak blev ett 4 m-band 24 px på en 89 m-trakt och 64 px på en 33 m —
@@ -569,4 +582,29 @@ describe('PDF:en', () => {
     // Bara ETT tal är märkt fakturerat.
     expect(t.match(/fakturerat/g)).toHaveLength(1);
   }, 30000);
+});
+
+// VAKT: hyttens vita mittlinje får inte komma tillbaka i tysthet.
+//
+// Den ritades aldrig vid rapportens utzoomning (kärnan ligger på sitt golv och
+// en strimma på 30 % av den äter hela den lila kärnan), så det enda som syntes
+// av skotaren var ett par vita fläckar vid avlägget — på en rapport som HANDLAR
+// om henne. Lägger någon tillbaka den utan att mäta är vi där igen, och ett
+// pixeltest på en karta där spåren går isär skulle inte nödvändigtvis fånga det.
+describe('ritaren', () => {
+  it('ritar ingen vit mittlinje och inget vitt skotarband', () => {
+    const kod = readFileSync('lib/egenkontrollRapportKartaPdf.ts', 'utf8');
+    const rader = kod.split('\n').filter(r => !r.trimStart().startsWith('//') && !r.trimStart().startsWith('*'));
+    for (const ord of ['MITTLINJE_FARG', 'UTE_FARG', 'UTE_GOLV_PT']) {
+      expect(rader.join('\n')).not.toContain(ord);
+    }
+  });
+
+  it('skotaren ritas i appens rollfärg, inte i en egen', () => {
+    const kod = readFileSync('lib/egenkontrollRapportKartaPdf.ts', 'utf8');
+    expect(kod).toContain('ROLLFARG_SKOTARE');
+    // Ingen hexfärg för skotaren: en egen nyans gör rapporten till ett annat
+    // språk än kartan i hytten.
+    expect(kod).not.toMatch(/#64d2ff/i);
+  });
 });

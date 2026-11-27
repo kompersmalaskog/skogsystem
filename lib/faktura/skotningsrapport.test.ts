@@ -251,6 +251,37 @@ describe('skotningen', () => {
     expect(r.map(x => x.etikett)).toEqual(['Lass']);
     expect(JSON.stringify(r)).not.toContain('0 m');
   });
+
+  // MASKINEN KÖRDE (2026-11-27). Lassens summa är enkel väg och säger inget om
+  // hur långt maskinen faktiskt körde. Talet bredvid gör det, och först då går
+  // kartans turkosa linje att läsa som en mängd.
+  const KORDE = { skotareM: 37836, skordareM: 6797, utanforM: 581 };
+
+  it('MASKINEN KÖRDE står som ett femte tal, sist', () => {
+    const r = skotningenRader({ ...SKALVIKEN, korde: KORDE });
+    expect(r.map(x => x.etikett)).toEqual([
+      'Lass', 'Kortaste lasset', 'Längsta lasset', 'Lassen tillsammans', 'Maskinen körde',
+    ]);
+    expect(txt(r[4].varde)).toBe('37,8 km');
+  });
+
+  it('raden under säger vad SKILLNADEN mellan de två talen är', () => {
+    // Utan talet bredvid måste raden säga både vad lassen är och att maskinen
+    // körde mer. Med det bredvid vore "Maskinen körde mer än så" samma sak två
+    // gånger — och Martins regel är att en sida inte säger samma sak två gånger.
+    const med = skotningenRader({ ...SKALVIKEN, korde: KORDE })
+      .find(x => x.etikett === 'Lassen tillsammans')!;
+    expect(med.under).toContain('Talet bredvid');
+    expect(med.under).not.toContain('Maskinen körde mer än så');
+
+    const utan = skotningenRader(SKALVIKEN).find(x => x.etikett === 'Lassen tillsammans')!;
+    expect(utan.under).toContain('Maskinen körde mer än så');
+  });
+
+  it('utan körspår sägs ingenting om körd sträcka — aldrig en nolla', () => {
+    const r = skotningenRader({ ...SKALVIKEN, korde: null });
+    expect(r.map(x => x.etikett)).not.toContain('Maskinen körde');
+  });
 });
 
 describe('var låg virket', () => {
@@ -309,6 +340,33 @@ describe('så är det mätt', () => {
     const s = saMattStycken(SKALVIKEN, false);
     expect(s.map(x => x.rubrik)).toEqual(['Körd väg', 'Täckning']);
     for (const x of s) expect(x.text).not.toContain('Var låg virket');
+  });
+
+  it('MASKINEN KÖRDE: vad talet omfattar och hur mycket som låg i stråket', () => {
+    const s = saMattStycken(
+      { ...SKALVIKEN, korde: { skotareM: 37836, skordareM: 6797, utanforM: 581 } }, true);
+    const m = s.find(x => x.rubrik === 'Maskinen körde')!;
+    expect(m.text).toContain('rådata');
+    // Vad som INTE är med är lika viktigt som vad som är det.
+    expect(m.text).toContain('resan hem räknas inte');
+    expect(m.text).toContain('37,8 km');
+    // Andelen i stråket är skälet att stråket är ritat: vägen var given.
+    expect(m.text).toContain('98 %');
+    expect(m.text).toContain('6,8 km');
+  });
+
+  it('utan skördarspår påstås ingen andel — vi vet inte var stråket går', () => {
+    const s = saMattStycken(
+      { ...SKALVIKEN, korde: { skotareM: 37836, skordareM: null, utanforM: null } }, true);
+    const m = s.find(x => x.rubrik === 'Maskinen körde')!;
+    expect(m.text).toContain('37,8 km');
+    expect(m.text).not.toContain('stråk');
+    expect(m.text).not.toContain('%');
+  });
+
+  it('utan körspår finns stycket inte alls', () => {
+    const s = saMattStycken({ ...SKALVIKEN, korde: null }, true);
+    expect(s.map(x => x.rubrik)).not.toContain('Maskinen körde');
   });
 
   it('... och hela rapporten utan avlägg nämner inte tabellen någonstans', () => {
@@ -392,13 +450,14 @@ describe('hela sidan', () => {
     // Traktgränsen är randig, körspåret ett band, avlägget en symbol.
     for (const form of ['randig', 'band', 'symbol']) expect(KARTA_FORKLARING).toContain(form);
     expect(KARTA_FORKLARING).toContain('Norr är uppåt');
-    // Och den säger FÄRGERNA som faktiskt ritas. Kartan är hyttens sedan
-    // 2026-11-26 (skördarens stråk lila, skotarens körning vit); stod det kvar
-    // "turkosa band" vore teckenförklaringen en lögn, och då litar ingen på
-    // resten av rapporten heller.
+    // Och den säger FÄRGERNA som faktiskt ritas: skördarens stråk lila,
+    // skotarens körning turkos (2026-11-27). Stod det kvar "i vitt" — hyttens
+    // mittlinje, som aldrig ritas vid den här utzoomningen — vore
+    // teckenförklaringen en lögn, och då litar ingen på resten av rapporten
+    // heller. Ritningen mäts i `skotningsrapportPdf.test.ts`.
     expect(KARTA_FORKLARING).toContain('lila');
-    expect(KARTA_FORKLARING).toContain('vitt');
-    expect(KARTA_FORKLARING).not.toContain('turkos');
+    expect(KARTA_FORKLARING).toContain('turkos');
+    expect(KARTA_FORKLARING).not.toContain('vitt');
   });
 });
 

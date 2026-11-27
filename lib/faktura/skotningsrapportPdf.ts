@@ -31,7 +31,6 @@
 import { sanera } from '@/lib/markagarrapport/pdf';
 import { breddUtanKerning, delaUpphojt, UPP_LYFT, UPP_SKALA } from '@/lib/upphojtPdf';
 import { ritaKarta, type KartLager } from '@/lib/egenkontrollRapportKartaPdf';
-import { delaKlart, delaUtanfor, type Koord, type LinjeFeature } from '@/lib/korsparKlart';
 import type { KartMarkering, MarkSlag } from '@/lib/egenkontrollRapportKarta';
 import type { SkotningsrapportSida, Rad, VirkeRad } from './skotningsrapport';
 
@@ -61,11 +60,11 @@ export type RapportKarta = {
    * SKÖRDARENS körspår, av samma skäl som i maskinen (Martin 2026-11-26: "kan du
    * inte göra dom samma som appen har när vi kör med maskinen").
    *
-   * I hytten är stråken LILA — skördarens — och skotaren syns som en vit
-   * mittlinje där den kört i stråket (`lib/korsparKlart` delaKlart/delaUtanfor).
-   * Utan skördarens spår går den bilden inte att rita, och då blir skotarens
-   * spår en ensam linje i en färg som inte betyder något i resten av appen.
-   * Tom lista: hela skotarens spår ritas som "utanför stråket".
+   * Stråken är LILA — skördarens — och visar att skotarens väg var given:
+   * hon kör där skördaren redan gått. Utan dem står hennes turkosa linje
+   * ensam, och kartan kan inte längre svara på varför vägen blev den vägen.
+   * Tom lista: bara skotarens linje ritas, vilket är sant — då vet vi inte
+   * var stråken går.
    */
   skordarspar?: { lat: number; lng: number }[][];
   /** Avläggen, numrerade som på kartan i appen. */
@@ -157,39 +156,26 @@ export function harKarta(k: RapportKarta): boolean {
 }
 
 /**
- * Körspåren i kartans TRE lägen, exakt som skärmen i maskinen (Martin
- * 2026-11-26: "kan du inte göra dom samma som appen har när vi kör med
- * maskinen"): skördarens stråk lila, en vit mittlinje där skotaren kört i
- * stråket, och skotarens spår utanför stråket som ett eget ljust band.
+ * Körspåren i appens rollfärger: skördarens stråk som ett lila band, skotarens
+ * körning som en tunn turkos linje ovanpå (ritningen i
+ * `egenkontrollRapportKartaPdf`).
  *
- * Delningen görs av `lib/korsparKlart` — SAMMA funktioner som kartan i hytten,
- * ingen kopia, så gränsen för "har kört här" (8 m) aldrig kan glida isär.
- * Utan skördarspår är hela skotarens spår "utanför", vilket är sant: då vet vi
- * inte var stråken går.
+ * INGEN DELNING (Martin 2026-11-27: "jag vill ju se vad skotaren kört").
+ * Rapporten ritade förut hyttens tre tillstånd och delade skördarens stråk med
+ * `delaKlart`/`delaUtanfor` för att få hyttens vita mittlinje. Mittlinjen
+ * ritas aldrig vid den här utzoomningen — så det enda som syntes av skotaren
+ * var de få bitar hon kört utanför stråket, och rapporten HANDLAR om henne.
+ * Hela hennes spår ritas nu i turkos; att en bit ligger utanför stråket syns
+ * av att turkosen ligger utanför det lila, utan att kartan behöver dela något.
  */
 function sparLager(k: RapportKarta): KartLager['hyttspar'] {
-  const tillKoord = (l: { lat: number; lng: number }[]): Koord[] => l.map(p => [p.lng, p.lat]);
-  const tillLatLng = (c: Koord[]) => c.map(([lng, lat]) => ({ lat, lng }));
-  const feature = (c: Koord[]): LinjeFeature =>
-    ({ type: 'Feature', geometry: { type: 'LineString', coordinates: c }, properties: {} });
-
-  const skotare = k.korspar.filter(l => l.length > 1).map(tillKoord);
-  const skordare = (k.skordarspar ?? []).filter(l => l.length > 1).map(tillKoord);
+  const skotare = k.korspar.filter(l => l.length > 1);
+  const skordare = (k.skordarspar ?? []).filter(l => l.length > 1);
   if (skotare.length === 0 && skordare.length === 0) return undefined;
 
   const ut: NonNullable<KartLager['hyttspar']> = [];
-  // Skördarens stråk, delat på var skotaren kört: bitarna med `klar` får den
-  // vita mittlinjen.
-  for (const f of delaKlart(skordare.map(feature), skotare)) {
-    ut.push({
-      roll: 'skordare', linjer: [tillLatLng(f.geometry.coordinates)],
-      klar: f.properties.klar === true,
-    });
-  }
-  // Skotaren UTANFÖR stråket: eget ljust band. Innanför syns den som mittlinjen.
-  for (const f of delaUtanfor(skotare.map(feature), skordare)) {
-    ut.push({ roll: 'skotare', linjer: [tillLatLng(f.geometry.coordinates)], ute: true });
-  }
+  if (skordare.length > 0) ut.push({ roll: 'skordare', linjer: skordare });
+  if (skotare.length > 0) ut.push({ roll: 'skotare', linjer: skotare });
   return ut.length > 0 ? ut : undefined;
 }
 

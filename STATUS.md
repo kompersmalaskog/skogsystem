@@ -62,6 +62,56 @@ Tester: `lib/faktura/{skotningsrapport,skotningsrapportPdf,lasSkotningsrapport}.
 mutationskontroll `node scripts/mutationskontroll-skotningsrapport.mjs` (14 av 14).
 Ångra: ta bort raden i `TraktKlient.tsx` — inget skrivs någonstans.
 
+## Skotningsrapporten: skotaren syns på kartan, och "Maskinen körde" — 2026-11-27
+**Martin:** "jag vill ju se vad skotaren kört" → "rita upp det först innan vi bygger tack" → **"kör på a2 den är bra tycker jag"**.
+
+**Felet:** rapporten ritade hyttens tre tillstånd (lila stråk, vit mittlinje där
+skotaren kört, vitt band utanför). Mittlinjen är meterbaserad och ritas bara när
+bandet är brett nog (`MITTLINJE_MIN_KARNA_PT` 2,2) — i rapportens utzoomade ram
+ligger kärnan ALLTID på sitt golv 1,5 pt, så mittlinjen ritades aldrig.
+Skotaren, som är rapportens hela ämne, syntes bara som några vita prickar vid
+avlägget. Hyttens språk fungerar i hytten; det överlever inte papperets zoom.
+
+**Fyra kartor ritades i rapportens riktiga storlek innan något byggdes** (Idag,
+A, A2, B — publicerade på designytan). Martin valde A2: skördarens stråk som
+lila band, skotaren som en tunn turkos linje ovanpå. **Båda färgerna är appens
+egna rollfärger** (`ROLLFARG_SKORDARE`/`ROLLFARG_SKOTARE`) — ingen ny palett.
+
+**Mätt tryckkontrast mot vitt:** turkos `#64d2ff` 1,72:1, lila `#bf5af2` 3,52:1,
+mörk kant 17,01:1. Turkosen ensam är för svag på papper, så linjen (0,9 pt) får
+en mörk kant (0,45 pt) under — **det är kanten som bär färgen; ta inte bort
+den.** Skördaren ritas först, skotaren ovanpå.
+
+**Nytt tal: "Maskinen körde 37,8 km"** (femte stat i SKOTNINGEN-raden, som är
+vågrät och därför kostar noll höjd) + stycket *Maskinen körde* under Så är det
+mätt. Det svarar på frågan "Lassen tillsammans 10,2 km" väckte: enkel väg lass
+för lass är inte vad maskinen körde.
+
+**Fällan som undveks — talet räknas på RÅDATA:** `korsparLinjer` jämnar ut
+spåret för kartans skull och kortar det till 69–85 % av rådatan. Ett tal räknat
+på den ritade linjen hade sagt att skotaren kört en femtedel kortare än hon
+gjorde, till en inköpare. `lib/faktura/kordStracka.ts` mäter på rå hyttspårs-
+punkter, klippta med SAMMA `klippSparMotTrakt` som bilden, och hoppar över steg
+över `KORSPAR.BRYT_M` (200 m). Låst av testet "LÅS: talet räknas på rådata".
+Andelen i stråket kommer ur `delaUtanfor` (8 m, samma funktion som hytten) och
+står bara när skördarspåret finns.
+
+**Facit Bondeskog AU 2026 (prod 2026-11-27):** skotare 37 836 m, skördare
+6 797 m, 581 m utanför stråket (98 % inne, och de ligger samlade vid avlägget).
+Sidan ryms fortfarande på ett A4: höger kolumn 736,5 → 772,6 pt mot fotlinjen
+779,9 (7,3 pt kvar), vänster orörd på 776,8.
+
+**Ingen migration. Bara appkod och text.**
+Tester: `lib/faktura/{kordStracka,skotningsrapport,skotningsrapportPdf}.test.ts`
+(1 240 gröna i `lib/faktura/`, `lib/egenkontroll`, `components/faktura/`).
+Ett källskydd i `skotningsrapportPdf.test.ts` hindrar att mittlinjen och det
+vita bandet smyger tillbaka in i rapportens ritare.
+**Ångra:** återställ `sparLager` till `delaKlart`/`delaUtanfor` och ta bort
+`korde` ur modellen — ingenting är skrivet någonstans.
+**Ej gjort:** de två "0 m³fub"-raderna i "Var låg virket?" och att raderna
+summerar till 578 medan Summa säger 579 — båda sedan tidigare, ingen har bett
+om dem.
+
 ## Skotningsavståndet: måttet avgjort av facit — 2026-11-25
 **Fråga Martin ställde:** "det ska avar så det stämmer" — alltså inte välja mellan mina tre förslag, utan hitta det mått som är SANT.
 **Beslutet, och varför:** tillägget betalar TRANSPORTEN mellan virket och avlägget. Priset räknas på `ytterst_m` (avståndet ut till virket, enkel väg), inte på halva cykeln. Halva cykeln bär också sortering vid avlägget (169–251 m per lass, på Mölleryd 39 % av cykeln) och plockningen mellan högarna — båda redan betalda i kubikpriset.

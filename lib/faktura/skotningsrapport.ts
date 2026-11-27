@@ -30,6 +30,7 @@
 
 import { langtDatum } from '@/lib/arbetsmiljo/dokument';
 import { MARK_STIL, markeringsStil, type MarkSlag } from '@/lib/egenkontrollRapportKarta';
+import type { KordStracka } from './kordStracka';
 import { SKAL_TEXT, type CykelSammanstallning } from './lassCykel';
 import { virkesfordelning, type Stam, type Virkesfordelning } from './virkesfordelning';
 
@@ -69,6 +70,11 @@ export type SkotningsrapportIndata = {
   virke?: Stam[];
   /** Avläggen, för att mäta virkets avstånd. */
   avlagg?: { lat: number; lng: number; namn?: string }[];
+  /**
+   * Hur långt maskinerna körde, mätt på RÅDATA ur hytten (`kordStracka`).
+   * null = inget körspår, och då sägs ingenting om körd sträcka.
+   */
+  korde?: KordStracka | null;
   /**
    * Vad kartan faktiskt bär — teckenförklaringen får bara nämna det som ritas.
    * `zoner` är zontyper (protected, wet, …), `mark` blött/brant-slagen.
@@ -333,9 +339,20 @@ export function skotningenRader(d: SkotningsrapportIndata): Rad[] {
     ut.push({
       etikett: 'Lassen tillsammans',
       varde: `${tal(summa / 1000, 1)} km`,
-      under: 'Enkel väg, lass för lass. Maskinen körde mer än så — tur och retur, plus arbetet vid avlägget.',
+      // Vilken rad som förklarar beror på om talet bredvid finns. Utan
+      // "Maskinen körde" måste den här raden säga BÅDE att lassen är enkel väg
+      // och att maskinen körde mer; med det talet bredvid säger den bara vad
+      // skillnaden mellan de två är — annars står samma sak två gånger.
+      under: d.korde
+        ? 'Enkel väg, lass för lass. Talet bredvid är hela körningen — tur och retur, plus arbetet vid avlägget.'
+        : 'Enkel väg, lass för lass. Maskinen körde mer än så — tur och retur, plus arbetet vid avlägget.',
     });
   }
+
+  // MASKINEN KÖRDE — hela körningen, mätt på rådata. Den står sist: lassens
+  // mått hör ihop, och det här är ett annat slags tal. Raden är vågrät, så ett
+  // femte tal kostar ingen höjd på sidan.
+  if (d.korde) ut.push({ etikett: 'Maskinen körde', varde: `${tal(d.korde.skotareM / 1000, 1)} km` });
 
   return ut;
 }
@@ -382,6 +399,22 @@ export function saMattStycken(
         + 'Den visar var virket låg — inte hur långt maskinen körde.',
     });
   }
+  // MASKINEN KÖRDE: vad talet omfattar, och hur mycket av det som låg i
+  // skördarens stråk. Andelen är poängen med att stråket är ritat — den säger
+  // att vägen var given. Står det ingen skördare i datan sägs ingen andel:
+  // utan stråk vet vi inte var det går, och då finns inget att vara innanför.
+  if (d.korde) {
+    const km = (m: number) => `${tal(m / 1000, 1)} km`;
+    const bitar = [
+      `GPS:en i hytten, rådata: ${km(d.korde.skotareM)} på trakten och vägen ut till avlägget — resan hem räknas inte.`,
+    ];
+    if (d.korde.skordareM != null && d.korde.utanforM != null && d.korde.skotareM > 0) {
+      const iStraket = Math.round(((d.korde.skotareM - d.korde.utanforM) / d.korde.skotareM) * 100);
+      bitar.push(`${iStraket} % av det låg i skördarens stråk. Skördaren körde ${km(d.korde.skordareM)}.`);
+    }
+    ut.push({ rubrik: 'Maskinen körde', text: bitar.join(' ') });
+  }
+
   const c = d.cykel;
   if (c) {
     const andel = d.volymM3fub > 0 ? Math.round((c.volymMedCykel / d.volymM3fub) * 100) : null;
@@ -408,16 +441,23 @@ export function periodText(p: { fran: string; till: string } | null): string | n
  * Grundraden: det som alltid finns på kartan.
  */
 /**
- * EN mening om vad man ser. Den säger "skotarens körning i vitt" utan att skilja
- * på skotarens eget band och den vita strimman i skördarens stråk — båda är
- * skotaren, och två meningar om samma sak gör kartan rörig (Martin 2026-11-26:
- * "inte för mycket text"). Den får ALDRIG nämna en färg eller en symbol kartan
- * inte ritar: står det "turkosa band" när stråken är lila är teckenförklaringen
- * en lögn, och då litar ingen på resten heller.
+ * EN mening om vad man ser. Den får ALDRIG nämna en färg eller en symbol kartan
+ * inte ritar: står det "skotarens körning i vitt" när hon ritas turkos är
+ * teckenförklaringen en lögn, och då litar ingen på resten heller.
+ *
+ * TURKOS, inte vitt (Martin 2026-11-27, efter att ha sett fyra kartor bredvid
+ * varandra). Appens sätt att visa skotaren inne i stråket — en vit mittlinje i
+ * det lila — ritas inte alls vid rapportens utzoomning: kärnan är smalare än
+ * gränsen i hytten, och en vit strimma hade ätit upp det lila (samma sak gör
+ * appen när man zoomar ut). Resultatet var att skotaren, som rapporten HANDLAR
+ * om, bara syntes som några vita fläckar vid avlägget. Turkos är hennes färg i
+ * hela appen (`ROLLFARG_SKOTARE`), så det här är inte en ny färg — det är
+ * appens färg i stället för hyttkartans specialfall.
  */
 export const KARTA_FORKLARING =
   'Traktgränsen randig röd och gul som snitseln i skogen, skördarens stråk som '
-  + 'lila band, skotarens körning i vitt och avlägget med sin symbol. Norr är uppåt.';
+  + 'lila band, skotarens körning som en tunn turkos linje och avlägget med sin '
+  + 'symbol. Norr är uppåt.';
 
 /**
  * Teckenförklaringen för DEN HÄR kartan: grundraden plus en mening om hänsynen

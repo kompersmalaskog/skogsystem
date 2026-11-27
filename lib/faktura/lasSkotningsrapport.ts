@@ -33,6 +33,7 @@ import { klassaTraktFeature } from '@/lib/traktGeometri';
 import { narTrakten, traktModell, type TraktModell } from '@/lib/traktNara';
 import type { KartMarkering } from '@/lib/egenkontrollRapportKarta';
 import { klippSparMotTrakt, type MarkSlag, type RapportKarta } from './skotningsrapportPdf';
+import { kordStracka, type KordStracka } from './kordStracka';
 import { rapportMark, type SparatMarkRutnat } from './rapportMark';
 import type { Stam } from './virkesfordelning';
 
@@ -56,6 +57,11 @@ export type RapportUnderlag = {
   dagar: number;
   /** Skotarnas visningsnamn, i bokstavsordning. */
   skotare: string[];
+  /**
+   * Hur långt maskinerna körde, mätt på RÅDATA (`kordStracka`) och klippt mot
+   * samma ram som kartan. null = inget skotarspår på trakten.
+   */
+  korde: KordStracka | null;
   /** Det som inte gick att läsa, i ord. Tom lista = allt gick. */
   fel: string[];
 };
@@ -249,16 +255,30 @@ export async function lasSkotningsrapport(
   // men det här är en bild.)
   let korspar: LatLng[][] = [];
   let skordarspar: LatLng[][] = [];
+  // RÅA punkter, sparade för sig: talet "Maskinen körde" räknas på dem.
+  // Utjämningen kortar linjen till 69–85 % av det maskinen verkligen körde, så
+  // ett tal räknat på ritningen hade varit för lågt — och det talet går till
+  // kund. Se `kordStracka`.
+  let raSkotare: LatLng[][] = [];
+  let raSkordare: LatLng[][] = [];
   if (sparSvar.error) fel.push('Körspåren kunde inte läsas.');
   else {
     const rader = (sparSvar.data ?? []) as { points?: unknown; roll?: unknown }[];
-    const linjer = (roll: string) => rader
-      .filter(r => r.roll === roll)
-      .flatMap(r => korsparLinjer(Array.isArray(r.points) ? (r.points as never) : []))
+    const punkter = (r: { points?: unknown }) => Array.isArray(r.points) ? (r.points as never[]) : [];
+    const forRoll = (roll: string) => rader.filter(r => r.roll === roll);
+    const linjer = (roll: string) => forRoll(roll)
+      .flatMap(r => korsparLinjer(punkter(r)))
       .map(l => l.map(([lng, lat]) => ({ lat, lng })))
+      .filter(l => l.length > 1);
+    const ra = (roll: string): LatLng[][] => forRoll(roll)
+      .map(r => punkter(r)
+        .filter((p: { lat?: unknown; lng?: unknown }) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng))
+        .map((p: { lat: number; lng: number }) => ({ lat: p.lat, lng: p.lng })))
       .filter(l => l.length > 1);
     korspar = linjer('skotare');
     skordarspar = linjer('skordare');
+    raSkotare = ra('skotare');
+    raSkordare = ra('skordare');
   }
 
   // Planerarens zoner. De ligger i x/y mot ett origo, och origot avgörs med
@@ -358,5 +378,14 @@ export async function lasSkotningsrapport(
   // Spåret klipps mot trakten SIST, när gränsen, stammarna och avläggen är
   // lästa — hemresan hör inte till jobbet och drar annars ut kartans ram.
   const karta = klippSparMotTrakt({ granser, stammar, korspar, skordarspar, avlagg, markeringar, mark });
-  return { karta, virke, period, dagar, skotare, fel };
+
+  // Talet klipps mot SAMMA ram, med samma funktion: annars kan bilden visa en
+  // sträcka och talet en annan. Här är det råpunkterna som går igenom.
+  const raKlippt = klippSparMotTrakt({
+    granser, stammar, avlagg, markeringar: [], mark: [],
+    korspar: raSkotare, skordarspar: raSkordare,
+  });
+  const korde = kordStracka(raKlippt.korspar, raKlippt.skordarspar ?? []);
+
+  return { karta, virke, period, dagar, skotare, korde, fel };
 }
