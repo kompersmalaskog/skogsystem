@@ -235,14 +235,14 @@ describe("flush — urvalet: ledighetsrader med skickas_at 'infinity' tas, övri
     expect(await kor()).toMatchObject({ totalt: 1, skickade: 1 });
   });
 
-  it("andra typer påverkas inte: förfallen rad skickas, rad som inte förfallit (framtid) eller 'infinity' skickas INTE", async () => {
+  it("andra typer påverkas inte: förfallen rad tas (en okänd typ hoppas över), rad som inte förfallit (framtid) eller 'infinity' skickas INTE", async () => {
     const annan = (id: string, skickas: string) =>
       h.state.notis_kö.push({ id, typ: "annan_typ", mottagare_id: MARTIN, payload: { x: 1 }, skickas_at: skickas, skapad_at: fore(MIN), skickad_at: null, fel_meddelande: null, datum: null });
-    annan("f1", fore(MIN));                                  // förfallen → skickas som förut (generisk fallback)
+    annan("f1", fore(MIN));                                  // förfallen → tas av urvalet (men en okänd typ skickas aldrig, se okandTyp.route.test.ts)
     annan("f2", new Date(Date.now() + TIM).toISOString());   // framtid → ligger kvar
     annan("f3", "infinity");                                 // 'infinity' på en annan typ → ligger kvar (bara ledighet tas oavsett tid)
     const res = await kor();
-    expect(res).toMatchObject({ totalt: 1, skickade: 1 });
+    expect(res).toMatchObject({ totalt: 1, skickade: 0, skippade: 1 });
     expect(koRad("f1").skickad_at).toBeTruthy();
     expect(koRad("f2").skickad_at).toBeNull();
     expect(koRad("f3").skickad_at).toBeNull();

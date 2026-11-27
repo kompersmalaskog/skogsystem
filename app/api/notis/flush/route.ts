@@ -290,6 +290,17 @@ async function flush() {
         ledighetMeddelande = u.meddelande;
       }
 
+      // Bygg titel/body baserat på typ — FÄRSKT vid utskick. En typ som den här koden inte känner till skickas ALDRIG:
+      // förut gick den ut som "Notis" med rå JSON och länken /admin (en notistyp köad innan koden för den var släppt).
+      // Raden markeras hanterad med orsaken, så den varken skickas senare eller fastnar i kön.
+      const meddelande = ledighetMeddelande ?? await byggMeddelande(n);
+      if (!meddelande) {
+        console.warn(`[notis/flush] okänd notistyp "${n.typ}" (rad ${n.id}) – inte skickad`);
+        await supabase.from("notis_kö").update({ skickad_at: new Date().toISOString(), fel_meddelande: okandTypOrsak(n.typ) }).eq("id", n.id);
+        skippade++;
+        continue;
+      }
+
       // Prenumerationer ur push_subscriptions-TABELLEN (alla enheter) — inte
       // den döda kolumnen medarbetare.push_subscription som aldrig fylls.
       // Samma 410/404-städning som /api/notify.
@@ -310,9 +321,6 @@ async function flush() {
         fel++;
         continue;
       }
-
-      // Bygg titel/body baserat på typ — FÄRSKT vid utskick
-      const meddelande = ledighetMeddelande ?? await byggMeddelande(n);
 
       let sänt = 0;
       const döda: string[] = [];
@@ -557,7 +565,13 @@ const hamtaEjSett: HamtaEjSett = async (besokId, maskinId) => {
 
 const MANADER = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
 
-export async function byggMeddelande(n: any): Promise<{ title: string; body: string; url: string; tag?: string }> {
+/** Texten på kön när en notistyp inte känns igen. */
+export function okandTypOrsak(typ: unknown): string {
+  return `Ej skickad — okänd notistyp "${String(typ ?? "")}"`;
+}
+
+/** null = typen känns inte igen och ska inte skickas. */
+export async function byggMeddelande(n: any): Promise<{ title: string; body: string; url: string; tag?: string } | null> {
   if (n.typ === "dagsslut" && n.datum) {
     // FÄRSK dagstotal vid utskick: maskintid + extra tid (samma formel som
     // #188) — inte det som stod när notisen köades. Kumulativa MOM-filer
@@ -656,10 +670,6 @@ export async function byggMeddelande(n: any): Promise<{ title: string; body: str
     return paminnelseMeddelande(n.payload, idagStockholm());
   }
 
-  // Generisk fallback
-  return {
-    title: "Notis",
-    body: JSON.stringify(n.payload || {}).slice(0, 200),
-    url: "/admin",
-  };
+  // Okänd typ: ingen generisk "Notis" med rå JSON — anroparen markerar raden och skickar inget.
+  return null;
 }
