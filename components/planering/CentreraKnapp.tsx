@@ -40,7 +40,7 @@ export function CentreraKnapp({ synlig, onTryck, onHall, bottom = 'calc(env(safe
       tabIndex={synlig ? 0 : -1}
       {...hall}
       onClick={() => { if (!synlig) return; if (onHall && lt.slukKlick()) return; onTryck(); }}
-      className="press-scale glas"
+      className="press-scale glas glas-ikon"
       style={{
         position: 'fixed',
         bottom,   // standard: rakt ovanför +-knappen
